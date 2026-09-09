@@ -195,6 +195,159 @@ class StopRequest(BaseModel):
     session_id: str
 
 
+# ---------------------------------------------------------------------------
+# Skills 观测台：只读聚合 .bear/skill-evolution/ 审计产物，不重写核心逻辑
+# ---------------------------------------------------------------------------
+
+EVOLUTION_DIR = ROOT / ".bear" / "skill-evolution"
+ONLINE_EVAL_DIR = EVOLUTION_DIR / "online-eval"
+
+# 六门槛中文名（顺序：证据量三项 + 质量三项）
+GATE_META = [
+    ("replay", "回放样本", "count", "min_replay_samples"),
+    ("promotion", "晋级集样本", "count", "min_promotion_tests"),
+    ("retrieved", "检索判断", "count", "min_retrieved"),
+    ("used_rate", "使用率", "rate", "min_used_rate"),
+    ("relevance_rate", "相关率", "rate", "min_relevance_rate"),
+    ("rule_pass", "规则通过率", "rate", "min_rule_pass_rate"),
+]
+
+
+def _read_json_file(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _read_jsonl_file(path: Path) -> list[dict]:
+    rows: list[dict] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    pass
+    except Exception:  # noqa: BLE001
+        pass
+    return rows
+
+
+@app.get("/api/skills")
+async def skills_overview():
+    report = _read_json_file(EVOLUTION_DIR / "online_eval_report.json") or {}
+    usage_stats = _read_json_file(EVOLUTION_DIR / "skill_usage_stats.json") or {}
+    champions = (_read_json_file(ONLINE_EVAL_DIR / "champions.json") or {}).get("champions", {})
+    events = _read_jsonl_file(EVOLUTION_DIR / "usage.jsonl")
+
+    thresholds = report.get("thresholds") or {
+        "min_replay_samples": 2, "min_promotion_tests": 1, "min_retrieved": 5,
+        "min_used_rate": 0.2, "min_relevance_rate": 0.35, "min_rule_pass_rate": 0.8,
+    }
+
+    skills_out: list[dict] = []
+    for item in report.get("skills", []):
+        name = str(item.get("skill") or "")
+        usage = usage_stats.get(name, {}) if isinstance(usage_stats, dict) else {}
+        replay = item.get("replay") or {}
+        ev = item.get("eval") or {}
+        current = {
+            "replay": int(replay.get("count", 0) or 0),
+            "promotion": int(replay.get("promotion_test", 0) or 0),
+            "retrieved": int(item.get("retrieved", 0) or 0),
+            "used_rate": float(item.get("used_rate", 0.0) or 0.0),
+            "relevance_rate": float(item.get("relevance_rate", 0.0) or 0.0),
+            "rule_pass": float(ev.get("pass_rate", 0.0) or 0.0),
+        }
+        gates = []
+        for key, label, kind, threshold_key in GATE_META:
+            required = thresholds.get(threshold_key, 0)
+            gates.append({
+                "key": key, "label": label, "kind": kind,
+                "current": current[key], "required": required,
+                "ok": current[key] >= float(required),
+            })
+        # 检索权重（与核心运行时约定一致：healthy ×1.25 / watch ×0.75，孵化期不动）
+        status = str(item.get("status") or "")
+        weight = 1.0
+        if status == "healthy":
+            weight = 1.25
+        elif status == "watch":
+            weight = 0.75
+        skills_out.append({
+            "skill": name,
+            "status": status,
+            "reasons": item.get("reasons", []),
+            "lineage_id": item.get("lineage_id", ""),
+            "current_version": item.get("current_version", ""),
+            "source": usage.get("source", ""),
+            "last_action": item.get("last_action", ""),
+            "last_time": item.get("last_time", ""),
+            "counts": {
+                "retrieved": int(item.get("retrieved", 0) or 0),
+                "relevant": int(item.get("relevant", 0) or 0),
+                "used": int(item.get("used", 0) or 0),
+                "created": int(item.get("created", 0) or 0),
+                "evolutions": int(item.get("evolutions", 0) or 0),
+                "invocations": int(item.get("invocations", 0) or 0),
+                "feedback": int(item.get("feedback", 0) or 0),
+            },
+            "rates": {
+                "used_rate": current["used_rate"],
+                "relevance_rate": current["relevance_rate"],
+                "used_when_relevant_rate": float(item.get("used_when_relevant_rate", 0.0) or 0.0),
+            },
+            "replay": {
+                "count": current["replay"],
+                "mutate_dev": int(replay.get("mutate_dev", 0) or 0),
+                "promotion_test": current["promotion"],
+                "sources": replay.get("sources", []),
+            },
+            "eval": {
+                "total_score": float(ev.get("total_score", 0.0) or 0.0),
+                "average_score": float(ev.get("average_score", 0.0) or 0.0),
+                "pass_rate": current["rule_pass"],
+                "hard_failures": int(ev.get("hard_failures", 0) or 0),
+                "promotion_test_pass_rate": float(ev.get("promotion_test_pass_rate", 0.0) or 0.0),
+                "by_rule": ev.get("by_rule", []),
+            },
+            "candidate_eval": {
+                "candidate_count": int((item.get("candidate_eval") or {}).get("candidate_count", 0) or 0),
+                "best_candidate": (item.get("candidate_eval") or {}).get("best_candidate", {}),
+                "has_promotion_test_eval": bool((item.get("candidate_eval") or {}).get("has_promotion_test_eval")),
+            },
+            "gates": gates,
+            "retrieval_weight": weight,
+            "champion": champions.get(str(item.get("lineage_id") or "")),
+            "last_reason": usage.get("last_reason", ""),
+            "last_score": float(usage.get("last_score", 0.0) or 0.0),
+        })
+
+    events_out = [
+        {
+            "skill": str(e.get("skill") or ""),
+            "event": str(e.get("event") or ""),
+            "time": str(e.get("time") or ""),
+            "context": str(e.get("context") or ""),
+            "source": str(e.get("source") or ""),
+            "args_preview": str(e.get("args_preview") or "")[:120],
+        }
+        for e in events[-200:]
+    ][::-1]
+
+    return {
+        "generated_at": report.get("generated_at", ""),
+        "thresholds": thresholds,
+        "aggregate": report.get("aggregate", {}),
+        "skills": skills_out,
+        "events": events_out,
+        "champion_count": len(champions) if isinstance(champions, dict) else 0,
+        "has_report": bool(report),
+    }
+
+
 @app.get("/api/health")
 async def health():
     return {
