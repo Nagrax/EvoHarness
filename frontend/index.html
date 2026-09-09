@@ -258,7 +258,7 @@ body[data-view="chat"] #skillsView{display:none!important}
 .sk-tip b{color:var(--txt-2);font-weight:500}
 </style>
 </head>
-<body>
+<body data-view="chat">
 <div class="app">
 
   <aside class="side">
@@ -484,11 +484,27 @@ function newSession(){
   $('#chatTitle').textContent='新会话';
   setBusy(false);renderSessions();
 }
-function openSession(id){
-  state.sid=id;$('#chatIn').innerHTML='';$('#hero').style.display='flex';$('#chat').style.display='none';
+async function openSession(id){
+  state.sid=id;$('#chatIn').innerHTML='';
   const s=state.sessions.find(x=>x.id===id);$('#chatTitle').textContent=s?s.title:'会话';
   setBusy(false);renderSessions();
-  addNotice('info','提示','会话上下文保留在服务端运行时里，直接继续对话');
+  try{
+    const r=await fetch('/api/history?session_id='+encodeURIComponent(id));
+    const j=await r.json();
+    if(j.messages&&j.messages.length){
+      showChat();
+      for(const m of j.messages){
+        if(m.role==='user'){addUser(m.text)}
+        else{
+          const el=addAssistant();
+          el.querySelector('.md').innerHTML=md(m.text);
+        }
+      }
+      scrollBottom(true);
+      return;
+    }
+  }catch{/* 服务端无此会话时走空状态 */}
+  $('#hero').style.display='flex';$('#chat').style.display='none';
 }
 $('#newChat').onclick=newSession;
 $('#modeRow').addEventListener('click',e=>{
@@ -813,7 +829,7 @@ addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer()});
   }catch{$('#srvModel').textContent='离线'}
 })();
 newSession();
-if(location.hash==='#/skills')setView('skills');
+setView(location.hash==='#/skills'?'skills':'chat');
 </script>
 </body>
 </html>

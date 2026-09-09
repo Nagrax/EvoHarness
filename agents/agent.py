@@ -1756,6 +1756,12 @@ class Agent:
             await self._check_and_compact()
 
     async def _call_openai_stream(self) -> dict:
+        # 部分第三方 OpenAI-compatible 网关的流式实现有缺陷（content 双发、
+        # reasoning 泄漏进 content、usage chunk 序列化报错）。设置 NO_STREAM=1
+        # 可回退为非流式请求：一次拿到完整回复，输出体验从打字机变为整段显示。
+        if os.environ.get("NO_STREAM") == "1":
+            return await self._call_openai_nostream()
+
         async def _do():
             stream = await self._openai_client.chat.completions.create(
                 model=self.model,
@@ -1783,12 +1789,13 @@ class Agent:
                 delta = chunk.choices[0].delta
 
                 if delta and delta.content:
+                    text = _safe_utf8_text(delta.content)
                     if first_text:
                         stop_spinner()
                         self._emit_text("\n")
                         first_text = False
-                    self._emit_text(delta.content)
-                    content += _safe_utf8_text(delta.content)
+                    self._emit_text(text)
+                    content += text
 
                 if delta and delta.tool_calls:
                     for tc in delta.tool_calls:
@@ -1825,6 +1832,53 @@ class Agent:
                 "usage": usage or {"prompt_tokens": 0, "completion_tokens": 0},
             }
 
+        return await _with_retry(_do)
+
+    async def _call_openai_nostream(self) -> dict:
+        """非流式请求。返回与流式路径相同的 dict 结构。"""
+        async def _do():
+            response = await self._openai_client.chat.completions.create(
+                model=self.model,
+                tools=_sanitize_for_utf8(_to_openai_tools(get_active_tool_definitions(self.tools))),
+                messages=_sanitize_for_utf8(self._openai_messages),
+            )
+            usage = getattr(response, "usage", None)
+            message = response.choices[0].message if response.choices else None
+            if message is None:
+                return {"choices": [{"message": {}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
+            content = _safe_utf8_text(message.content or "")
+            if content:
+                stop_spinner()
+                self._emit_text("\n")
+                self._emit_text(content)
+            tool_calls = None
+            if message.tool_calls:
+                tool_calls = [
+                    {
+                        "id": _safe_utf8_text(tc.id or ""),
+                        "type": "function",
+                        "function": {
+                            "name": _safe_utf8_text(tc.function.name or ""),
+                            "arguments": _safe_utf8_text(tc.function.arguments or ""),
+                        },
+                    }
+                    for tc in message.tool_calls
+                ]
+            return {
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": content or None,
+                        "tool_calls": tool_calls,
+                    },
+                    "finish_reason": response.choices[0].finish_reason or "stop",
+                }],
+                "usage": {
+                    "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+                },
+            }
         return await _with_retry(_do)
 
     async def _confirm_dangerous(self, command: str) -> bool:

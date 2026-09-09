@@ -235,6 +235,42 @@ def _read_jsonl_file(path: Path) -> list[dict]:
     return rows
 
 
+@app.get("/api/history")
+async def history(session_id: str):
+    """返回服务端 Agent 内存中的会话历史（仅用户输入与助手最终文本）。"""
+    agent = AGENTS.get(session_id)
+    if not agent:
+        return {"messages": []}
+    out: list[dict] = []
+    if agent.use_openai:
+        for m in agent._openai_messages:
+            role = m.get("role")
+            content = m.get("content")
+            # 只保留真实对话：系统提示、tool 调用/结果、注入内容都不展示
+            if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                # 剥离检索注入的 skills 上下文块（非用户真实输入）
+                text = content.split("<retrieved_skills>")[0].rstrip()
+                if text.strip():
+                    out.append({"role": role, "text": text[:20000]})
+    else:
+        for m in agent._anthropic_messages:
+            role = m.get("role")
+            content = m.get("content")
+            if role == "user" and isinstance(content, str) and content.strip():
+                text = content.split("<retrieved_skills>")[0].rstrip()
+                if text.strip():
+                    out.append({"role": "user", "text": text[:20000]})
+            elif role == "assistant" and isinstance(content, list):
+                text = "".join(
+                    str(b.get("text") or "")
+                    for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ).strip()
+                if text:
+                    out.append({"role": "assistant", "text": text[:20000]})
+    return {"messages": out}
+
+
 @app.get("/api/skills")
 async def skills_overview():
     report = _read_json_file(EVOLUTION_DIR / "online_eval_report.json") or {}
@@ -409,7 +445,12 @@ async def chat(req: ChatRequest):
                 })
         finally:
             RUNNING[session_id] = False
-            _current_queue.reset(token)
+            try:
+                _current_queue.reset(token)
+            except ValueError:
+                # agent.chat 的后台任务可能切换了 asyncio Context，导致 token
+                # 无法在当前 Context 中 reset；直接清空当前值即可。
+                _current_queue.set(None)
             while not queue.empty():
                 yield _sse(queue.get_nowait())
             yield _sse({"type": "end"})
