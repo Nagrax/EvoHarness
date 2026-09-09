@@ -160,15 +160,47 @@ Skills 自进化默认开启（`EVOHARNESS_AUTO_SKILL_EVOLUTION=1`），后台�
 
 ## Docker
 
+镜像默认启动 **Web 服务**（容器即网站）：
+
 ```bash
 docker build -t evoharness .
 
+docker run --rm -p 7860:7860 \
+  --env-file .env \
+  evoharness
+# 打开 http://localhost:7860
+```
+
+CLI 形态覆盖 entrypoint 即可：
+
+```bash
 docker run --rm -it \
   --env-file .env \
   -v "$PWD:/workspace" \
   -v evoharness-data:/root/.evoharness \
-  evoharness
+  --entrypoint python evoharness -m agents.main
 ```
+
+## 在线部署（HuggingFace Spaces）
+
+仓库已适配 Docker Space 部署，可免费获得一个公网可访问的对话 demo：
+
+1. [huggingface.co](https://huggingface.co) 注册后 → New Space → SDK 选 **Docker** → **Blank** 模板
+2. Space 设置里连接本 GitHub 仓库（或手动上传代码）
+3. 在 Space 的 **Settings → Variables and secrets** 添加：
+   - `APIKEY` = 你的模型 API key（secret，不会公开）
+   - `API` = 模型 base URL
+   - `MODEL` = 模型名
+4. 构建完成即可通过 `https://<用户名>-evoharness.hf.space` 访问
+
+> [!WARNING]
+> 公开部署即任何人都能与 Agent 对话并消耗你的模型额度。演示用途建议：
+> 用低费率模型、在 `.env` 配置 `MAX_COST`/`MAX_TURNS` 类限制、不用时把 Space 设为
+> sleep。Agent 的文件与 Shell 操作都在临时容器内执行，重启即清空，不会触碰你的本机。
+
+> [!NOTE]
+> 纯静态托管（GitHub Pages / Cloudflare Pages）只能展示界面截图，无法运行后端，
+> 因此在线体验需要 Docker 类平台（HuggingFace Spaces / Render / Railway 均可）。
 
 ## 目录结构
 

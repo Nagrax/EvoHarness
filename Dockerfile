@@ -36,6 +36,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY agents ./agents
+COPY server ./server
+COPY frontend ./frontend
 COPY README.md .
 
 RUN mkdir -p /workspace
@@ -43,4 +45,9 @@ COPY .mcp.json /workspace/.mcp.json
 
 WORKDIR /workspace
 
-ENTRYPOINT ["python", "-m", "agents.main"]
+ENV HOST=0.0.0.0
+EXPOSE 7860
+
+# 默认启动 Web 服务（部署形态）；CLI 形态：
+#   docker run -it --entrypoint python <image> -m agents.main
+ENTRYPOINT ["python", "-m", "server.app"]

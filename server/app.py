@@ -474,4 +474,11 @@ async def index():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("server.app:app", host="127.0.0.1", port=8800, reload=False)
+    # 部署平台（HuggingFace Spaces 等）通过 PORT 注入端口，默认 7860；
+    # 本地默认 8800。绑定 0.0.0.0 以便容器外访问。
+    uvicorn.run(
+        "server.app:app",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "8800")),
+        reload=False,
+    )
