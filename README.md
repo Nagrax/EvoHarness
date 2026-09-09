@@ -64,6 +64,24 @@ Web 前端通过 SSE 实时展示推理文本、工具调用时间线、token �
 
 **闭环联动**（2026-09 新增）：状态机已接回运行时——评测物化状态表，检索按认证状态加权（healthy ×1.25 / watch ×0.75，孵化期不降权防饿死）；孵化期 Skill 注入打 provisional 标注并禁 fork；沉淀 14 天零检索自动归档；矛盾偏好走 revise 整体替换而非 merge 出自相矛盾的指令；`when_to_use` 触发变体经历史 query 检索重放验证（零模型成本）。
 
+### 🔬 五级状态机可视化
+
+Web 端内置 Skills 观测台（侧边栏切换「对话 / Skills」），把状态机的判定过程变成可直接查看的数据：
+
+<p align="center">
+  <img src="docs/screenshots/skills.png" width="82%" alt="Skills 观测台：五级状态分布与晋级差距" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/skills-detail.png" width="82%" alt="Skill 详情：六门槛仪表与差距诊断" />
+</p>
+
+- **状态分布带**：`unobserved → incubating → watch → healthy → champion / pruned` 各级数量一屏总览，点击即筛选；
+- **晋级差距排序**：列表默认按"距 healthy 还差几项门槛"排序，每个 Skill 的检索量、相关率、使用率、回放样本（dev/test）与检索权重一目了然；
+- **六门槛仪表**：详情抽屉里逐项展示 `当前值 vs 门槛`（回放≥2、晋级集≥1、检索≥5、使用率≥20%、相关率≥35%、规则通过率≥80%），绿色为已过；
+- **差距诊断**：结合最近一次检索判定的 `last_reason`，给出"差哪一项、差多少"以及 description 不匹配等改进建议——把评测结果变成可操作的自进化输入。
+
+数据来自 `.bear/skill-evolution/` 审计产物（评测报告、使用统计、usage 事件流）的只读聚合，前端不重写任何判定逻辑。
+
 ## 🚀 快速开始
 
 ### 1. 环境准备
