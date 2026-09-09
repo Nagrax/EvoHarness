@@ -256,6 +256,30 @@ body[data-view="chat"] #skillsView{display:none!important}
 .sk-empty code{font-family:var(--mono);font-size:12.5px;background:var(--bg-hover);padding:2px 8px;border-radius:5px}
 .sk-tip{font-size:11.5px;color:var(--txt-3);margin-top:10px}
 .sk-tip b{color:var(--txt-2);font-weight:500}
+
+/* ───────── settings modal ───────── */
+.set-mask{position:fixed;inset:0;background:rgba(31,35,40,.32);z-index:120;opacity:0;pointer-events:none;transition:opacity .2s}
+.set-mask.open{opacity:1;pointer-events:auto}
+.set-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-48%) scale(.97);width:420px;max-width:92vw;background:var(--bg);border:1px solid var(--line);border-radius:14px;z-index:121;opacity:0;pointer-events:none;transition:all .2s cubic-bezier(.2,.7,.3,1);box-shadow:0 24px 64px rgba(31,35,40,.16)}
+.set-modal.open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
+.set-head{display:flex;align-items:center;gap:10px;padding:16px 20px 12px}
+.set-head h3{font-size:15px;font-weight:600}
+.set-head .x{margin-left:auto;color:var(--txt-3);padding:4px;border-radius:6px}
+.set-head .x:hover{background:var(--bg-hover);color:var(--txt)}
+.set-body{padding:4px 20px 8px;display:flex;flex-direction:column;gap:13px}
+.set-body label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--txt-2);font-weight:500}
+.set-body input{border:1px solid var(--line-2);border-radius:8px;padding:8px 11px;font-size:13px;font-family:var(--mono);color:var(--txt);background:var(--bg-soft);outline:none;transition:border-color .15s,box-shadow .15s}
+.set-body input:focus{border-color:rgba(47,111,237,.55);box-shadow:0 0 0 3px rgba(47,111,237,.1)}
+.set-body input::placeholder{color:var(--txt-3)}
+.set-note{font-size:11.5px;color:var(--txt-3);line-height:1.6;background:var(--bg-soft);border:1px solid var(--line);border-radius:8px;padding:8px 11px}
+.set-note b{color:var(--txt-2);font-weight:500}
+.set-foot{padding:12px 20px 16px;display:flex;gap:9px;justify-content:flex-end;border-top:1px solid var(--line);margin-top:6px}
+.btn-ghost{padding:7px 14px;border-radius:8px;font-size:13px;color:var(--txt-2);border:1px solid var(--line-2);transition:all .15s}
+.btn-ghost:hover{color:var(--txt);border-color:var(--line-hover)}
+.btn-pri{padding:7px 16px;border-radius:8px;font-size:13px;font-weight:500;color:#fff;background:var(--acc);transition:background .15s}
+.btn-pri:hover{background:#2557C7}
+.srv-config{cursor:pointer}
+.srv-config:hover b{color:var(--acc)}
 </style>
 </head>
 <body data-view="chat">
@@ -291,7 +315,10 @@ body[data-view="chat"] #skillsView{display:none!important}
         <button class="mode" data-mode="plan" title="只读分析，先出计划再执行">计划</button>
         <button class="mode" data-mode="bypassPermissions" title="跳过所有确认">直接执行</button>
       </div>
-      <div class="srv" id="srv"><span class="srv-dot"></span><span>服务</span><b id="srvModel">连接中</b></div>
+      <div class="srv srv-config" id="srv" title="点击配置模型 API">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+        <span>模型</span><b id="srvModel">连接中</b>
+      </div>
     </div>
   </aside>
 
@@ -372,6 +399,35 @@ body[data-view="chat"] #skillsView{display:none!important}
   </main>
 </div>
 <div id="toast" role="status"></div>
+
+<div class="set-mask" id="setMask"></div>
+<div class="set-modal" id="setModal" role="dialog" aria-label="模型 API 设置">
+  <div class="set-head">
+    <h3>模型 API 设置</h3>
+    <button class="x" id="setClose" aria-label="关闭">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="set-body">
+    <label>API 地址（OpenAI-compatible 或含 /anthropic 的 Anthropic 地址）
+      <input id="setBase" placeholder="https://llmapi.paratera.com/v1" spellcheck="false">
+    </label>
+    <label>API Key（只保存在你的浏览器，不经过持久化存储）
+      <input id="setKey" type="password" placeholder="sk-..." spellcheck="false">
+    </label>
+    <label>模型名
+      <input id="setModel" placeholder="DeepSeek-V3.2" spellcheck="false">
+    </label>
+    <div class="set-note">
+      公开部署使用 <b>自带 Key</b> 模式：配置只存在浏览器 localStorage、随请求发送给服务端用于本轮调用，
+      不写盘、不进仓库。修改配置后当前会话上下文保留在服务端（属于原模型），建议<b>新建会话</b>后使用新模型。
+    </div>
+  </div>
+  <div class="set-foot">
+    <button class="btn-ghost" id="setClear">清除本机配置</button>
+    <button class="btn-pri" id="setSave">保存</button>
+  </div>
+</div>
 
 <div class="drawer-mask" id="drawerMask"></div>
 <aside class="drawer" id="drawer" aria-label="Skill 详情">
@@ -603,10 +659,12 @@ async function send(){
   addUser(text);
   state.cur=addAssistant();state.curText='';
   setBusy(true);
+  const cfg=loadApiCfg()||{};
   try{
     const res=await fetch('/api/chat',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({session_id:state.sid,message:text,permission_mode:state.mode}),
+      body:JSON.stringify({session_id:state.sid,message:text,permission_mode:state.mode,
+        api_base:cfg.base||null,api_key:cfg.key||null,model:cfg.model||null}),
     });
     if(!res.ok||!res.body)throw new Error('HTTP '+res.status);
     const reader=res.body.getReader(),dec=new TextDecoder();
@@ -821,12 +879,60 @@ $('#drawerClose').onclick=closeDrawer;
 $('#drawerMask').onclick=closeDrawer;
 addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer()});
 
+/* ═════════ BYOK 模型配置 ═════════ */
+function loadApiCfg(){
+  try{return JSON.parse(localStorage.getItem('evo.api')||'null')}catch{return null}
+}
+function openSettings(){
+  const cfg=loadApiCfg()||{};
+  $('#setBase').value=cfg.base||'';
+  $('#setKey').value=cfg.key||'';
+  $('#setModel').value=cfg.model||'';
+  $('#setModal').classList.add('open');$('#setMask').classList.add('open');
+  setTimeout(()=>$('#setBase').focus(),80);
+}
+function closeSettings(){$('#setModal').classList.remove('open');$('#setMask').classList.remove('open')}
+$('#srv').addEventListener('click',openSettings);
+$('#setClose').onclick=closeSettings;
+$('#setMask').onclick=closeSettings;
+$('#setSave').onclick=()=>{
+  const cfg={
+    base:$('#setBase').value.trim(),
+    key:$('#setKey').value.trim(),
+    model:$('#setModel').value.trim(),
+  };
+  localStorage.setItem('evo.api',JSON.stringify(cfg));
+  closeSettings();
+  updateSrvModel();
+  toast(cfg.key?'配置已保存，发送消息即生效':'配置已清除');
+};
+$('#setClear').onclick=()=>{
+  localStorage.removeItem('evo.api');
+  closeSettings();updateSrvModel();
+  toast('已清除本机保存的 API 配置');
+};
+function updateSrvModel(){
+  const cfg=loadApiCfg();
+  const el=$('#srvModel');
+  if(cfg&&cfg.key){el.textContent=cfg.model||'自定义模型'}
+  else el.textContent=window._serverModel||'未配置';
+}
+
 /* ═════════ boot ═════════ */
 (async()=>{
   try{
     const r=await fetch('/api/health');const j=await r.json();
-    $('#srv').classList.add('up');$('#srvModel').textContent=j.model;
-  }catch{$('#srvModel').textContent='离线'}
+    window._serverModel=j.model;
+    if(j.server_configured){$('#srv').classList.add('up')}
+  }catch{window._serverModel='离线'}
+  updateSrvModel();
+  // 服务端无配置且本地也没存 key：引导用户先设置
+  const cfg=loadApiCfg();
+  if(!window._serverModel || window._serverModel==='离线'){}
+  else if(!cfg||!cfg.key){
+    const j=await fetch('/api/health').then(r=>r.json()).catch(()=>({}));
+    if(j.server_configured===false){toast('服务端未配置模型，点击左下角「模型」填入你的 API key');}
+  }
 })();
 newSession();
 setView(location.hash==='#/skills'?'skills':'chat');

@@ -161,34 +161,61 @@ app.add_middleware(
 )
 
 
-def _get_agent(session_id: str, permission_mode: str) -> Agent:
-    if session_id not in AGENTS:
-        AGENTS[session_id] = Agent(
-            permission_mode=permission_mode,
-            model=MODEL,
-            api_base=API_BASE if USE_OPENAI else None,
-            anthropic_base_url=API_BASE if not USE_OPENAI else None,
-            api_key=API_KEY,
-        )
+def _is_anthropic_base(base_url: str) -> bool:
+    return "/anthropic" in (base_url or "").rstrip("/").lower()
 
-        async def auto_confirm(message: str) -> bool:
-            _emit({"type": "warn", "data": f"自动批准: {message}"})
-            return True
 
-        async def auto_plan_approval(plan_content: str) -> dict:
-            _emit({"type": "info", "data": "Plan 已生成，Web 模式自动继续执行"})
-            return {"choice": "execute"}
+def _resolve_request_config(api_base: str | None, api_key: str | None, model: str | None):
+    """用户自带配置（BYOK）优先；缺失时回落到服务端 .env 配置。
 
-        agent = AGENTS[session_id]
-        agent.set_confirm_fn(auto_confirm)
-        agent.set_plan_approval_fn(auto_plan_approval)
-    return AGENTS[session_id]
+    返回 (api_base, api_key, model, use_openai)。"""
+    base = (api_base or "").strip() or API_BASE
+    key = (api_key or "").strip() or API_KEY
+    name = (model or "").strip() or MODEL
+    use_openai = not _is_anthropic_base(base)
+    return base, key, name, use_openai
+
+
+def _get_agent(session_id: str, permission_mode: str, api_base: str | None = None,
+               api_key: str | None = None, model: str | None = None) -> Agent:
+    base, key, name, use_openai = _resolve_request_config(api_base, api_key, model)
+    # 配置指纹：用户换 key/模型后，同会话的旧 Agent 不复用（上下文属于旧配置）
+    fingerprint = (base or "", key[-6:] if key else "", name or "")
+    existing = AGENTS.get(session_id)
+    if existing is not None and getattr(existing, "_web_config", None) == fingerprint:
+        return existing
+
+    agent = Agent(
+        permission_mode=permission_mode,
+        model=name,
+        api_base=base if use_openai else None,
+        anthropic_base_url=base if not use_openai else None,
+        api_key=key,
+    )
+
+    async def auto_confirm(message: str) -> bool:
+        _emit({"type": "warn", "data": f"自动批准: {message}"})
+        return True
+
+    async def auto_plan_approval(plan_content: str) -> dict:
+        _emit({"type": "info", "data": "Plan 已生成，Web 模式自动继续执行"})
+        return {"choice": "execute"}
+
+    agent.set_confirm_fn(auto_confirm)
+    agent.set_plan_approval_fn(auto_plan_approval)
+    agent._web_config = fingerprint
+    AGENTS[session_id] = agent
+    return agent
 
 
 class ChatRequest(BaseModel):
     session_id: str
     message: str
     permission_mode: str = "acceptEdits"
+    # BYOK：用户自带的模型配置，优先于服务端 .env；不传则回落服务端
+    api_base: str | None = None
+    api_key: str | None = None
+    model: str | None = None
 
 
 class StopRequest(BaseModel):
@@ -391,6 +418,8 @@ async def health():
         "model": MODEL,
         "protocol": "openai-compatible" if USE_OPENAI else "anthropic",
         "sessions": len(AGENTS),
+        # 服务端是否自带模型配置（false = 纯 BYOK 部署，要求用户在前端填 key）
+        "server_configured": bool(API_KEY),
     }
 
 
@@ -414,11 +443,15 @@ async def chat(req: ChatRequest):
 
     async def live_stream():
         started = time.time()
-        yield _sse({"type": "start", "model": MODEL})
+        if not (req.api_key or API_KEY):
+            yield _sse({"type": "error", "data": "未配置模型 API key：点击左下角「模型设置」填入你自己的 API 配置"})
+            yield _sse({"type": "end"})
+            return
+        yield _sse({"type": "start", "model": (req.model or "").strip() or MODEL})
         try:
             async with lock:
                 RUNNING[session_id] = True
-                agent = _get_agent(session_id, req.permission_mode)
+                agent = _get_agent(session_id, req.permission_mode, req.api_base, req.api_key, req.model)
                 chat_task = asyncio.create_task(agent.chat(req.message))
                 while True:
                     get_event = asyncio.create_task(queue.get())
