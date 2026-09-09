@@ -27,6 +27,7 @@ load_dotenv(find_dotenv(usecwd=True) or str(ROOT / ".env"), override=False)
 # 必须在替换 ui 函数之后再 import Agent（agent.py 会在导入时绑定这些名字）
 import agents.agent as agent_module  # noqa: E402
 from agents.agent import Agent  # noqa: E402
+from agents.session import load_session  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # 事件桥：ContextVar 保存当前请求的事件队列，实现多会话并发隔离
@@ -192,6 +193,11 @@ def _get_agent(session_id: str, permission_mode: str, api_base: str | None = Non
         anthropic_base_url=base if not use_openai else None,
         api_key=key,
     )
+    # Web 会话 id 对齐落盘文件名，重启后可从 ~/.evoharness/sessions/<id>.json 恢复
+    agent.session_id = session_id
+    saved = load_session(session_id)
+    if saved:
+        agent.restore_session(saved)
 
     async def auto_confirm(message: str) -> bool:
         _emit({"type": "warn", "data": f"自动批准: {message}"})
@@ -262,25 +268,20 @@ def _read_jsonl_file(path: Path) -> list[dict]:
     return rows
 
 
-@app.get("/api/history")
-async def history(session_id: str):
-    """返回服务端 Agent 内存中的会话历史（仅用户输入与助手最终文本）。"""
-    agent = AGENTS.get(session_id)
-    if not agent:
-        return {"messages": []}
+def _display_messages(openai_messages: list | None, anthropic_messages: list | None) -> list[dict]:
+    """从两种协议的消息历史里提取可展示对话（过滤系统/工具/注入内容）。"""
     out: list[dict] = []
-    if agent.use_openai:
-        for m in agent._openai_messages:
+    if openai_messages:
+        for m in openai_messages:
             role = m.get("role")
             content = m.get("content")
-            # 只保留真实对话：系统提示、tool 调用/结果、注入内容都不展示
             if role in ("user", "assistant") and isinstance(content, str) and content.strip():
                 # 剥离检索注入的 skills 上下文块（非用户真实输入）
                 text = content.split("<retrieved_skills>")[0].rstrip()
                 if text.strip():
                     out.append({"role": role, "text": text[:20000]})
-    else:
-        for m in agent._anthropic_messages:
+    elif anthropic_messages:
+        for m in anthropic_messages:
             role = m.get("role")
             content = m.get("content")
             if role == "user" and isinstance(content, str) and content.strip():
@@ -295,7 +296,21 @@ async def history(session_id: str):
                 ).strip()
                 if text:
                     out.append({"role": "assistant", "text": text[:20000]})
-    return {"messages": out}
+    return out
+
+
+@app.get("/api/history")
+async def history(session_id: str):
+    """会话历史：优先读内存 Agent；服务重启后从落盘文件恢复展示。"""
+    agent = AGENTS.get(session_id)
+    if agent is not None:
+        if agent.use_openai:
+            return {"messages": _display_messages(agent._openai_messages, None)}
+        return {"messages": _display_messages(None, agent._anthropic_messages)}
+    saved = load_session(session_id)
+    if saved:
+        return {"messages": _display_messages(saved.get("openaiMessages"), saved.get("anthropicMessages"))}
+    return {"messages": []}
 
 
 @app.get("/api/skills")
