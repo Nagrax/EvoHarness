@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -67,12 +68,15 @@ class McpConnection:
         """启动 MCP Server 子进程，并开始后台读取它的 stdout。"""
         # 子进程环境变量 = 当前进程环境变量 + 配置里声明的额外变量。
         merged_env = {**os.environ, **self.env}
+        # Windows 上 npx/node 等命令实际是 .cmd 批处理，create_subprocess_exec
+        # 不走 shell 时无法按裸名找到它们；用 shutil.which 解析真实可执行路径。
+        resolved = shutil.which(self.command) or self.command
         # 使用 stdio 模式启动 MCP Server：
         # - stdin：客户端向 Server 写 JSON-RPC 请求。
         # - stdout：Server 向客户端返回 JSON-RPC 响应。
         # - stderr：保留错误输出管道，避免 Server 继承当前终端输出。
         self._process = await asyncio.create_subprocess_exec(
-            self.command, *self.args,
+            resolved, *self.args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
