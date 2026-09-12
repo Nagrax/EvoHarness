@@ -322,6 +322,18 @@ body[data-view="chat"] #evalView,body[data-view="skills"] #evalView{display:none
 .pd-discard{color:var(--err);background:#FDECEC}.pd-revise{color:#9A6700;background:#FCF4E3}.pd-none{color:var(--txt-3);background:var(--bg-hover)}
 .mock-note{font-size:11.5px;color:var(--warn);background:#FCF4E3;border:1px solid #EAD198;border-radius:8px;padding:7px 12px;margin-top:12px;display:inline-block}
 .ev-empty{margin:40px auto;max-width:420px;text-align:center;padding:26px;border:1px dashed var(--line-2);border-radius:14px;color:var(--txt-2);font-size:13.5px}
+/* 一句话结论横幅 */
+.ev-verdict{border:1px solid rgba(47,111,237,.28);background:linear-gradient(180deg,#F3F7FE, #EDF2FE);border-radius:12px;padding:16px 20px;margin-bottom:14px}
+.ev-verdict-main{font-size:15px;line-height:1.85;color:var(--txt)}
+.ev-verdict-main b{font-weight:600;color:#1D4ED8}
+.ev-verdict-sub{font-size:12px;color:var(--txt-2);margin-top:8px;padding-top:8px;border-top:1px dashed rgba(47,111,237,.25)}
+/* 类目名旁的问号提示 */
+.tip-inline{display:inline-grid;place-items:center;width:13px;height:13px;border-radius:50%;border:1px solid var(--line-2);color:var(--txt-3);font-size:9px;vertical-align:1px;cursor:help;margin-left:3px;background:var(--bg)}
+/* 技术细节折叠 */
+.ev-raw{margin-top:12px;border:1px solid var(--line);border-radius:9px;padding:9px 14px;background:var(--bg-soft)}
+.ev-raw summary{font-size:12px;color:var(--txt-3);cursor:pointer;user-select:none}
+.ev-raw summary:hover{color:var(--txt-2)}
+.ev-raw[open] summary{margin-bottom:4px}
 </style>
 </head>
 <body data-view="chat">
@@ -447,12 +459,12 @@ body[data-view="chat"] #evalView,body[data-view="skills"] #evalView{display:none
       <div class="ev-wrap"><div class="ev-in">
 
         <div class="ev-sec" id="evBenchmarkSec">
-          <h3>Memory Benchmark <span class="sub" id="evBenchMeta"></span></h3>
+          <h3>记忆系统考核 <span class="sub" id="evBenchMeta"></span></h3>
           <div id="evBenchmark"></div>
         </div>
 
         <div class="ev-sec">
-          <h3>Skill Telemetry <span class="sub" id="evTelMeta"></span></h3>
+          <h3>技能成长监控 <span class="sub" id="evTelMeta"></span></h3>
           <div id="evTelemetry"></div>
         </div>
 
@@ -997,65 +1009,90 @@ async function loadEval(){
 async function renderBenchmark(){
   const r=await fetch('/api/eval/report');const d=await r.json();
   const box=$('#evBenchmark');
-  if(!d.has_data){box.innerHTML='<div class="ev-empty">还没有 Memory Benchmark 数据（eval_results.json）</div>';return}
+  if(!d.has_data){box.innerHTML='<div class="ev-empty">还没有记忆系统评测数据</div>';return}
   const m=d.meta||{};
-  $('#evBenchMeta').textContent=(m.benchmark||'').slice(0,52)+' · '+(m.date||'');
+  $('#evBenchMeta').textContent='1540 个真实对话提问 · '+(m.date||'');
   const full=d.full_run_1540||{};
   const base=full.minimem_baseline||{},ours=full.bearcode_top5||{};
   const bo=base.overall||{},oo=ours.overall||{};
   const bt=base.tokens||{},ot=ours.tokens||{};
-  const dl=(a,b)=>{const diff=a-b;const cls=Math.abs(diff)<1?'flat':diff>0?'up':'down';return '<span class="delta '+cls+'">'+(diff>0?'+':'')+diff.toFixed(1)+'</span>'};
-  // 成本卡片
-  box.innerHTML=
-    '<div class="ev-meta"><b>'+esc(m.subject||'')+'</b> vs <b>'+esc((m.baseline||'').split('(')[0])+'</b><br>'+esc(m.controls||'')+'</div>'
-    +'<div class="ev-cards">'
-    +'<div class="ev-card"><b>'+oo.f1+dl(oo.f1,bo.f1)+'</b><span>Token-F1（基线 '+bo.f1+'）</span></div>'
-    +'<div class="ev-card"><b>'+oo.judge_accuracy+'%'+dl(oo.judge_accuracy,bo.judge_accuracy)+'</b><span>LLM Judge（基线 '+bo.judge_accuracy+'%）</span></div>'
-    +'<div class="ev-card"><b>'+Math.round((1-ot.avg_input_tokens/bt.avg_input_tokens)*100)+'%</b><span>输入 token 节省（'+ot.avg_input_tokens+' vs '+bt.avg_input_tokens+'）</span></div>'
-    +'<div class="ev-card"><b>'+ot.avg_retrieved+'</b><span>平均检索条目（基线 '+bt.avg_retrieved+'）</span></div>'
-    +'</div>';
-  // 分组柱状图：overall + 四类目，judge 与 F1 两组
-  const mk=(label,bv,ov,max)=>'<div class="bar-row"><span class="bl">'+esc(label)+'</span>'
-    +'<span class="bar-track">'
-    +'<span class="bar-line"><span class="who">base</span><span class="bar" style="width:'+Math.max(2,bv/max*100)+'%;background:'+EV_COLORS.base+'"></span><span class="bv">'+bv+'</span></span>'
-    +'<span class="bar-line"><span class="who">ours</span><span class="bar" style="width:'+Math.max(2,ov/max*100)+'%;background:'+EV_COLORS.ours+'"></span><span class="bv">'+ov+'</span></span>'
-    +'</span><span></span></div>';
   const bc=base.categories||{},oc=ours.categories||{};
+  const fmt=v=>Math.round(v*10)/10;
+  // 类目中文 + 小白解释
+  const CAT_CN={'Single-hop':['直接提问','答案就在一句话里'],'Multi-hop':['需要串联','答案散在几段对话里，要拼起来'],'Open-domain':['开放式闲聊','没有标准答案的日常话题'],'Temporal':['时间相关','要记住"什么时候"说过的事']};
+
+  box.innerHTML=
+    /* 一句话结论：小白第一眼看到的东西 */
+    '<div class="ev-verdict">'
+    +'<div class="ev-verdict-main">AI 助手聊久了会"失忆"。这个测试让它回答 <b>1540 个</b>关于历史对话的问题——EvoHarness 只翻 <b>3 条</b>记忆就答对了 <b>51%</b>，对比方案要翻 <b>15 条</b>才答对 <b>53%</b>，水平相当；但每次提问的开销<b>只有对方的 1/3</b>，长对话下越用越省钱。</div>'
+    +'<div class="ev-verdict-sub">对比方案：'+esc((m.baseline||'').split('(')[0].trim())+' —— 同一个大模型、同一批题目、同样的判卷标准，只比"记忆系统"这一个零件</div>'
+    +'</div>'
+    /* 四张卡片：问题导向的中文标签 */
+    +'<div class="ev-cards">'
+    +'<div class="ev-card"><b>'+fmt(oo.judge_accuracy)+'%</b><span>答对的比例（对方 '+fmt(bo.judge_accuracy)+'%）</span></div>'
+    +'<div class="ev-card"><b>'+fmt(ot.avg_retrieved)+' 条</b><span>答题前翻找的记忆（对方 '+fmt(bt.avg_retrieved)+' 条）</span></div>'
+    +'<div class="ev-card"><b>-'+Math.round((1-ot.avg_input_tokens/bt.avg_input_tokens)*100)+'%</b><span>每次提问的花费</span></div>'
+    +'<div class="ev-card"><b>'+ot.avg_input_tokens+'</b><span>每次读入的内容量（对方 '+bt.avg_input_tokens+'）</span></div>'
+    +'</div>';
+
+  // 柱状图：中文类目名
+  const mk=(label,bv,ov,max)=>'<div class="bar-row"><span class="bl">'+label+'</span>'
+    +'<span class="bar-track">'
+    +'<span class="bar-line"><span class="who">对方</span><span class="bar" style="width:'+Math.max(2,bv/max*100)+'%;background:'+EV_COLORS.base+'"></span><span class="bv">'+fmt(bv)+'%</span></span>'
+    +'<span class="bar-line"><span class="who">我方</span><span class="bar" style="width:'+Math.max(2,ov/max*100)+'%;background:'+EV_COLORS.ours+'"></span><span class="bv">'+fmt(ov)+'%</span></span>'
+    +'</span><span></span></div>';
   const groups=[['Single-hop',bc['Single-hop'],oc['Single-hop']],['Multi-hop',bc['Multi-hop'],oc['Multi-hop']],['Open-domain',bc['Open-domain'],oc['Open-domain']],['Temporal',bc['Temporal'],oc['Temporal']]];
   const chart=document.createElement('div');chart.className='ev-chart';
-  chart.innerHTML='<h4>LLM Judge Accuracy（%）</h4><div class="legend"><span><i style="background:'+EV_COLORS.ours+'"></i>EvoHarness (top-5)</span><span><i style="background:'+EV_COLORS.base+'"></i>MiniMem 基线 (top-15)</span></div>'
-    +mk('Overall',bo.judge_accuracy,oo.judge_accuracy,70)
-    +groups.map(([n,b,o])=>mk(n+' <span style="color:var(--txt-3)">'+(b?(b.count+'q'):'')+'</span>',b?b.judge_accuracy:0,o?o.judge_accuracy:0,70)).join('')
-    +'<div class="b-group">Token-F1</div>'
-    +mk('Overall',bo.f1,oo.f1,50)
-    +groups.map(([n,b,o])=>mk(n,b?b.f1:0,o?o.f1:0,50)).join('');
+  chart.innerHTML='<h4>四类问题的答对率（由 AI 扮演阅卷老师打分）</h4>'
+    +'<div class="legend"><span><i style="background:'+EV_COLORS.ours+'"></i>EvoHarness</span><span><i style="background:'+EV_COLORS.base+'"></i>对比方案</span></div>'
+    +mk('总平均',bo.judge_accuracy,oo.judge_accuracy,70)
+    +groups.map(([k,b,o])=>{
+      const cn=CAT_CN[k]||[k,''];
+      return mk(cn[0]+' <span class="tip-inline" title="'+esc(cn[1])+'">?</span>',b?b.judge_accuracy:0,o?o.judge_accuracy:0,70);
+    }).join('');
   box.appendChild(chart);
-  // 关键发现
+
+  // 通俗版关键发现（写给没接触过 NLP 的人）
+  const LAY_FINDINGS=[
+    '记忆只翻 <b>1/5</b> 的条目就打平了对方——说明 EvoHarness 的记忆<b>挑得准</b>，不是靠堆量',
+    '各有强项：简单题对方略胜；但需要<b>把几段对话拼起来推理</b>、<b>记住事情发生时间</b>的难题，EvoHarness 反超',
+    '记忆容量上限放开到 15 条还能再涨 7 个百分点——说明当前差距主要是"翻得少"的刻意取舍，不是能力上限',
+    '评测顺带发现并修复了记忆模块的一个真实 bug（文件名精确匹配导致漏召回）',
+  ];
+  const ul=document.createElement('ul');ul.className='ev-findings';
+  ul.innerHTML=LAY_FINDINGS.map(f=>'<li>'+f+'</li>').join('');
+  box.appendChild(ul);
+  // 原始技术结论折叠收起，想深挖的人自己展开
   if(Array.isArray(d.key_findings)&&d.key_findings.length){
-    const ul=document.createElement('ul');ul.className='ev-findings';
-    ul.innerHTML=d.key_findings.map(f=>'<li>'+esc(f)+'</li>').join('');
-    box.appendChild(ul);
+    const det=document.createElement('details');det.className='ev-raw';
+    det.innerHTML='<summary>展开技术细节（原始评测结论）</summary><ul class="ev-findings" style="margin-top:8px">'+d.key_findings.map(f=>'<li>'+esc(f)+'</li>').join('')+'</ul>';
+    box.appendChild(det);
   }
 }
 
 const EV_STATUS_LABEL={unobserved:'未观测',incubating:'孵化中',watch:'观察',healthy:'健康',pruned:'已归档'};
 async function renderTelemetry(){
   const r=await fetch('/api/eval/skills');const d=await r.json();
-  $('#evTelMeta').textContent=(d.mock?'演示数据':'live')+' · '+(d.skills?d.skills.length:0)+' skills';
+  $('#evTelMeta').textContent=(d.mock?'演示数据':'实时')+' · '+(d.skills?d.skills.length:0)+' 个技能';
   const box=$('#evTelemetry');
-  if(!d.skills||!d.skills.length){box.innerHTML='<div class="ev-empty">暂无 Skill 遥测数据</div>';return}
+  if(!d.skills||!d.skills.length){box.innerHTML='<div class="ev-empty">暂无技能数据</div>';return}
   const PD_LABEL={add:'新增',merge:'合并',discard:'丢弃',revise:'修订',none:'无'};
-  box.innerHTML=(d.mock?'<div class="mock-note">当前为演示数据：本地运行 skill 评测后自动切换为真实数据</div>':'')
-    +'<table class="ev-tel-table"><thead><tr><th>Skill</th><th>状态</th><th>检索</th><th>相关率</th><th>使用率</th><th>最近 promotion 决策</th></tr></thead><tbody>'
+  box.innerHTML=
+    /* 小白引导：这半页在看什么 */
+    '<div class="ev-verdict" style="margin-bottom:2px">'
+    +'<div class="ev-verdict-main" style="font-size:13.5px">EvoHarness 会从你的反馈里<b>自动学新技能</b>（写进 SKILL.md 的可复用经验）。这张表监控每个技能的成长：<b>孵化中</b>=证据还不够，别急着下结论；<b>观察</b>=有短板被盯上了；<b>健康</b>=六项考核全过，才允许"转正"。每 15 秒自动刷新。</div>'
+    +'</div>'
+    +(d.mock?'<div class="mock-note">当前为演示数据：在本地运行技能评测后自动切换为真实数据</div>':'')
+    +'<table class="ev-tel-table"><thead><tr><th>技能</th><th>成长状态</th><th>被翻牌</th><th>对上题</th><th>被采用</th><th>最近一次系统决定</th></tr></thead><tbody>'
     +d.skills.map(s=>{
       const p=s.last_promotion||{};
       const pd=PD_LABEL[p.decision]||p.decision||'无';
       return '<tr>'
       +'<td class="sk-name"><b>'+esc(s.skill)+'</b></td>'
       +'<td><span class="badge b-'+s.status+'"><i></i>'+(EV_STATUS_LABEL[s.status]||s.status)+'</span></td>'
-      +'<td class="num">'+s.retrieved+'</td>'
-      +'<td class="num"><span class="mini-bar"><i style="width:'+Math.round((s.relevance_rate||0)*100)+'%"></i></span>'+pct(s.relevance_rate||0)+'</td>'
-      +'<td class="num"><span class="mini-bar"><i style="width:'+Math.round((s.used_rate||0)*100)+'%"></i></span>'+pct(s.used_rate||0)+'</td>'
+      +'<td class="num" title="这个技能被系统检索出来的次数">'+s.retrieved+' 次</td>'
+      +'<td class="num" title="检索出来后确实和当前任务相关的比例"><span class="mini-bar"><i style="width:'+Math.round((s.relevance_rate||0)*100)+'%"></i></span>'+pct(s.relevance_rate||0)+'</td>'
+      +'<td class="num" title="最终被 Agent 真正用上的比例"><span class="mini-bar"><i style="width:'+Math.round((s.used_rate||0)*100)+'%"></i></span>'+pct(s.used_rate||0)+'</td>'
       +'<td><div class="promo"><span class="pd pd-'+(p.decision||'none')+'">'+pd+'</span>'+esc(p.reason||'')+(p.time?'<span style="color:var(--txt-3);font-size:11px"> · '+esc(String(p.time).slice(0,16).replace('T',' '))+'</span>':'')+'</div></td>'
       +'</tr>';
     }).join('')+'</tbody></table>';
