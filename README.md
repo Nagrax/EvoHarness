@@ -1,8 +1,6 @@
 # EvoHarness
 
-**🧭 模型提出意图 · ⚙️ 运行时决定执行 · 🧬 进化要有证据**
-
-**自进化 Agent 运行时 · Self-Evolving Agent Runtime**
+**模型提出意图 · 运行时决定执行 · 进化要有证据**
 
 [![CI](https://github.com/Nagrax/EvoHarness/actions/workflows/ci.yml/badge.svg)](https://github.com/Nagrax/EvoHarness/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
@@ -10,23 +8,45 @@
 [![Models](https://img.shields.io/badge/Models-OpenAI%20%7C%20Anthropic-8A2BE2)](https://platform.openai.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-把大模型变成可靠的 coding agent，缺的从来不是推理能力，而是一个可控的运行时：上下文怎么管理、工具怎么放权、经验怎么沉淀、沉淀的质量怎么证明。EvoHarness 用 **8,000+ 行零重依赖的 Python** 回答这四个问题，同时提供 **CLI** 与 **Web** 双前端，支持 OpenAI / Anthropic 双协议。
+把大模型变成可靠的 coding agent，缺的从来不是推理能力，而是一个可控的运行时：上下文怎么管理、工具怎么放权、经验怎么沉淀、沉淀的质量怎么证明。EvoHarness 用 **8,000+ 行零重依赖的 Python** 回答这四个问题，提供 **CLI / Web / 桌面** 三种使用形态，支持 OpenAI / Anthropic 双协议。
 
----
+## 先看证据
 
-## 📊 先看证据
+三层证据链，从 benchmark 数字到可自动复跑的测试：
 
-665 题整体 benchmark：
+| 层 | 结果 | 对照 |
+| --- | --- | --- |
+| **Agent benchmark**（GAIA 165 题，Pass@1） | **53.3** | HiRA 42.1（+11.2） |
+| **Agent benchmark**（HLE 500 题） | **20.2** | 基线 13.6（+6.6） |
+| **会话折叠消融**（GAIA 开/关折叠） | **53.3 / 44.7** | +8.6pp——收益不是省 token，是长程任务状态不丢 |
+| **记忆系统**（LoCoMo 1540 问） | 1/5 检索量持平答对率，token **-62%** | MiniMem 向量检索基线；且评测直接定位并修复了 P0 召回丢失 bug（[详见下文](#-记忆系统评测与评测驱动的修复)） |
+| **回归防线** | 单元测试 + CI | `tests/` 覆盖 P0 修复的四种回指形态，push 即自动验证 |
 
-| Benchmark | 题量 | EvoHarness | 对比基线 | 提升 |
-| --- | --- | --- | --- | --- |
-| GAIA（Pass@1） | 165 | **53.3** | HiRA 42.1 | **+11.2** |
-| HLE | 500 | **20.2** | 13.6 | **+6.6** |
-| GAIA 会话折叠消融 | 165 | 开折叠 **53.3** / 关折叠 44.7 | — | **+8.6 pp** |
+## 三种使用形态，一套运行时
 
-折叠消融是核心研究结论之一：收益不是省 token，而是**长程任务中任务状态不丢**——agent 知道自己做到哪了、下一步干什么、哪些路走不通。
+<p align="center">
+  <img src="docs/screenshots/overview.png" width="82%" alt="EvoHarness Web 首页" />
+</p>
 
-## 🧭 30 秒了解
+Web 端三个视图：**对话**（SSE 实时展示推理文本、工具调用时间线、token/轮次）、**Skills**（五级状态机观测台）、**Memory**（记忆系统考核可视化）。
+
+<p align="center">
+  <img src="docs/screenshots/chat.png" width="82%" alt="对话与工具调用时间线" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/skills.png" width="82%" alt="Skills 观测台" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/memory.png" width="82%" alt="Memory 记忆考核页" />
+</p>
+
+- **CLI**：`python -m agents.main`——REPL、一次性任务、Plan Mode、`--resume` 会话恢复
+- **Web**：`python -m server.app`——FastAPI + SSE 事件桥，`agents/` 核心零改动接入；支持访客自带 API key（BYOK，key 只存浏览器）
+- **桌面**：双击 `desktop.pyw`——pywebview 原生窗口，关窗即退
+
+会话历史自动落盘（`~/.evoharness/sessions/`），服务重启或换机后点击侧栏旧会话即可恢复完整上下文。
+
+## 运行时链路
 
 ```mermaid
 flowchart LR
@@ -40,18 +60,30 @@ flowchart LR
     BG -->|"沉淀 / 进化 SKILL.md"| R
 ```
 
-Web 前端通过 SSE 实时展示推理文本、工具调用时间线、token 用量与运行轮次：
+## 快速开始
 
-<p align="center">
-  <img src="docs/screenshots/overview.png" width="82%" alt="EvoHarness Web 首页" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/chat.png" width="82%" alt="对话与工具调用时间线" />
-</p>
+```bash
+python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env        # 填入 APIKEY / API / MODEL
+python -m server.app        # Web：http://127.0.0.1:8800（改 .env 或代码自动热重载）
+```
 
-## 🧱 六个模块，一条演进链
+协议由 base URL 自动判断（路径含 `/anthropic` 走 Anthropic 协议）。CLI 与更多选项：
 
-整个运行时按依赖顺序长成六个模块：**先能跑 → 扛得住长任务 → 安全 → 记得住 → 会学习 → 证明学得对**。两块地基（①③）承载两条研究线（记忆线②→④、进化线⑤→⑥）。
+```bash
+python -m agents.main                         # 交互式 REPL
+python -m agents.main --plan "..."            # Plan Mode：先出计划再执行
+python -m agents.main --resume                # 恢复最近会话
+```
+
+> [!WARNING]
+> `.env` 已被 `.gitignore` 忽略，切勿提交 API key。公开部署时建议不配环境变量，
+> 使用前端 BYOK 模式让访客自带 key。
+
+## 六个模块，一条演进链
+
+按依赖顺序：**先能跑 → 扛得住长任务 → 安全 → 记得住 → 会学习 → 证明学得对**。两块地基（①③）承载两条研究线（记忆线②→④、进化线⑤→⑥）。
 
 | # | 模块 | 核心问题 | 代表机制 | 主要代码 |
 | --- | --- | --- | --- | --- |
@@ -62,169 +94,67 @@ Web 前端通过 SSE 实时展示推理文本、工具调用时间线、token �
 | ⑤ | Skills 在线自进化 | 从反馈沉淀可复用能力 | 下一轮反馈作证据、add/merge/revise/discard 四路决策、provenance 溯源 | `online_skill_evolution.py` |
 | ⑥ | 离线评测与状态机 | 证明沉淀的质量 | replay 样本池、程序规则+LLM judge 双轨、五级状态机、champion 人工晋级 | `online_skill_eval.py` |
 
-**闭环联动**（2026-09 新增）：状态机已接回运行时——评测物化状态表，检索按认证状态加权（healthy ×1.25 / watch ×0.75，孵化期不降权防饿死）；孵化期 Skill 注入打 provisional 标注并禁 fork；沉淀 14 天零检索自动归档；矛盾偏好走 revise 整体替换而非 merge 出自相矛盾的指令；`when_to_use` 触发变体经历史 query 检索重放验证（零模型成本）。
+**状态机已接回运行时**：评测物化状态表，检索按认证状态加权（healthy ×1.25 / watch ×0.75，孵化期不降权防饿死）；孵化期注入打 provisional 标注并禁 fork；沉淀 14 天零检索自动归档；矛盾偏好走 revise 整体替换。Web 端「Skills」观测台把这套判定变成可点击的数据：五级分布带、按"距晋级差几项"排序的列表、六门槛仪表（当前值 vs 门槛逐项对比）、结合 `last_reason` 的差距诊断。
 
-### 🔬 五级状态机可视化
-
-Web 端内置 Skills 观测台（侧边栏切换「对话 / Skills」），把状态机的判定过程变成可直接查看的数据：
-
-<p align="center">
-  <img src="docs/screenshots/skills.png" width="82%" alt="Skills 观测台：五级状态分布与晋级差距" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/skills-detail.png" width="82%" alt="Skill 详情：六门槛仪表与差距诊断" />
-</p>
-
-- **状态分布带**：`unobserved → incubating → watch → healthy → champion / pruned` 各级数量一屏总览，点击即筛选；
-- **晋级差距排序**：列表默认按"距 healthy 还差几项门槛"排序，每个 Skill 的检索量、相关率、使用率、回放样本（dev/test）与检索权重一目了然；
-- **六门槛仪表**：详情抽屉里逐项展示 `当前值 vs 门槛`（回放≥2、晋级集≥1、检索≥5、使用率≥20%、相关率≥35%、规则通过率≥80%），绿色为已过；
-- **差距诊断**：结合最近一次检索判定的 `last_reason`，给出"差哪一项、差多少"以及 description 不匹配等改进建议——把评测结果变成可操作的自进化输入。
-
-数据来自 `.bear/skill-evolution/` 审计产物（评测报告、使用统计、usage 事件流）的只读聚合，前端不重写任何判定逻辑。
-
-## 🚀 快速开始
-
-### 1. 环境准备
-
-- Python 3.11+，一个 OpenAI-compatible 或 Anthropic-compatible 模型接口
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 2. 配置 `.env`（参考 `.env.example`）
-
-协议由 base URL 自动判断（路径含 `/anthropic` 走 Anthropic 协议）：
-
-```env
-APIKEY=sk-your-api-key
-API=https://your-host/v1
-MODEL=deepseek-chat
-```
-
-> [!WARNING]
-> `.env` 已被 `.gitignore` 忽略，切勿提交 API key。
-
-### 3. 启动
-
-**Web 前端**（推荐）：
-
-```bash
-python -m server.app             # 或 Windows 双击 start_web.bat
-```
-
-浏览器打开 <http://127.0.0.1:8800>，选择权限模式后即可下达任务。
-
-**CLI 前端**：
-
-```bash
-python -m agents.main                         # 交互式 REPL
-python -m agents.main "总结这个项目的核心模块"   # 一次性任务
-python -m agents.main --plan "..."            # Plan Mode：先出计划再执行
-python -m agents.main --resume                # 恢复最近会话
-```
-
-Skills 自进化默认开启（`EVOHARNESS_AUTO_SKILL_EVOLUTION=1`），后台写入受当前权限模式控制，推荐 `--accept-edits` 启动。
-
-## ⚖️ 关键设计决策
+## 关键设计决策
 
 | 决策 | 放弃了什么 | 换来什么 |
 | --- | --- | --- |
 | 自研 Agent Loop，不用 LangChain | 现成的消息封装 | 消息历史每个字节可控——折叠要替换整段历史、压缩要改写历史 tool result，黑盒里做不了 |
 | 沉淀即上线，不先审后上线 | 发布前的质量门 | 无冷启动死锁（使用信号只能来自真实使用）；爆炸半径有界：检索只取前三、注入不强制、孵化期隔离 |
 | 权限做在 runtime，不写进 prompt 劝模型 | prompt 约束的灵活性 | 代码强制的识别层（工具级+内容级）× 策略层（五档模式），模型不可信时底线仍在 |
-| 纯文件 + BM25，不上向量库 | 语义检索的召回上限 | 零重依赖、人可直接改、git 可版本化；记忆/Skill 量级下关键词足够 |
+| 纯文件 + BM25，不上向量库 | 语义检索的召回上限 | 零重依赖、人可直接改、git 可版本化；记忆/Skill 量级下关键词足够（LoCoMo 上以 1/5 检索量打平向量基线） |
 | 评测只做 prompt 级重放 | agent 级行为评估 | 现任版本用历史原文、变体注入重生成，离线证指令质量；"会不会被调用"归线上 usage stats，两层各管一段 |
 | champion 不自动覆盖线上 | 全自动进化 | 可审计、可回滚；评测层是观察哨不是执行器，换版本必须过人 |
 
-## 🛡️ 已知边界
+## 🧠 记忆系统评测与评测驱动的修复
 
-- **组合冲突只有静态检测**（规则互斥对 + 触发条件重叠 + 注入互相标注），两个 Skill 同时注入的组合重放评测尚未实现；
-- **LLM judge 只当软规则**——输出不可信（截断、非纯 JSON 都踩过），程序规则才是硬底线，无模型时评测可降级运行；
-- **检索权重 1.25 / 0.75 与孵化期 14 天为经验值**，未做网格消融；
-- **champion 晋级纯人工复制**，半自动审批流程是下一步。
+LoCoMo 数据集（10 段长对话、1540 个非对抗性问题），与 MiniMem 基线（LLM 抽取 + MiniLM 向量检索 top-15）对照：**同一大模型、题目、阅卷标准，只比记忆系统**。结果：1/5 检索条目（3 vs 15）持平答对率（judge 50.8% vs 52.7%），单题输入 token **-62%**，多跳与时间类反超。可视化见 Web 端「Memory」页，原始数据 `frontend/eval_results.json`。
 
-## 🧠 记忆系统评测（LoCoMo）与评测驱动的修复
-
-在 LoCoMo 数据集（10 段长对话、1540 个非对抗性问题）上，与 MiniMem 基线（LLM 抽取 + MiniLM 向量检索 top-15）对照评测：**同样的大模型、题目与阅卷标准，只比记忆系统**。结论：EvoHarness 用 1/5 的检索条目（3 vs 15）达到基本持平的答对率（judge 50.8% vs 52.7%），单题输入 token 直降 62%；多跳推理与时间类问题反超基线。完整数据在 Web 端「Memory」页可视化呈现。
-
-评测不止于出报告——它直接定位并驱动修复了两个生产问题：
+评测不止于报告——直接定位并修复了两个生产问题：
 
 | 级别 | 问题 | 修复 |
 | --- | --- | --- |
-| P0 | `select_relevant_memories` 召回匹配用精确文件名比较，而模型选择器会照抄 manifest 整行 / 带代码围栏 / 带路径前缀回指——四种形态里三种**静默丢失全部召回** | `_normalize_selector_ref` 规范化双向包含匹配，四形态全 MATCH、跨文件正确拒绝（单测覆盖） |
-| P1 | 召回上限硬编码 `[:5]`，消融显示 5 条上限损失 judge 7.3pp | `MAX_MEMORY_RECALL = env("EVOHARNESS_MAX_MEMORY_RECALL", 5)`，选择提示词同步参数化（上限与模型认知一致），env=15 已验证生效 |
+| P0 | 召回匹配用精确文件名比较，而模型选择器会照抄 manifest 整行 / 带围栏 / 带路径前缀回指——四种形态三种**静默丢失全部召回** | `_normalize_selector_ref` 规范化双向包含匹配，四形态全 MATCH、跨文件正确拒绝（`tests/test_memory_recall.py` 覆盖） |
+| P1 | 召回上限硬编码 `[:5]`，消融显示损失 judge 7.3pp | `MAX_MEMORY_RECALL` 环境变量化（默认 5），选择提示词同步参数化——上限与模型认知必须一致 |
 
-> [!NOTE]
-> 原始评测输出见 `frontend/eval_results.json`（Web 端「Memory」页即渲染此文件）；
-> 修复配有单元测试，覆盖选择器回指的四种形态与跨文件拒绝用例。
+## 已知边界
 
-## 数据路径
+- **组合冲突只有静态检测**（规则互斥对 + 触发条件重叠 + 注入互相标注），组合重放评测尚未实现；
+- **LLM judge 只当软规则**——输出不可信（截断、非纯 JSON 都踩过），程序规则是硬底线，无模型时评测可降级运行；
+- **检索权重 1.25 / 0.75 与孵化期 14 天为经验值**，未做网格消融；
+- **champion 晋级纯人工复制**，半自动审批流程是下一步。
+
+## 数据路径与部署
 
 | 数据 | 路径 |
 |------|------|
-| 项目级 Skills | `.evoharness/skills/<skill_name>/SKILL.md` |
-| 用户级 Skills | `~/.evoharness/skills/<skill_name>/SKILL.md` |
-| Skills 自进化审计 | `.evoharness/skill-evolution/` |
+| 项目级 Skills / 自进化审计 | `.evoharness/skills/` · `.evoharness/skill-evolution/` |
+| 用户级 Skills | `~/.evoharness/skills/` |
 | 长期记忆 | `~/.evoharness/projects/<project_hash>/memory/` |
 | 会话历史 | `~/.evoharness/sessions/` |
-| 大工具结果 | `~/.evoharness/tool-results/` |
-| Plan Mode 计划 | `~/.evoharness/plans/` |
 
-## Docker
-
-镜像默认启动 **Web 服务**（容器即网站）：
-
-```bash
-docker build -t evoharness .
-
-docker run --rm -p 7860:7860 \
-  --env-file .env \
-  evoharness
-# 打开 http://localhost:7860
-```
-
-CLI 形态覆盖 entrypoint 即可：
-
-```bash
-docker run --rm -it \
-  --env-file .env \
-  -v "$PWD:/workspace" \
-  -v evoharness-data:/root/.evoharness \
-  --entrypoint python evoharness -m agents.main
-```
-
-> [!NOTE]
-> 在线体验需要 Docker 类平台（HuggingFace Spaces / Render / Railway 均可）：
-> 镜像默认启动 Web 服务（`PORT` 环境变量注入端口）。纯静态托管（GitHub Pages /
-> Cloudflare Pages）只能展示界面截图，无法运行后端。
+Docker 镜像默认即 Web 服务（`docker run -p 7860:7860 --env-file .env evoharness`，CLI 覆盖 entrypoint 即可）；在线体验需 Docker 类平台（HF Spaces / Render / Railway），纯静态托管只能展示截图、无法运行后端。
 
 ## 目录结构
 
 ```text
 EvoHarness/
-├── agents/                     # Agent Runtime 核心（约 8,000 行）
+├── agents/                     # Agent Runtime 核心（约 8,000 行零重依赖）
 │   ├── main.py                 # CLI 入口与 REPL
 │   ├── agent.py                # Agent Loop、模型调用、工具调度、上下文压缩
 │   ├── tools.py                # 内置工具与权限系统
-│   ├── memory.py               # 长期记忆
-│   ├── skills.py               # Skills 加载、检索、执行
-│   ├── skill_status.py         # 状态机与运行时的桥（检索加权/试用期）
+│   ├── memory.py               # 长期记忆（两段式召回）
+│   ├── skills.py / skill_status.py
 │   ├── online_skill_evolution.py / skill_evolution.py
-│   ├── online_skill_eval.py    # Skills 离线评测与状态机
+│   ├── online_skill_eval.py    # Skills 离线评测与五级状态机
 │   ├── session_memory.py       # 会话记忆折叠
-│   ├── mcp_client.py           # MCP stdio 客户端（337 行零依赖）
+│   ├── mcp_client.py           # MCP stdio 客户端（零依赖）
 │   └── subagent.py / session.py / prompt.py / ui.py
-├── server/                     # Web 后端（FastAPI + SSE 事件桥）
-├── frontend/                   # Web 前端（零依赖单文件）
+├── server/                     # Web 后端（FastAPI + SSE 事件桥 + BYOK）
+├── frontend/                   # Web 前端（零依赖单文件：对话 / Skills / Memory）
+├── tests/                      # 单元测试（CI 自动运行）
+├── desktop.pyw                 # 桌面启动器（pywebview）
 ├── docs/screenshots/           # 界面截图
-├── .evoharness/                # 项目级 Skills 与运行时产物
-├── Dockerfile
-└── requirements.txt
+└── Dockerfile                  # 默认 Web 服务，PORT 注入端口
 ```
-
-## License
-
-[MIT](./LICENSE)
