@@ -280,6 +280,48 @@ body[data-view="chat"] #skillsView{display:none!important}
 .btn-pri:hover{background:#2557C7}
 .srv-config{cursor:pointer}
 .srv-config:hover b{color:var(--acc)}
+
+/* ───────── evaluation view ───────── */
+body[data-view="eval"] .hud,body[data-view="eval"] #chatView,body[data-view="eval"] #skillsView{display:none!important}
+body[data-view="chat"] #evalView,body[data-view="skills"] #evalView{display:none!important}
+#evalView{flex:1;display:flex;flex-direction:column;min-height:0}
+.ev-wrap{flex:1;overflow-y:auto;min-height:0}
+.ev-in{max-width:980px;margin:0 auto;padding:26px 24px 44px;display:flex;flex-direction:column;gap:26px}
+.ev-sec h3{font-size:15px;font-weight:600;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ev-sec h3 .sub{font-size:12px;color:var(--txt-3);font-weight:400;font-family:var(--mono)}
+.ev-meta{font-size:12px;color:var(--txt-2);background:var(--bg-soft);border:1px solid var(--line);border-radius:9px;padding:9px 13px;line-height:1.7;margin-top:12px}
+.ev-meta b{color:var(--txt);font-weight:500}
+.ev-findings{margin:14px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.ev-findings li{font-size:12.5px;color:var(--txt-2);padding-left:18px;position:relative}
+.ev-findings li::before{content:'▸';position:absolute;left:2px;color:var(--acc);font-size:11px}
+.ev-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.ev-card{background:var(--bg-soft);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.ev-card b{display:block;font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+.ev-card span{font-size:11px;color:var(--txt-3)}
+.ev-card .delta{font-size:11px;font-weight:500;margin-left:6px}
+.delta.up{color:var(--ok)}.delta.down{color:var(--err)}.delta.flat{color:var(--txt-3)}
+.ev-chart{margin-top:16px;border:1px solid var(--line);border-radius:11px;background:var(--bg);padding:16px 18px 10px}
+.ev-chart h4{font-size:12px;color:var(--txt-2);font-weight:500;margin-bottom:4px}
+.ev-chart .legend{display:flex;gap:16px;font-size:11.5px;color:var(--txt-3);margin-bottom:8px;padding-left:2px}
+.ev-chart .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.bar-row{display:grid;grid-template-columns:96px 1fr 52px;align-items:center;gap:10px;padding:4.5px 0}
+.bar-row .bl{font-size:12px;color:var(--txt-2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar-track{display:flex;flex-direction:column;gap:3px}
+.bar-line{display:flex;align-items:center;gap:7px}
+.bar-line .who{font-size:10px;color:var(--txt-3);width:34px;flex-shrink:0;font-family:var(--mono)}
+.bar-line .bar{height:9px;border-radius:2px;min-width:2px;transition:width .5s cubic-bezier(.2,.7,.3,1)}
+.bar-line .bv{font-size:10.5px;color:var(--txt-2);font-family:var(--mono);font-variant-numeric:tabular-nums}
+.b-group{font-size:11px;color:var(--txt-3);font-family:var(--mono);margin:10px 0 2px;padding-left:2px}
+.ev-tel-table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px}
+.ev-tel-table th{text-align:left;font-size:11.5px;font-weight:500;color:var(--txt-3);padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+.ev-tel-table td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.ev-tel-table .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--txt-2)}
+.promo{font-size:12px;color:var(--txt-2);line-height:1.55;max-width:340px}
+.promo .pd{display:inline-flex;align-items:center;font-size:11px;font-weight:500;border-radius:5px;padding:1px 7px;margin-right:7px}
+.pd-add{color:var(--ok);background:#E6F4EA}.pd-merge{color:#1D4ED8;background:#EDF2FE}
+.pd-discard{color:var(--err);background:#FDECEC}.pd-revise{color:#9A6700;background:#FCF4E3}.pd-none{color:var(--txt-3);background:var(--bg-hover)}
+.mock-note{font-size:11.5px;color:var(--warn);background:#FCF4E3;border:1px solid #EAD198;border-radius:8px;padding:7px 12px;margin-top:12px;display:inline-block}
+.ev-empty{margin:40px auto;max-width:420px;text-align:center;padding:26px;border:1px dashed var(--line-2);border-radius:14px;color:var(--txt-2);font-size:13.5px}
 </style>
 </head>
 <body data-view="chat">
@@ -301,6 +343,10 @@ body[data-view="chat"] #skillsView{display:none!important}
       <button class="vtab" data-view="skills">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 3c0 4 10 5 10 9s-10 5-10 9"/><path d="M17 3c0 4-10 5-10 9s10 5 10 9"/></svg>
         Skills
+      </button>
+      <button class="vtab" data-view="eval">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m7 14 4-4 3 3 5-6"/></svg>
+        评测
       </button>
     </div>
     <button class="new-btn" id="newChat">
@@ -394,6 +440,22 @@ body[data-view="chat"] #skillsView{display:none!important}
         <div class="sk-tip" id="stageTip">前两级管<b>证据量</b>，watch 管<b>质量</b>；只有 healthy 可以晋级 champion。<b>healthy ×1.25 / watch ×0.75</b> 的检索权重仅对评测认证状态生效，孵化期不降权。</div>
         <table class="sk-table" id="skTable"></table>
         <div id="skEmpty" class="sk-empty" style="display:none"></div>
+      </div></div>
+    </div>
+
+    <div id="evalView">
+      <div class="ev-wrap"><div class="ev-in">
+
+        <div class="ev-sec" id="evBenchmarkSec">
+          <h3>Memory Benchmark <span class="sub" id="evBenchMeta"></span></h3>
+          <div id="evBenchmark"></div>
+        </div>
+
+        <div class="ev-sec">
+          <h3>Skill Telemetry <span class="sub" id="evTelMeta"></span></h3>
+          <div id="evTelemetry"></div>
+        </div>
+
       </div></div>
     </div>
   </main>
@@ -742,13 +804,14 @@ let skData=null,skFilter='';
 function setView(v){
   document.body.dataset.view=v;
   document.querySelectorAll('.vtab').forEach(t=>t.classList.toggle('on',t.dataset.view===v));
-  location.hash=v==='skills'?'#/skills':'';
+  location.hash=v==='skills'?'#/skills':v==='eval'?'#/eval':'';
   if(v==='skills'&&!skData)loadSkills();
+  if(v==='eval'&&!evLoaded)loadEval();
 }
 $('#viewTabs').addEventListener('click',e=>{
   const b=e.target.closest('.vtab');if(b)setView(b.dataset.view);
 });
-addEventListener('hashchange',()=>setView(location.hash==='#/skills'?'skills':'chat'));
+addEventListener('hashchange',()=>setView(location.hash==='#/skills'?'skills':location.hash==='#/eval'?'eval':'chat'));
 
 async function loadSkills(){
   const btn=$('#skRefresh');btn.classList.add('spin');
@@ -918,6 +981,86 @@ function updateSrvModel(){
   else el.textContent=window._serverModel||'未配置';
 }
 
+/* ═════════ evaluation view ═════════ */
+let evLoaded=false, evTelTimer=null;
+const EV_COLORS={ours:'#2F6FED',base:'#9CA0A6'};
+
+async function loadEval(){
+  try{ await renderBenchmark() }catch{/* benchmark 静态失败不阻塞 telemetry */}
+  try{ await renderTelemetry() }catch{}
+  evLoaded=true;
+  // telemetry 轮询：视图可见时每 15s 刷新一次
+  clearInterval(evTelTimer);
+  evTelTimer=setInterval(()=>{if(document.body.dataset.view==='eval')renderTelemetry().catch(()=>{})},15000);
+}
+
+async function renderBenchmark(){
+  const r=await fetch('/api/eval/report');const d=await r.json();
+  const box=$('#evBenchmark');
+  if(!d.has_data){box.innerHTML='<div class="ev-empty">还没有 Memory Benchmark 数据（eval_results.json）</div>';return}
+  const m=d.meta||{};
+  $('#evBenchMeta').textContent=(m.benchmark||'').slice(0,52)+' · '+(m.date||'');
+  const full=d.full_run_1540||{};
+  const base=full.minimem_baseline||{},ours=full.bearcode_top5||{};
+  const bo=base.overall||{},oo=ours.overall||{};
+  const bt=base.tokens||{},ot=ours.tokens||{};
+  const dl=(a,b)=>{const diff=a-b;const cls=Math.abs(diff)<1?'flat':diff>0?'up':'down';return '<span class="delta '+cls+'">'+(diff>0?'+':'')+diff.toFixed(1)+'</span>'};
+  // 成本卡片
+  box.innerHTML=
+    '<div class="ev-meta"><b>'+esc(m.subject||'')+'</b> vs <b>'+esc((m.baseline||'').split('(')[0])+'</b><br>'+esc(m.controls||'')+'</div>'
+    +'<div class="ev-cards">'
+    +'<div class="ev-card"><b>'+oo.f1+dl(oo.f1,bo.f1)+'</b><span>Token-F1（基线 '+bo.f1+'）</span></div>'
+    +'<div class="ev-card"><b>'+oo.judge_accuracy+'%'+dl(oo.judge_accuracy,bo.judge_accuracy)+'</b><span>LLM Judge（基线 '+bo.judge_accuracy+'%）</span></div>'
+    +'<div class="ev-card"><b>'+Math.round((1-ot.avg_input_tokens/bt.avg_input_tokens)*100)+'%</b><span>输入 token 节省（'+ot.avg_input_tokens+' vs '+bt.avg_input_tokens+'）</span></div>'
+    +'<div class="ev-card"><b>'+ot.avg_retrieved+'</b><span>平均检索条目（基线 '+bt.avg_retrieved+'）</span></div>'
+    +'</div>';
+  // 分组柱状图：overall + 四类目，judge 与 F1 两组
+  const mk=(label,bv,ov,max)=>'<div class="bar-row"><span class="bl">'+esc(label)+'</span>'
+    +'<span class="bar-track">'
+    +'<span class="bar-line"><span class="who">base</span><span class="bar" style="width:'+Math.max(2,bv/max*100)+'%;background:'+EV_COLORS.base+'"></span><span class="bv">'+bv+'</span></span>'
+    +'<span class="bar-line"><span class="who">ours</span><span class="bar" style="width:'+Math.max(2,ov/max*100)+'%;background:'+EV_COLORS.ours+'"></span><span class="bv">'+ov+'</span></span>'
+    +'</span><span></span></div>';
+  const bc=base.categories||{},oc=ours.categories||{};
+  const groups=[['Single-hop',bc['Single-hop'],oc['Single-hop']],['Multi-hop',bc['Multi-hop'],oc['Multi-hop']],['Open-domain',bc['Open-domain'],oc['Open-domain']],['Temporal',bc['Temporal'],oc['Temporal']]];
+  const chart=document.createElement('div');chart.className='ev-chart';
+  chart.innerHTML='<h4>LLM Judge Accuracy（%）</h4><div class="legend"><span><i style="background:'+EV_COLORS.ours+'"></i>EvoHarness (top-5)</span><span><i style="background:'+EV_COLORS.base+'"></i>MiniMem 基线 (top-15)</span></div>'
+    +mk('Overall',bo.judge_accuracy,oo.judge_accuracy,70)
+    +groups.map(([n,b,o])=>mk(n+' <span style="color:var(--txt-3)">'+(b?(b.count+'q'):'')+'</span>',b?b.judge_accuracy:0,o?o.judge_accuracy:0,70)).join('')
+    +'<div class="b-group">Token-F1</div>'
+    +mk('Overall',bo.f1,oo.f1,50)
+    +groups.map(([n,b,o])=>mk(n,b?b.f1:0,o?o.f1:0,50)).join('');
+  box.appendChild(chart);
+  // 关键发现
+  if(Array.isArray(d.key_findings)&&d.key_findings.length){
+    const ul=document.createElement('ul');ul.className='ev-findings';
+    ul.innerHTML=d.key_findings.map(f=>'<li>'+esc(f)+'</li>').join('');
+    box.appendChild(ul);
+  }
+}
+
+const EV_STATUS_LABEL={unobserved:'未观测',incubating:'孵化中',watch:'观察',healthy:'健康',pruned:'已归档'};
+async function renderTelemetry(){
+  const r=await fetch('/api/eval/skills');const d=await r.json();
+  $('#evTelMeta').textContent=(d.mock?'演示数据':'live')+' · '+(d.skills?d.skills.length:0)+' skills';
+  const box=$('#evTelemetry');
+  if(!d.skills||!d.skills.length){box.innerHTML='<div class="ev-empty">暂无 Skill 遥测数据</div>';return}
+  const PD_LABEL={add:'新增',merge:'合并',discard:'丢弃',revise:'修订',none:'无'};
+  box.innerHTML=(d.mock?'<div class="mock-note">当前为演示数据：本地运行 skill 评测后自动切换为真实数据</div>':'')
+    +'<table class="ev-tel-table"><thead><tr><th>Skill</th><th>状态</th><th>检索</th><th>相关率</th><th>使用率</th><th>最近 promotion 决策</th></tr></thead><tbody>'
+    +d.skills.map(s=>{
+      const p=s.last_promotion||{};
+      const pd=PD_LABEL[p.decision]||p.decision||'无';
+      return '<tr>'
+      +'<td class="sk-name"><b>'+esc(s.skill)+'</b></td>'
+      +'<td><span class="badge b-'+s.status+'"><i></i>'+(EV_STATUS_LABEL[s.status]||s.status)+'</span></td>'
+      +'<td class="num">'+s.retrieved+'</td>'
+      +'<td class="num"><span class="mini-bar"><i style="width:'+Math.round((s.relevance_rate||0)*100)+'%"></i></span>'+pct(s.relevance_rate||0)+'</td>'
+      +'<td class="num"><span class="mini-bar"><i style="width:'+Math.round((s.used_rate||0)*100)+'%"></i></span>'+pct(s.used_rate||0)+'</td>'
+      +'<td><div class="promo"><span class="pd pd-'+(p.decision||'none')+'">'+pd+'</span>'+esc(p.reason||'')+(p.time?'<span style="color:var(--txt-3);font-size:11px"> · '+esc(String(p.time).slice(0,16).replace('T',' '))+'</span>':'')+'</div></td>'
+      +'</tr>';
+    }).join('')+'</tbody></table>';
+}
+
 /* ═════════ boot ═════════ */
 (async()=>{
   try{
@@ -935,7 +1078,7 @@ function updateSrvModel(){
   }
 })();
 newSession();
-setView(location.hash==='#/skills'?'skills':'chat');
+setView(location.hash==='#/skills'?'skills':location.hash==='#/eval'?'eval':'chat');
 </script>
 </body>
 </html>

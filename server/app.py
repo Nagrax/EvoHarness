@@ -426,6 +426,79 @@ async def skills_overview():
     }
 
 
+# ---------------------------------------------------------------------------
+# Evaluation：静态 Memory Benchmark 报告 + 实时 Skill Telemetry
+# ---------------------------------------------------------------------------
+
+EVAL_RESULTS_PATH = ROOT / "frontend" / "eval_results.json"
+
+MOCK_SKILL_TELEMETRY = [
+    {
+        "skill": "webnovel-writing", "status": "incubating",
+        "retrieved": 6, "relevant": 0, "used": 0,
+        "used_rate": 0.0, "relevance_rate": 0.0,
+        "last_reason": "Skill is for writing Chinese web novels, but the user request is about reading a PDF.",
+        "last_promotion": {"decision": "discard", "reason": "retrieval evidence insufficient: 6 retrieved, 0 relevant", "time": "2026-09-10T08:12:00Z"},
+    },
+    {
+        "skill": "code-review-checklist", "status": "watch",
+        "retrieved": 21, "relevant": 13, "used": 7,
+        "used_rate": 0.33, "relevance_rate": 0.62,
+        "last_reason": "User asked for a refactor review; checklist applied with 9/11 items.",
+        "last_promotion": {"decision": "merge", "reason": "rule extracted from explicit user feedback, merged v3 -> v4", "time": "2026-09-11T14:40:00Z"},
+    },
+    {
+        "skill": "api-mock-contract", "status": "healthy",
+        "retrieved": 18, "relevant": 14, "used": 9,
+        "used_rate": 0.5, "relevance_rate": 0.78,
+        "last_reason": "Contract-first mock generation matched the request; tests generated and passed.",
+        "last_promotion": {"decision": "add", "reason": "new reusable rule from feedback, promoted to healthy after replay 3/3", "time": "2026-09-12T02:05:00Z"},
+    },
+]
+
+
+@app.get("/api/eval/report")
+async def eval_report():
+    """静态 Memory Benchmark（LoCoMo）报告。"""
+    data = _read_json_file(EVAL_RESULTS_PATH)
+    if not data:
+        return {"has_data": False}
+    return {"has_data": True, **data}
+
+
+@app.get("/api/eval/skills")
+async def eval_skills():
+    """实时 Skill 遥测：状态、使用率与最近一次 promotion 决策。
+
+    优先读真实评测审计产物；无产物（公开演示环境）回退 mock 数据。
+    """
+    report = _read_json_file(EVOLUTION_DIR / "online_eval_report.json")
+    usage_stats = _read_json_file(EVOLUTION_DIR / "skill_usage_stats.json") or {}
+    if report and report.get("skills"):
+        out = []
+        for item in report["skills"]:
+            name = str(item.get("skill") or "")
+            usage = usage_stats.get(name, {}) if isinstance(usage_stats, dict) else {}
+            last_action = str(item.get("last_action") or "")
+            out.append({
+                "skill": name,
+                "status": str(item.get("status") or ""),
+                "retrieved": int(item.get("retrieved", 0) or 0),
+                "relevant": int(item.get("relevant", 0) or 0),
+                "used": int(item.get("used", 0) or 0),
+                "used_rate": float(item.get("used_rate", 0.0) or 0.0),
+                "relevance_rate": float(item.get("relevance_rate", 0.0) or 0.0),
+                "last_reason": str(usage.get("last_reason") or "")[:200],
+                "last_promotion": {
+                    "decision": last_action or "none",
+                    "reason": "; ".join(item.get("reasons") or [])[:200],
+                    "time": str(item.get("last_time") or ""),
+                },
+            })
+        return {"mock": False, "skills": out}
+    return {"mock": True, "skills": MOCK_SKILL_TELEMETRY}
+
+
 @app.get("/api/health")
 async def health():
     return {
