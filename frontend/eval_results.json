@@ -1,0 +1,133 @@
+{
+  "meta": {
+    "title": "BearCode Memory System × MiniMem LoCoMo Evaluation",
+    "date": "2026-09-12",
+    "benchmark": "LoCoMo 10 conversations, 1540 non-adversarial questions",
+    "llm": "DeepSeek-V3.2 (temperature=0)",
+    "subject": "BearCode agents/memory.py (4-type policy + 2-stage LLM selection, no embedding)",
+    "baseline": "MiniMem (LLM extraction + MiniLM embedding + top-15 cosine)",
+    "controls": "same LLM, same answer prompt, same token-F1/BLEU-1 + LLM judge"
+  },
+  "full_run_1540": {
+    "minimem_baseline": {
+      "overall": {
+        "f1": 38.79,
+        "bleu1": 32.37,
+        "judge_accuracy": 52.66,
+        "no_information": 385,
+        "question_count": 1540
+      },
+      "categories": {
+        "Single-hop": {
+          "count": 841,
+          "f1": 43.98,
+          "judge_accuracy": 63.4
+        },
+        "Multi-hop": {
+          "count": 282,
+          "f1": 33.92,
+          "judge_accuracy": 39.4
+        },
+        "Open-domain": {
+          "count": 96,
+          "f1": 18.92,
+          "judge_accuracy": 24.0
+        },
+        "Temporal": {
+          "count": 321,
+          "f1": 35.41,
+          "judge_accuracy": 44.9
+        }
+      },
+      "tokens": {
+        "avg_retrieved": 15.0,
+        "zero_retrieval": 0,
+        "avg_input_tokens": 541,
+        "avg_retrieve_ctx_tokens": 454,
+        "selector_llm_calls_per_question": 0
+      }
+    },
+    "bearcode_top5": {
+      "overall": {
+        "f1": 38.26,
+        "bleu1": 32.3,
+        "judge_accuracy": 50.84,
+        "no_information": 461,
+        "question_count": 1540
+      },
+      "categories": {
+        "Single-hop": {
+          "count": 841,
+          "f1": 41.29,
+          "judge_accuracy": 58.7
+        },
+        "Multi-hop": {
+          "count": 282,
+          "f1": 35.81,
+          "judge_accuracy": 37.6
+        },
+        "Open-domain": {
+          "count": 96,
+          "f1": 20.25,
+          "judge_accuracy": 26.0
+        },
+        "Temporal": {
+          "count": 321,
+          "f1": 37.86,
+          "judge_accuracy": 49.2
+        }
+      },
+      "tokens": {
+        "avg_retrieved": 2.9,
+        "zero_retrieval": 183,
+        "avg_input_tokens": 207,
+        "avg_retrieve_ctx_tokens": 120,
+        "selector_llm_calls_per_question": 1
+      }
+    }
+  },
+  "ablation_topk_convs01_233q": {
+    "note": "same memory store, only selection cap changed",
+    "minimem_baseline": {
+      "overall": {
+        "f1": 36.02,
+        "judge_accuracy": 51.93
+      },
+      "tokens": {
+        "avg_input_tokens": 542,
+        "avg_retrieved": 15.0,
+        "zero_retrieval": 0
+      }
+    },
+    "bearcode_top5": {
+      "overall": {
+        "f1": 31.42,
+        "judge_accuracy": 42.92
+      },
+      "tokens": {
+        "avg_input_tokens": 196,
+        "avg_retrieved": 2.7,
+        "zero_retrieval": 43
+      }
+    },
+    "bearcode_top15": {
+      "overall": {
+        "f1": 34.23,
+        "judge_accuracy": 50.21
+      },
+      "tokens": {
+        "avg_input_tokens": 316,
+        "avg_retrieved": 5.5,
+        "zero_retrieval": 38
+      }
+    }
+  },
+  "key_findings": [
+    "Overall parity at 1/5 retrieved items and -62% input tokens (F1 38.26 vs 38.79; judge 50.84% vs 52.66%)",
+    "Complementary profile: baseline wins Single-hop (63.4% vs 58.7%), BearCode wins Multi-hop/Temporal/Open-domain (Temporal judge 49.2% vs 44.9%)",
+    "topk=5 native cap is a measurable bottleneck: ablation cap 15 recovers +7.3pp judge",
+    "Production bug found: memory.py:308 exact filename matching silently drops recall when the selector echoes the manifest line (fix: normalized loose matching, F1 13.96 -> 33.01 on conv0)",
+    "Selector prompt (if unsure, do not include) is conservative: picks 5.5 avg even when allowed 15"
+  ],
+  "repro": "MiniMem repo benchmarks/locomo_bearcode/run_pipeline.py --system {minimem|bearcode} --convs all --judge"
+}

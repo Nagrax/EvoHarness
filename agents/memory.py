@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -169,6 +170,9 @@ class MemoryHeader:
 MAX_MEMORY_FILES = 200                    # 参与召回筛选的最多 memory 文件数。
 MAX_MEMORY_BYTES_PER_FILE = 4096          # 单个 memory 注入前的最大字节数。
 MAX_SESSION_MEMORY_BYTES = 60 * 1024      # 单个会话最多注入的 memory 总量。
+# 单次召回注入上限。LoCoMo 消融显示 5 条上限会损失召回（judge -7.3pp），
+# 记忆密集场景可通过环境变量调高，如 EVOHARNESS_MAX_MEMORY_RECALL=15。
+MAX_MEMORY_RECALL = max(1, int(os.environ.get("EVOHARNESS_MAX_MEMORY_RECALL", "5")))
 
 
 def scan_memory_headers() -> list[MemoryHeader]:
@@ -237,9 +241,18 @@ def memory_freshness_warning(mtime_ms: float) -> str:
 
 SELECT_MEMORIES_PROMPT = """You are selecting memories that will be useful to an AI coding assistant as it processes a user's query. You will be given the user's query and a list of available memory files with their filenames and descriptions.
 
-Return a JSON object with a "selected_memories" array of filenames for the memories that will clearly be useful (up to 5). Only include memories that you are certain will be helpful based on their name and description.
+Return a JSON object with a "selected_memories" array of filenames for the memories that will clearly be useful (up to {max_select}). Only include memories that you are certain will be helpful based on their name and description.
 - If you are unsure if a memory will be useful, do not include it.
 - If no memories would clearly be useful, return an empty array."""
+
+
+def _normalize_selector_ref(value: object) -> str:
+    """把选择器返回值/文件名规范化为仅含字母数字与 CJK 的串，用于宽松匹配。
+
+    选择器常照抄 manifest 整行（"name.md (timestamp)"）或包一层代码围栏，
+    精确匹配会静默丢失这部分召回（LoCoMo 评测中损失过全部检索结果）。
+    """
+    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(value).lower())
 
 
 class RelevantMemory:
@@ -292,7 +305,7 @@ async def select_relevant_memories(
     # 调用 side_query，让模型根据文件名和描述挑选相关 memory。
     try:
         text = await side_query(
-            SELECT_MEMORIES_PROMPT,
+            SELECT_MEMORIES_PROMPT.format(max_select=MAX_MEMORY_RECALL),
             f"Query: {query}\n\nAvailable memories:\n{manifest}",
         )
 
@@ -303,9 +316,22 @@ async def select_relevant_memories(
 
         # 解析 JSON，拿到被选中的 memory 文件名。
         parsed = json.loads(match.group(0))
-        selected_filenames = set(parsed.get("selected_memories", []))
-        # 根据文件名筛选候选 memory，最多取 5 个。
-        selected = [h for h in candidates if h.filename in selected_filenames][:5]
+        # 规范化后做双向包含匹配：兼容选择器返回整行 manifest、带围栏、
+        # 或带路径前缀等各种回指格式，避免静默丢召回。
+        selected_norms = [
+            norm
+            for norm in (
+                _normalize_selector_ref(item)
+                for item in parsed.get("selected_memories", [])
+            )
+            if norm
+        ]
+        selected = [
+            h
+            for h in candidates
+            if (key := _normalize_selector_ref(h.filename))
+            and any(key in norm or norm in key for norm in selected_norms)
+        ][:MAX_MEMORY_RECALL]
 
         result: list[RelevantMemory] = []
         for h in selected:
