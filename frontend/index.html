@@ -629,8 +629,12 @@ async function openSession(id){
       scrollBottom(true);
       return;
     }
-  }catch{/* 服务端无此会话时走空状态 */}
-  $('#hero').style.display='flex';$('#chat').style.display='none';
+  }catch{/* 网络失败视为无历史 */}
+  // 无历史：给一个明确的空会话视图（可继续对话），而不是无声回到欢迎页
+  showChat();
+  addUser('（此会话没有可恢复的历史记录）');
+  const el=addAssistant();
+  el.querySelector('.md').innerHTML='<p>这条会话创建于历史记录功能上线之前，旧消息没有落盘。不过会话本身还能用——直接发消息，我会从头开始，并从现在起保存记录。</p>';
 }
 $('#newChat').onclick=newSession;
 $('#modeRow').addEventListener('click',e=>{
