@@ -522,11 +522,15 @@ async def index():
 if __name__ == "__main__":
     import uvicorn
 
-    # 部署平台（HuggingFace Spaces 等）通过 PORT 注入端口，默认 7860；
-    # 本地默认 8800。绑定 0.0.0.0 以便容器外访问。
+    # 部署平台通过 PORT 注入端口（默认 7860），本地默认 8800；绑定 0.0.0.0 供容器访问。
+    # 本地开发默认热重载：改动 agents/、server/ 下的 .py 或根目录 .env 自动重启生效；
+    # 设 EVO_RELOAD=0 关闭（生产/部署容器内建议关闭）。
+    dev_reload = os.environ.get("EVO_RELOAD", "1") == "1" and not os.environ.get("PORT")
     uvicorn.run(
         "server.app:app",
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "8800")),
-        reload=False,
+        reload=dev_reload,
+        reload_dirs=str(ROOT) if dev_reload else None,
+        reload_includes=["*.py", ".env"] if dev_reload else None,
     )
