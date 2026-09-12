@@ -20,7 +20,11 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Install test dependencies
+        run: pip install pytest
       - name: Syntax check
         run: python -m compileall agents server
       - name: Web app imports cleanly
         run: python -c "import ast, pathlib; [ast.parse(p.read_text(encoding='utf-8'), filename=str(p)) for p in pathlib.Path('agents').rglob('*.py')]; print('agents/ parsed')"
+      - name: Run unit tests
+        run: python -m pytest tests/ -v
