@@ -402,7 +402,9 @@ class Agent:
             self._mcp_initialized = True
             try:
                 await self._mcp_manager.load_and_connect()
-                mcp_defs = self._mcp_manager.get_tool_definitions()
+                # MCP 工具进入 self.tools 后会走协议调用路径，不带 hints
+                # （Anthropic/OpenAI 的 tool schema 不认识 MCP hints 字段）
+                mcp_defs = self._mcp_manager.get_tool_definitions(with_hints=False)
                 if mcp_defs:
                     self.tools = self.tools + mcp_defs
             except Exception as e:

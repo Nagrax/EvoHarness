@@ -479,10 +479,38 @@ _activated_tools: set[str] = set()
 def reset_activated_tools() -> None:
     _activated_tools.clear()
 
-def get_active_tool_definitions(all_tools: list[ToolDef] | None = None) -> list[ToolDef]:
+# MCP tool hints（readOnlyHint/destructiveHint/idempotentHint/openWorldHint）：
+# 声明每个工具的行为特征，宿主（Claude/OpenAI 等 MCP 客户端）据此在调用前给
+# 用户风险提示。MCP 生态的信任索引与 OpenAI 工具目录均要求四个 hint 为显式布尔。
+# 清单定义在 tool_hints.py（静态文件，供仓库扫描类检查直接读取）。
+from .tool_hints import TOOL_HINTS  # noqa: E402
+
+def _with_hints(t: ToolDef) -> ToolDef:
+    """给工具定义补 MCP hints（定义里已声明的优先，不覆盖）。"""
+    hints = dict(t.get("hints") or TOOL_HINTS.get(t["name"]) or {})
+    if hints:
+        out = dict(t)
+        out["hints"] = hints
+        return out
+    return t
+
+def _without_hints(t: ToolDef) -> ToolDef:
+    """剥掉 hints 字段：Anthropic/OpenAI 的 tool schema 不认识 MCP hints，
+    直接发送会被 API 拒绝；hints 只用于 MCP 暴露与静态检查。"""
+    if "hints" in t:
+        return {k: v for k, v in t.items() if k != "hints"}
+    return t
+
+def get_active_tool_definitions(all_tools: list[ToolDef] | None = None, *, with_hints: bool = False) -> list[ToolDef]:
+    """当前可用的工具定义。
+
+    with_hints=True 时附带 MCP tool hints（供 MCP 客户端/静态检查消费）；
+    默认 False，返回干净的协议 schema（Anthropic/OpenAI 调用路径用）。
+    """
     tools = all_tools if all_tools is not None else tool_definitions
+    decorate = _with_hints if with_hints else _without_hints
     return [
-        {k: v for k, v in t.items() if k != "deferred"}
+        {k: v for k, v in decorate(t).items() if k != "deferred"}
         for t in tools
         if not t.get("deferred") or t["name"] in _activated_tools
     ]

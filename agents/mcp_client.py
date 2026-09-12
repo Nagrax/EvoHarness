@@ -262,10 +262,16 @@ class McpManager:
                 print_error(f"MCP failed to connect: {name}: {e}")
                 conn.close()
 
-    def get_tool_definitions(self) -> list[dict]:
-        """返回 Agent/Anthropic 可直接使用的工具定义，并给 MCP 工具名加前缀。"""
-        return [
-            {
+    def get_tool_definitions(self, *, with_hints: bool = True) -> list[dict]:
+        """返回 Agent 可直接使用的工具定义，并给 MCP 工具名加前缀。
+
+        with_hints=True 时透传上游 Server 声明的 tool hints（readOnlyHint 等）；
+        上游未声明的工具按安全默认值补齐（unknown 一律按可能有副作用处理），
+        供 MCP 生态信任索引与 OpenAI 工具目录检查消费。
+        """
+        out: list[dict] = []
+        for t in self._tools:
+            item = {
                 # 前缀格式：mcp__服务名__工具名。
                 # 这样可以避免 MCP 工具和内置工具重名，也方便 call_tool() 反向解析路由。
                 "name": f"mcp__{t['serverName']}__{t['name']}",
@@ -273,8 +279,16 @@ class McpManager:
                 # Anthropic 工具字段叫 input_schema；MCP 原始工具字段一般叫 inputSchema。
                 "input_schema": t.get("inputSchema") or {"type": "object", "properties": {}},
             }
-            for t in self._tools
-        ]
+            if with_hints:
+                hints = t.get("hints") or {}
+                item["hints"] = {
+                    "readOnlyHint": bool(hints.get("readOnlyHint", False)),
+                    "destructiveHint": bool(hints.get("destructiveHint", False)),
+                    "idempotentHint": bool(hints.get("idempotentHint", False)),
+                    "openWorldHint": bool(hints.get("openWorldHint", False)),
+                }
+            out.append(item)
+        return out
 
     def is_mcp_tool(self, name: str) -> bool:
         """判断一个工具名是否是 MCP 工具名。"""
