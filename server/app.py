@@ -237,7 +237,8 @@ ONLINE_EVAL_DIR = EVOLUTION_DIR / "online-eval"
 
 # 六门槛中文名（顺序：证据量三项 + 质量三项）
 GATE_META = [
-    ("replay", "回放样本", "count", "min_replay_samples"),
+    # 评测语义 v2：第一门槛为成绩组（使用窗口）样本，非全部回放样本
+    ("score", "成绩组样本", "count", "min_score_samples"),
     ("promotion", "晋级集样本", "count", "min_promotion_tests"),
     ("retrieved", "检索判断", "count", "min_retrieved"),
     ("used_rate", "使用率", "rate", "min_used_rate"),
@@ -320,9 +321,16 @@ async def skills_overview():
     champions = (_read_json_file(ONLINE_EVAL_DIR / "champions.json") or {}).get("champions", {})
     events = _read_jsonl_file(EVOLUTION_DIR / "usage.jsonl")
 
-    thresholds = report.get("thresholds") or {
-        "min_replay_samples": 2, "min_promotion_tests": 1, "min_retrieved": 5,
-        "min_used_rate": 0.2, "min_relevance_rate": 0.35, "min_rule_pass_rate": 0.8,
+    raw_thresholds = report.get("thresholds") or {}
+    # v2 字段名 min_score_samples；旧报告用 min_replay_samples（语义已改为成绩组样本）
+    thresholds = {
+        "min_score_samples": int(raw_thresholds.get("min_score_samples")
+                                 or raw_thresholds.get("min_replay_samples") or 3),
+        "min_promotion_tests": int(raw_thresholds.get("min_promotion_tests") or 1),
+        "min_retrieved": int(raw_thresholds.get("min_retrieved") or 5),
+        "min_used_rate": float(raw_thresholds.get("min_used_rate") or 0.2),
+        "min_relevance_rate": float(raw_thresholds.get("min_relevance_rate") or 0.35),
+        "min_rule_pass_rate": float(raw_thresholds.get("min_rule_pass_rate") or 0.8),
     }
 
     skills_out: list[dict] = []
@@ -331,8 +339,12 @@ async def skills_overview():
         usage = usage_stats.get(name, {}) if isinstance(usage_stats, dict) else {}
         replay = item.get("replay") or {}
         ev = item.get("eval") or {}
+        # 评测语义 v2：成绩组（使用窗口）样本 = replay.count - evidence 组；
+        # 旧报告无分组字段时全部样本都是证据组（决策窗口出身），成绩组为 0
+        evidence_count = int(replay.get("evidence", 0) or 0)
+        score_count = max(0, int(replay.get("count", 0) or 0) - evidence_count)
         current = {
-            "replay": int(replay.get("count", 0) or 0),
+            "score": score_count,
             "promotion": int(replay.get("promotion_test", 0) or 0),
             "retrieved": int(item.get("retrieved", 0) or 0),
             "used_rate": float(item.get("used_rate", 0.0) or 0.0),
@@ -378,7 +390,10 @@ async def skills_overview():
                 "used_when_relevant_rate": float(item.get("used_when_relevant_rate", 0.0) or 0.0),
             },
             "replay": {
-                "count": current["replay"],
+                "count": int(replay.get("count", 0) or 0),
+                # v2 双组：evidence=决策窗口样本（只诊断，不进门槛）；score=成绩组
+                "evidence": evidence_count,
+                "score": score_count,
                 "mutate_dev": int(replay.get("mutate_dev", 0) or 0),
                 "promotion_test": current["promotion"],
                 "sources": replay.get("sources", []),

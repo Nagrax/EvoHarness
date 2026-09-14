@@ -450,7 +450,7 @@ body[data-view="chat"] #evalView,body[data-view="skills"] #evalView{display:none
           </button>
         </div>
         <div class="stage-band" id="stageBand"></div>
-        <div class="sk-tip" id="stageTip">前两级管<b>证据量</b>，watch 管<b>质量</b>；只有 healthy 可以晋级 champion。<b>healthy ×1.25 / watch ×0.75</b> 的检索权重仅对评测认证状态生效，孵化期不降权。</div>
+        <div class="sk-tip" id="stageTip">样本池分两组：<b>证据组</b>（决策窗口，只诊断）与<b>成绩组</b>（使用窗口，唯一成绩单）；前两级管<b>成绩组样本量</b>，watch 管<b>质量</b>，healthy 才可晋级 champion——skill 不为出生前的回复负责。<b>healthy ×1.25 / watch ×0.75</b> 的检索权重仅对评测认证状态生效，孵化期不降权。</div>
         <table class="sk-table" id="skTable"></table>
         <div id="skEmpty" class="sk-empty" style="display:none"></div>
       </div></div>
@@ -802,8 +802,8 @@ document.querySelectorAll('.starter').forEach(b=>b.addEventListener('click',()=>
 
 /* ═════════ skills observatory ═════════ */
 const STAGES=[
-  ['unobserved','未观测','还没有任何回放或检索信号','#6E7781'],
-  ['incubating','孵化中','有信号，证据量三项门槛未攒够','#1D4ED8'],
+  ['unobserved','未观测','还没有使用窗口或检索信号','#6E7781'],
+  ['incubating','孵化中','成绩组样本（真实使用中攒）未够','#1D4ED8'],
   ['watch','观察','证据够了，质量门槛有挂项','#9A6700'],
   ['healthy','健康','六门槛全过，可晋级 champion','#1F883D'],
 ];
@@ -885,7 +885,7 @@ function renderSkills(){
   $('#skTable').style.display='table';
   $('#skEmpty').style.display=rows.length?'none':'block';
   $('#skEmpty').innerHTML='<p>该状态下暂无 Skill</p>';
-  $('#skTable').innerHTML='<thead><tr><th>Skill</th><th>状态</th><th>检索</th><th>相关率</th><th>使用率</th><th>回放 dev/test</th><th>规则通过</th><th>权重</th><th>最近</th></tr></thead><tbody>'
+  $('#skTable').innerHTML='<thead><tr><th>Skill</th><th>状态</th><th>检索</th><th>相关率</th><th>使用率</th><th>样本 证据/成绩</th><th>规则通过</th><th>权重</th><th>最近</th></tr></thead><tbody>'
     +rows.map(s=>{
       const d=s.last_time?String(s.last_time).slice(0,10):'—';
       return '<tr data-skill="'+esc(s.skill)+'">'
@@ -894,7 +894,7 @@ function renderSkills(){
       +'<td class="num">'+s.counts.retrieved+'</td>'
       +'<td class="num"><span class="mini-bar"><i style="width:'+Math.round((s.rates.relevance_rate||0)*100)+'%"></i></span>'+pct(s.rates.relevance_rate||0)+'</td>'
       +'<td class="num"><span class="mini-bar"><i style="width:'+Math.round((s.rates.used_rate||0)*100)+'%"></i></span>'+pct(s.rates.used_rate||0)+'</td>'
-      +'<td class="num">'+s.replay.mutate_dev+' / '+s.replay.promotion_test+'</td>'
+      +'<td class="num" title="证据组=决策窗口样本（只诊断不进门槛）；成绩组=使用窗口样本（状态机只看这组）">'+(s.replay.evidence||0)+' / '+(s.replay.score||0)+'</td>'
       +'<td class="num">'+(s.eval.pass_rate!=null?pct(s.eval.pass_rate):'—')+'</td>'
       +'<td class="num">×'+s.retrieval_weight.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')+'</td>'
       +'<td class="num">'+d+'</td></tr>';
@@ -922,7 +922,7 @@ function openDrawer(name){
     +'<span class="weight-note" style="flex:1;min-width:200px">检索权重 <b>×'+s.retrieval_weight.toFixed(2)+'</b>'+(s.status==='healthy'?'（评测认证，加分）':s.status==='watch'?'（评测认证，降权）':'（孵化期不降权）')+'</span></div>'
     +(s.reasons&&s.reasons.length?'<ul class="reason-list" style="margin-top:9px">'+s.reasons.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>':'')
     +'</div>'
-    +'<div class="dsec"><h4>六门槛 · 证据量 × 质量</h4>'+s.gates.map(gateBar).join('')+'</div>'
+    +'<div class="dsec"><h4>六门槛 · 成绩组证据 × 质量</h4>'+s.gates.map(gateBar).join('')+'</div>'
     +gapHtml
     +'<div class="dsec"><h4>生命周期</h4><div class="kv">'
     +'<div><b>'+s.counts.created+'</b><span>新增</span></div>'
@@ -934,10 +934,12 @@ function openDrawer(name){
     +'<div><b>'+s.counts.relevant+'</b><span>判定相关</span></div>'
     +'<div><b>'+s.counts.used+'</b><span>实际使用</span></div></div>'
     +'<div class="sk-tip" style="margin-top:8px">相关率 <b>'+pct(s.rates.relevance_rate||0)+'</b> · 使用率 <b>'+pct(s.rates.used_rate||0)+'</b> · 相关后使用率 <b>'+pct(s.rates.used_when_relevant_rate||0)+'</b></div></div>'
-    +'<div class="dsec"><h4>回放与评测</h4><div class="kv" style="grid-template-columns:repeat(3,1fr)">'
-    +'<div><b>'+s.replay.count+'</b><span>回放样本</span></div>'
+    +'<div class="dsec"><h4>双组样本池与评测</h4><div class="kv" style="grid-template-columns:repeat(4,1fr)">'
+    +'<div><b>'+(s.replay.evidence||0)+'</b><span>证据组样本</span></div>'
+    +'<div><b>'+(s.replay.score||0)+'</b><span>成绩组样本</span></div>'
     +'<div><b>'+s.eval.average_score.toFixed(1)+'</b><span>平均分</span></div>'
     +'<div><b>'+pct(s.eval.pass_rate||0)+'</b><span>规则通过</span></div></div>'
+    +'<div class="sk-tip" style="margin-top:8px"><b>证据组</b>=决策窗口样本（skill 出生前的对话，只做诊断，不进门槛）；<b>成绩组</b>=使用窗口样本（真实使用中攒的答卷，状态机只看这组——skill 不为出生前的回复负责）。</div>'
     +(s.replay.sources&&s.replay.sources.length?'<div class="sk-tip" style="margin-top:8px">样本来源：'+s.replay.sources.map(esc).join('、')+'</div>':'')
     +(ruleRows?'<div style="margin-top:10px">'+ruleRows+'</div>':'')
     +'</div>'
