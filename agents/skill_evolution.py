@@ -13,6 +13,8 @@ from .frontmatter import format_frontmatter, parse_frontmatter
 
 
 USAGE_LOG = "usage.jsonl"
+USAGE_SAMPLES = "skill-usage-samples.jsonl"
+_usage_sample_day_counts: dict[str, int] = {}
 ONLINE_PROVENANCE_LOG = "online_provenance.jsonl"
 ONLINE_PROVENANCE_INDEX = "online_skill_provenance.json"
 SKILL_USAGE_STATS = "skill_usage_stats.json"
@@ -546,6 +548,55 @@ def maybe_archive_never_retrieved_skill(skill_name: str, stats: dict[str, Any], 
     if moved:
         stats["prune_reason"] = "never-retrieved"
     return moved
+
+
+def record_usage_samples(
+    judgments: list[dict[str, Any]],
+    *,
+    messages: list[dict[str, Any]],
+    latest_user: str,
+    latest_assistant: str,
+) -> dict[str, Any]:
+    """按检索落使用窗口样本（成绩组考卷）：relevant/used 是标注，不是入组门槛。
+
+    被检索到就记一条当轮对话——包括"被检索但模型没用"的轮次，那类样本是
+    真实的低分答卷，让通过率惩罚"检索得到却不被采纳"的 skill。
+    每进程每天每 skill 最多 EVOHARNESS_USAGE_SAMPLE_DAY_LIMIT 条（默认 4），
+    防高频 skill 灌爆样本池；文件超 20MB 停写兜底。
+    """
+    limit = _parse_int(os.environ.get("EVOHARNESS_USAGE_SAMPLE_DAY_LIMIT"), 4)
+    day = _today()
+    path = get_evolution_dir() / USAGE_SAMPLES
+    try:
+        if path.is_file() and path.stat().st_size > 20 * 1024 * 1024:
+            return {"ok": False, "error": "usage sample log too large"}
+        recorded = 0
+        for judgment in judgments:
+            name = str(judgment.get("name") or judgment.get("skill") or "").strip()
+            if not name:
+                continue
+            key = f"{day}|{name}"
+            if _usage_sample_day_counts.get(key, 0) >= max(1, limit):
+                continue
+            _usage_sample_day_counts[key] = _usage_sample_day_counts.get(key, 0) + 1
+            _append_jsonl(
+                path,
+                {
+                    "skill": name,
+                    "time": _utc_now(),
+                    "source_type": "usage",
+                    "latest_user": str(latest_user or ""),
+                    "latest_assistant": str(latest_assistant or ""),
+                    "messages": _compact_messages(messages),
+                    "relevant": bool(judgment.get("relevant")),
+                    "used": bool(judgment.get("used")),
+                    "score": float(judgment.get("score", 0.0) or 0.0),
+                },
+            )
+            recorded += 1
+        return {"ok": True, "recorded": recorded}
+    except Exception:
+        return {"ok": False, "error": "usage sample write failed"}
 
 
 def _maybe_prune_stale_skill(skill_name: str, stats: dict[str, Any]) -> bool:

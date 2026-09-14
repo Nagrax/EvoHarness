@@ -703,6 +703,19 @@ class Agent:
             result = record_usage_judgments(judgments)
             if result.get("pruned"):
                 self._refresh_runtime_system_prompt()
+            # 按检索落使用窗口样本（成绩组考卷）：relevant/used 是标注不是门槛，
+            # "被检索但没用"的轮次也要记——那是真实的低分答卷。
+            try:
+                from .skill_evolution import record_usage_samples
+
+                record_usage_samples(
+                    judgments,
+                    messages=self._recent_dialog_messages(max_messages=8),
+                    latest_user=original_user_message,
+                    latest_assistant=assistant_text,
+                )
+            except Exception:
+                pass
         except Exception:
             return
 

@@ -11,13 +11,14 @@ from .skill_evolution import (
     ONLINE_PROVENANCE_INDEX,
     ONLINE_PROVENANCE_LOG,
     SKILL_USAGE_STATS,
+    USAGE_SAMPLES,
     get_evolution_dir,
     load_skill_stats,
     maybe_archive_never_retrieved_skill,
 )
 
 
-DEFAULT_MIN_REPLAY_SAMPLES = 2
+DEFAULT_MIN_SCORE_SAMPLES = 3  # 成绩组（使用窗口）最低样本数；证据组不进门槛
 DEFAULT_MIN_PROMOTION_TESTS = 1
 DEFAULT_MIN_RETRIEVED = 5
 DEFAULT_MIN_USED_RATE = 0.2
@@ -531,25 +532,37 @@ def _build_replay_pool(
     rows: list[dict[str, Any]],
     lineage: dict[str, Any],
     *,
+    usage_rows: list[dict[str, Any]] | None = None,
     freeze: bool = True,
 ) -> list[dict[str, Any]]:
+    """冻结回放样本池，按来源分两组：
+
+    - evidence（证据组）：决策窗口（add/merge/revise/discard 当场记下的对话），
+      只做诊断（出生差距、before/after），不进状态机与晋级；
+    - score（成绩组）：使用窗口（skill 被检索的当轮对话，relevant/used 是标注
+      不是门槛）——状态机与晋级只考这一组：对话发生时 skill 已在线上，
+      答卷反映真实生效行为，出生样本的必然挂科不再污染成绩单。
+    旧池样本没有 group 字段，一律按 evidence 处理（它们都是决策窗口出身）。
+    """
     samples: dict[str, dict[str, Any]] = {}
 
-    def add_sample(source: dict[str, Any], source_kind: str) -> None:
+    def add_sample(source: dict[str, Any], source_kind: str, group: str) -> None:
         messages = _normalized_messages(source.get("messages"))
         if not messages or not _latest_message(messages, "user"):
             return
         sample_id = _stable_hash(
             {
                 "skill": skill_name,
+                "group": group,
                 "messages": messages,
                 "latest_user": _latest_message(messages, "user"),
             }
         )
-        samples[sample_id] = {
+        item = {
             "sample_id": sample_id,
             "source_type": source_kind,
-            "split": "mutate_dev",
+            "group": group,
+            "split": "mutate_dev" if group == "score" else "evidence",
             "time": source.get("time", ""),
             "action": source.get("action", ""),
             "ok": bool(source.get("ok", True)),
@@ -557,12 +570,19 @@ def _build_replay_pool(
             "latest_assistant": _latest_message(messages, "assistant"),
             "messages": messages,
         }
+        if group == "score":
+            item["relevant"] = bool(source.get("relevant"))
+            item["used"] = bool(source.get("used"))
+        samples[sample_id] = item
 
     for row in rows:
-        add_sample(row, "online_log")
+        add_sample(row, "online_log", "evidence")
     for source in lineage.get("sources", []) if isinstance(lineage.get("sources"), list) else []:
         if isinstance(source, dict):
-            add_sample(source, "online_index")
+            add_sample(source, "online_index", "evidence")
+    for row in usage_rows or []:
+        if isinstance(row, dict):
+            add_sample(row, "usage", "score")
 
     ordered = sorted(samples.values(), key=lambda item: (str(item.get("time") or ""), item["sample_id"]), reverse=True)
     if not freeze:
@@ -580,20 +600,27 @@ def _split_score(sample_id: str) -> float:
 
 
 def _assign_replay_splits(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """成绩组内做稳定哈希 dev/test 划分；证据组整体标 split=evidence，不参与晋级。"""
     out = [dict(item) for item in samples]
-    if len(out) < 2:
-        for item in out:
-            item["split"] = "mutate_dev"
+    score_items = [item for item in out if item.get("group") == "score"]
+    for item in out:
+        if item.get("group") != "score":
+            item["group"] = "evidence"
+            item["split"] = "evidence"
+    if not score_items:
+        return out
+    if len(score_items) < 2:
+        score_items[-1]["split"] = "mutate_dev"
         return out
 
-    for item in out:
+    for item in score_items:
         score = _split_score(str(item.get("sample_id") or ""))
         item["split"] = "mutate_dev" if score < DEFAULT_DEV_SPLIT_RATIO else "promotion_test"
 
-    if not any(item.get("split") == "promotion_test" for item in out):
-        out[-1]["split"] = "promotion_test"
-    if not any(item.get("split") == "mutate_dev" for item in out):
-        out[0]["split"] = "mutate_dev"
+    if not any(item.get("split") == "promotion_test" for item in score_items):
+        score_items[-1]["split"] = "promotion_test"
+    if not any(item.get("split") == "mutate_dev" for item in score_items):
+        score_items[0]["split"] = "mutate_dev"
     return out
 
 
@@ -995,10 +1022,12 @@ async def _build_candidate_eval_bundle_async(
 
             baseline_corpus = build_retrieval_corpus()
             if str(snapshot.get("name") or "") in baseline_corpus:
+                # 触发重放优先用成绩组的 query——那正是真实触发过检索的问题。
+                trigger_samples = [s for s in replay_pool if s.get("group") == "score"] or replay_pool
                 metrics = _evaluate_trigger_variant(
                     skill_name=str(snapshot.get("name") or ""),
                     variant=trigger_variant,
-                    samples=replay_pool,
+                    samples=trigger_samples,
                     baseline_corpus=baseline_corpus,
                 )
                 if metrics.get("evaluated"):
@@ -1028,8 +1057,11 @@ async def _build_candidate_eval_bundle_async(
             continue
         seen.add(key)
         deduped.append(variant)
-    dev_samples = [sample for sample in replay_pool if sample.get("split") == "mutate_dev"] or list(replay_pool)
-    test_samples = [sample for sample in replay_pool if sample.get("split") == "promotion_test"]
+    # 变体优先在成绩组上比（skill 在场的真实对话，考卷与现任同源）；
+    # 新 skill 成绩组为空时退回证据组——正好是"出生题重答"场景。
+    pool_for_variants = [s for s in replay_pool if s.get("group") == "score"] or list(replay_pool)
+    dev_samples = [sample for sample in pool_for_variants if sample.get("split") == "mutate_dev"] or pool_for_variants
+    test_samples = [sample for sample in pool_for_variants if sample.get("split") == "promotion_test"]
     outputs: list[dict[str, Any]] = []
     judgments: list[dict[str, Any]] = []
     scored: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
@@ -1212,27 +1244,29 @@ def _evaluate_trigger_variant(
 
 def _skill_status(
     *,
-    replay_count: int,
+    score_count: int,
     promotion_test_count: int,
     retrieved: int,
     relevant: int,
     used: int,
     pruned: bool,
     rule_summary: dict[str, Any],
-    min_replay_samples: int,
+    min_score_samples: int,
     min_promotion_tests: int,
     min_retrieved: int,
     min_used_rate: float,
     min_relevance_rate: float,
     min_rule_pass_rate: float,
 ) -> tuple[str, list[str]]:
+    """状态只看两本账：成绩组（使用窗口真实行为）+ 线上检索/相关/使用；
+    证据组（决策窗口）不参与定级——skill 不为它出生前的回复负责。"""
     reasons: list[str] = []
     if pruned:
         return "pruned", ["skill has been archived by usage pruning"]
-    if replay_count <= 0 and retrieved <= 0:
-        return "unobserved", ["no online replay or usage signal yet"]
-    if replay_count < min_replay_samples:
-        reasons.append(f"only {replay_count} replay sample(s)")
+    if score_count <= 0 and retrieved <= 0:
+        return "unobserved", ["no usage-window or retrieval signal yet"]
+    if score_count < min_score_samples:
+        reasons.append(f"only {score_count} usage-window sample(s)")
     if promotion_test_count < min_promotion_tests:
         reasons.append(f"only {promotion_test_count} promotion-test sample(s)")
     if retrieved < min_retrieved:
@@ -1564,7 +1598,7 @@ def _persist_eval_artifacts(
 
 async def _evaluate_online_skill_evolution_core(
     *,
-    min_replay_samples: int = DEFAULT_MIN_REPLAY_SAMPLES,
+    min_score_samples: int = DEFAULT_MIN_SCORE_SAMPLES,
     min_promotion_tests: int = DEFAULT_MIN_PROMOTION_TESTS,
     min_retrieved: int = DEFAULT_MIN_RETRIEVED,
     min_used_rate: float = DEFAULT_MIN_USED_RATE,
@@ -1582,6 +1616,8 @@ async def _evaluate_online_skill_evolution_core(
     lifecycle_stats = load_skill_stats()
     active_skills = _active_skill_snapshots()
     grouped_rows = _rows_by_skill(provenance_rows)
+    # 使用窗口样本（成绩组来源）与决策窗口（证据组来源）分开建池。
+    usage_sample_rows_by_skill = _rows_by_skill(_read_jsonl(root / USAGE_SAMPLES))
 
     action_counts = {"none": 0, "add": 0, "merge": 0, "revise": 0, "discard": 0, "failed": 0, "denied": 0, "other": 0}
     ok_count = 0
@@ -1632,13 +1668,26 @@ async def _evaluate_online_skill_evolution_core(
                 "instructions": "",
             }
 
-        replay_pool = _build_replay_pool(name, grouped_rows.get(name, []), lineage, freeze=write_artifacts)
+        replay_pool = _build_replay_pool(
+            name,
+            grouped_rows.get(name, []),
+            lineage,
+            usage_rows=usage_sample_rows_by_skill.get(name, []),
+            freeze=write_artifacts,
+        )
+        score_samples = [item for item in replay_pool if item.get("group") == "score"]
+        evidence_samples = [item for item in replay_pool if item.get("group") != "score"]
         rules = _compile_eval_rules(snapshot, include_llm_rules=include_llm_rules)
+        # 现任版本的成绩单只考成绩组：对话发生时 skill 已在线上，答卷反映真实生效行为。
         rule_summary = await _summarize_rule_outcomes_async(
             rules,
-            replay_pool,
+            score_samples,
             skill_name=name,
             side_query=side_query,
+        )
+        # 证据组只做诊断（出生差距 before），程序规则零成本跑一遍供 before/after 对比。
+        evidence_eval = (
+            _summarize_rule_outcomes(rules, evidence_samples) if evidence_samples else {}
         )
         public_rule_summary = dict(rule_summary)
         public_rule_summary.pop("outcomes", None)
@@ -1646,16 +1695,16 @@ async def _evaluate_online_skill_evolution_core(
         relevant = int(usage.get("relevant", lifecycle.get("relevant", 0)) or 0)
         used = int(usage.get("used", lifecycle.get("used", 0)) or 0)
         pruned = bool(usage.get("pruned") or lifecycle.get("pruned"))
-        promotion_test_count = sum(1 for item in replay_pool if item.get("split") == "promotion_test")
+        promotion_test_count = sum(1 for item in score_samples if item.get("split") == "promotion_test")
         status, reasons = _skill_status(
-            replay_count=len(replay_pool),
+            score_count=len(score_samples),
             promotion_test_count=promotion_test_count,
             retrieved=retrieved,
             relevant=relevant,
             used=used,
             pruned=pruned,
             rule_summary=rule_summary,
-            min_replay_samples=min_replay_samples,
+            min_score_samples=min_score_samples,
             min_promotion_tests=min_promotion_tests,
             min_retrieved=min_retrieved,
             min_used_rate=min_used_rate,
@@ -1698,6 +1747,31 @@ async def _evaluate_online_skill_evolution_core(
             side_query=side_query,
             usage=usage,
         )
+        # 出生题重答：拿最近的证据组样本注入现任指令重放——
+        # "如果当初有这条规矩，行为会不会对"。只进报告做能力自检，不进 healthy 门槛。
+        birth_check: dict[str, Any] = {}
+        if side_query is not None and evidence_samples:
+            try:
+                check_sample = evidence_samples[0]
+                birth_reply = await _generate_variant_response_async(
+                    variant={"variant_id": "birth-check", "snapshot": snapshot},
+                    sample=check_sample,
+                    side_query=side_query,
+                )
+                if str(birth_reply or "").strip():
+                    outcomes = [
+                        await _evaluate_rule_async(
+                            rule, birth_reply, sample=check_sample, skill_name=name, side_query=side_query
+                        )
+                        for rule in rules
+                    ]
+                    birth_check = {
+                        "sample_id": check_sample.get("sample_id", ""),
+                        "pass_rate": _ratio(sum(1 for o in outcomes if o.get("passed")), max(1, len(outcomes))),
+                        "hard_failures": sum(1 for o in outcomes if o.get("hard") and not o.get("passed")),
+                    }
+            except Exception:
+                birth_check = {}
         artifacts = (
             _persist_eval_artifacts(
                 skill_name=name,
@@ -1734,12 +1808,18 @@ async def _evaluate_online_skill_evolution_core(
                 "used_rate": _ratio(used, retrieved),
                 "used_when_relevant_rate": _ratio(used, relevant),
                 "replay": {
-                    "count": len(replay_pool),
-                    "mutate_dev": sum(1 for item in replay_pool if item.get("split") == "mutate_dev"),
+                    "count": len(score_samples),
+                    "evidence_count": len(evidence_samples),
+                    "mutate_dev": sum(1 for item in score_samples if item.get("split") == "mutate_dev"),
                     "promotion_test": promotion_test_count,
                     "sources": sorted({str(item.get("source_type") or "") for item in replay_pool if item.get("source_type")}),
                 },
                 "eval": public_rule_summary,
+                "evidence_eval": {
+                    "pass_rate": float(evidence_eval.get("pass_rate", 0.0) or 0.0),
+                    "hard_failures": int(evidence_eval.get("hard_failures", 0) or 0),
+                },
+                "birth_check": birth_check,
                 "candidate_eval": {
                     "candidate_count": len(list(candidate_bundle.get("candidate_variants") or [])) if isinstance(candidate_bundle, dict) else 0,
                     "best_candidate": dict(candidate_bundle.get("best_dev_summary") or {}) if isinstance(candidate_bundle, dict) else {},
@@ -1822,7 +1902,7 @@ async def _evaluate_online_skill_evolution_core(
         "data_dir": str(root),
         "methodology": {
             "lineage": "group online provenance and usage by skill",
-            "replay": "freeze compact online conversation windows as replay samples",
+            "replay": "freeze decision windows as evidence group and usage windows as score group; status and promotion judge the score group only",
             "rules": "compile deterministic rules and optional LLM judge rules from each active skill's description and instructions",
             "gate": "mark skills incubating, watch, healthy, pruned, or unobserved from replay, rule, and usage signals",
             "champion": "promote the current active version into a local online-eval champion only when it is healthy and beats the prior champion gate",
@@ -1833,7 +1913,8 @@ async def _evaluate_online_skill_evolution_core(
             "response_source": "history_latest_assistant",
         },
         "thresholds": {
-            "min_replay_samples": min_replay_samples,
+            "min_replay_samples": min_score_samples,  # 兼容旧字段名：语义已改为成绩组样本
+            "min_score_samples": min_score_samples,
             "min_promotion_tests": min_promotion_tests,
             "min_retrieved": min_retrieved,
             "min_used_rate": min_used_rate,
@@ -1872,7 +1953,7 @@ async def _evaluate_online_skill_evolution_core(
 
 def evaluate_online_skill_evolution(
     *,
-    min_replay_samples: int = DEFAULT_MIN_REPLAY_SAMPLES,
+    min_score_samples: int = DEFAULT_MIN_SCORE_SAMPLES,
     min_promotion_tests: int = DEFAULT_MIN_PROMOTION_TESTS,
     min_retrieved: int = DEFAULT_MIN_RETRIEVED,
     min_used_rate: float = DEFAULT_MIN_USED_RATE,
@@ -1885,7 +1966,7 @@ def evaluate_online_skill_evolution(
 
     return asyncio.run(
         _evaluate_online_skill_evolution_core(
-            min_replay_samples=min_replay_samples,
+            min_score_samples=min_score_samples,
             min_promotion_tests=min_promotion_tests,
             min_retrieved=min_retrieved,
             min_used_rate=min_used_rate,
@@ -1902,7 +1983,7 @@ def evaluate_online_skill_evolution(
 async def evaluate_online_skill_evolution_async(
     *,
     side_query: SideQuery | None = None,
-    min_replay_samples: int = DEFAULT_MIN_REPLAY_SAMPLES,
+    min_score_samples: int = DEFAULT_MIN_SCORE_SAMPLES,
     min_promotion_tests: int = DEFAULT_MIN_PROMOTION_TESTS,
     min_retrieved: int = DEFAULT_MIN_RETRIEVED,
     min_used_rate: float = DEFAULT_MIN_USED_RATE,
