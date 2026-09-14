@@ -1759,13 +1759,17 @@ async def _evaluate_online_skill_evolution_core(
     from .skill_status import estimate_status_from_usage
 
     runtime_statuses: dict[str, str] = {}
+    certified_statuses: dict[str, str] = {}
     for item in skills:
         name = str(item.get("skill") or "")
         if not name:
             continue
         replay_info = item.get("replay") if isinstance(item.get("replay"), dict) else {}
         if int(replay_info.get("count", 0) or 0) > 0:
-            runtime_statuses[name] = str(item.get("status") or "")
+            status = str(item.get("status") or "")
+            runtime_statuses[name] = status
+            # 只有有答卷的才进认证表——检索加权只认这份。
+            certified_statuses[name] = status
         else:
             runtime_statuses[name] = estimate_status_from_usage(
                 {
@@ -1780,6 +1784,7 @@ async def _evaluate_online_skill_evolution_core(
         {
             "generated_at": _utc_now(),
             "statuses": runtime_statuses,
+            "certified_statuses": certified_statuses,
         },
     )
 

@@ -21,8 +21,8 @@ from .skill_evolution import (
 from .skill_status import (
     PROVISIONAL_STATUSES,
     STATUS_WEIGHTS,
+    get_certified_status_map,
     get_effective_status_map,
-    get_trusted_status_map,
 )
 
 
@@ -318,9 +318,10 @@ def retrieve_relevant_skills(
         return []
     by_name = {skill.name: skill for skill in skills}
     corpus = build_retrieval_corpus(skills)
-    # 状态联动：healthy 加权 / watch 降权只对评测认证过的状态生效；新 skill 不惩罚，
-    # 否则检索量本来就少的孵化期 skill 会被饿死在起跑线。
-    trusted = get_trusted_status_map()
+    # 状态联动：healthy 加权 / watch 降权只对"有答卷、经认证"的状态生效；
+    # 无答卷 skill 的估算状态只管试用期待遇，不加权不降权（防手动导入被误降权），
+    # 孵化期不降权（防新 skill 饿死在起跑线）。
+    certified = get_certified_status_map()
     effective = get_effective_status_map()
     hits: list[dict[str, Any]] = []
     for name, base_score in rank_corpus_for_query(query, corpus):
@@ -328,7 +329,7 @@ def retrieve_relevant_skills(
         if skill is None:
             continue
         name_bonus = 0.15 if skill.name.lower() in str(query or "").lower() else 0.0
-        weight = STATUS_WEIGHTS.get(trusted.get(skill.name, ""), 1.0)
+        weight = STATUS_WEIGHTS.get(certified.get(skill.name, ""), 1.0)
         score = min(1.0, base_score + name_bonus) * weight
         if score < float(min_score):
             continue

@@ -27,6 +27,7 @@ def status_map_path() -> Path:
 
 
 _cached_status_map: dict[str, str] | None = None
+_cached_certified_map: dict[str, str] | None = None
 _cached_mtime: float = -1.0
 
 
@@ -56,6 +57,28 @@ def get_trusted_status_map() -> dict[str, str]:
         )
         _cached_mtime = mtime
     return _cached_status_map
+
+
+def get_certified_status_map() -> dict[str, str]:
+    """有 replay 答卷、经状态机认证的状态——只有这一份参与检索加权。
+
+    无答卷 skill 的估算状态（典型是手动导入）只用于试用期待遇，
+    不加权不降权：行为达标是"不惩罚"，够不上"认证奖励"。
+    """
+    global _cached_certified_map, _cached_mtime
+    path = status_map_path()
+    if not path.is_file():
+        _cached_certified_map = {}
+        return {}
+    mtime = path.stat().st_mtime
+    if _cached_certified_map is None or mtime != _cached_mtime:
+        data = _read_json(path, {})
+        certified = data.get("certified_statuses") if isinstance(data, dict) else None
+        _cached_certified_map = (
+            {str(k): str(v) for k, v in certified.items()} if isinstance(certified, dict) else {}
+        )
+        _cached_mtime = mtime
+    return _cached_certified_map
 
 
 def estimate_status_from_usage(item: dict[str, Any]) -> str:
