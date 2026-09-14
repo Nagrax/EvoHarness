@@ -58,7 +58,8 @@ def get_trusted_status_map() -> dict[str, str]:
     return _cached_status_map
 
 
-def _estimate_status_from_usage(item: dict[str, Any]) -> str:
+def estimate_status_from_usage(item: dict[str, Any]) -> str:
+    """按 usage stats 粗估运行时状态（公开给评测侧复用：无答卷 skill 的状态表写入）。"""
     if item.get("pruned"):
         return "pruned"
     retrieved = int(item.get("retrieved", 0) or 0)
@@ -81,7 +82,7 @@ def get_effective_status_map() -> dict[str, str]:
     if not isinstance(stats, dict):
         return {}
     return {
-        str(name): _estimate_status_from_usage(item)
+        str(name): estimate_status_from_usage(item)
         for name, item in stats.items()
         if isinstance(item, dict)
     }

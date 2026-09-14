@@ -1752,15 +1752,34 @@ async def _evaluate_online_skill_evolution_core(
         )
 
     # 物化状态表：线上检索权重与试用期标注读这份缓存，不在检索路径上现算状态。
+    # 没有答卷的 skill（replay 为空——典型是手动导入：没有 provenance 决策记录，
+    # 状态机只能给 incubating）：状态表按使用数据估算写入，避免"用得很好却被
+    # 钉死在试用期"；报告里的认证状态保持不变，诚实展示"未经认证"——
+    # 认证归认证、待遇归待遇，两张表分开。
+    from .skill_status import estimate_status_from_usage
+
+    runtime_statuses: dict[str, str] = {}
+    for item in skills:
+        name = str(item.get("skill") or "")
+        if not name:
+            continue
+        replay_info = item.get("replay") if isinstance(item.get("replay"), dict) else {}
+        if int(replay_info.get("count", 0) or 0) > 0:
+            runtime_statuses[name] = str(item.get("status") or "")
+        else:
+            runtime_statuses[name] = estimate_status_from_usage(
+                {
+                    "pruned": str(item.get("status") or "") == "pruned",
+                    "retrieved": int(item.get("retrieved", 0) or 0),
+                    "relevant": int(item.get("relevant", 0) or 0),
+                    "used": int(item.get("used", 0) or 0),
+                }
+            )
     _write_json(
         _online_eval_root() / "status_map.json",
         {
             "generated_at": _utc_now(),
-            "statuses": {
-                str(item.get("skill") or ""): str(item.get("status") or "")
-                for item in skills
-                if item.get("skill")
-            },
+            "statuses": runtime_statuses,
         },
     )
 
