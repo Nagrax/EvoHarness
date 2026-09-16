@@ -257,6 +257,22 @@ body[data-view="chat"] #skillsView{display:none!important}
 .sk-tip{font-size:11.5px;color:var(--txt-3);margin-top:10px}
 .sk-tip b{color:var(--txt-2);font-weight:500}
 
+/* ───────── load alert：SKILL.md 加载层溯源 ───────── */
+.load-alert{margin-top:14px;border:1px solid rgba(207,34,46,.35);border-radius:11px;background:#FDF3F3;overflow:hidden}
+.load-alert-head{display:flex;align-items:center;gap:9px;padding:10px 16px;background:rgba(207,34,46,.06);border-bottom:1px solid rgba(207,34,46,.18);font-size:12.5px;font-weight:600;color:#B62331}
+.load-alert-head svg{flex-shrink:0}
+.load-alert-head .cnt{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:500;color:#B62331;background:rgba(207,34,46,.1);border-radius:10px;padding:1px 9px}
+.load-alert-body{padding:6px 16px 10px;display:flex;flex-direction:column}
+.le-row{display:grid;grid-template-columns:110px 64px 1fr;gap:10px;align-items:baseline;padding:6.5px 0;border-bottom:1px dashed var(--line);font-size:12px}
+.le-row:last-child{border-bottom:none}
+.le-time{font-family:var(--mono);font-size:11px;color:var(--txt-3)}
+.le-kind{font-size:11px;font-weight:600}
+.le-kind.failed{color:var(--err)}
+.le-kind.warned{color:var(--warn)}
+.le-detail{min-width:0;display:flex;gap:8px;align-items:baseline}
+.le-file{font-family:var(--mono);font-size:11.5px;color:var(--txt-2);background:var(--bg-hover);border-radius:5px;padding:1px 8px;flex-shrink:0;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.le-msg{color:var(--txt-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 /* ───────── settings modal ───────── */
 .set-mask{position:fixed;inset:0;background:rgba(31,35,40,.32);z-index:120;opacity:0;pointer-events:none;transition:opacity .2s}
 .set-mask.open{opacity:1;pointer-events:auto}
@@ -450,7 +466,7 @@ body[data-view="chat"] #evalView,body[data-view="skills"] #evalView{display:none
           </button>
         </div>
         <div class="stage-band" id="stageBand"></div>
-        <div id="skLoadErrors" class="sk-empty" style="display:none;padding:14px 18px;text-align:left;border-color:rgba(207,34,46,.3);margin-top:14px"></div>
+        <div id="skLoadErrors" class="load-alert" style="display:none"></div>
         <div class="sk-tip" id="stageTip">样本池分两组：<b>证据组</b>（决策窗口，只诊断）与<b>成绩组</b>（使用窗口，唯一成绩单）；前两级管<b>成绩组样本量</b>，watch 管<b>质量</b>，healthy 才可晋级 champion——skill 不为出生前的回复负责。<b>healthy ×1.25 / watch ×0.75</b> 的检索权重仅对评测认证状态生效，孵化期不降权。</div>
         <table class="sk-table" id="skTable"></table>
         <div id="skEmpty" class="sk-empty" style="display:none"></div>
@@ -857,8 +873,19 @@ function renderSkills(){
     const errs=Array.isArray(load_errors)?load_errors:[];
     if(errs.length){
       le.style.display='block';
-      le.innerHTML='<h4 style="font-size:12px;color:var(--err);font-weight:600;margin-bottom:7px">加载异常（'+errs.length+'）——这些 skill 未正常载入或行为受损</h4>'
-        +errs.slice(0,8).map(e=>'<div class="ev-row"><span class="et">'+esc2(String(e.time||'').replace('T',' ').replace('Z',''))+'</span><span class="ee" style="width:96px;color:'+(e.event==='load_failed'?'var(--err)':'var(--warn)')+'">'+esc2(e.event==='load_failed'?'解析失败':'静默降级')+'</span><span class="es" title="'+esc2(e.error||e.reason||'')+'">'+esc2(String(e.file||'').split(/[\\/]/).pop())+'：'+esc2(String(e.reason||e.error||'').slice(0,70))+'</span></div>').join('');
+      const WARN_ICON='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+      le.innerHTML='<div class="load-alert-head">'+WARN_ICON+'SKILL.md 加载异常<span class="cnt">'+errs.length+'</span></div>'
+        +'<div class="load-alert-body">'
+        +errs.slice(0,8).map(e=>{
+          const failed=e.event==='load_failed';
+          const fname=String(e.file||'').replace(/\\/g,'/').split('/').slice(-2).join('/');
+          const msg=String(e.reason||e.error||'');
+          return '<div class="le-row" title="'+esc2(fname+'：'+msg)+'">'
+            +'<span class="le-time">'+esc2(String(e.time||'').replace('T',' ').replace('Z','').slice(5,16))+'</span>'
+            +'<span class="le-kind '+(failed?'failed':'warned')+'">'+(failed?'解析失败':'静默降级')+'</span>'
+            +'<span class="le-detail"><span class="le-file">'+esc2(fname)+'</span><span class="le-msg">'+esc2(msg)+'</span></span>'
+            +'</div>';
+        }).join('')+'</div>';
     }else{le.style.display='none';le.innerHTML='';}
   }
   $('#skGen').textContent=generated_at?('评测生成于 '+generated_at.replace('T',' ').replace('Z',' UTC')):'';
