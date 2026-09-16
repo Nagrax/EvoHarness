@@ -450,6 +450,7 @@ body[data-view="chat"] #evalView,body[data-view="skills"] #evalView{display:none
           </button>
         </div>
         <div class="stage-band" id="stageBand"></div>
+        <div id="skLoadErrors" class="sk-empty" style="display:none;padding:14px 18px;text-align:left;border-color:rgba(207,34,46,.3);margin-top:14px"></div>
         <div class="sk-tip" id="stageTip">样本池分两组：<b>证据组</b>（决策窗口，只诊断）与<b>成绩组</b>（使用窗口，唯一成绩单）；前两级管<b>成绩组样本量</b>，watch 管<b>质量</b>，healthy 才可晋级 champion——skill 不为出生前的回复负责。<b>healthy ×1.25 / watch ×0.75</b> 的检索权重仅对评测认证状态生效，孵化期不降权。</div>
         <table class="sk-table" id="skTable"></table>
         <div id="skEmpty" class="sk-empty" style="display:none"></div>
@@ -849,7 +850,17 @@ function gateBar(g){
 }
 
 function renderSkills(){
-  const {skills,generated_at,has_report,champion_count}=skData;
+  const {skills,generated_at,has_report,champion_count,load_errors}=skData;
+  // 加载层溯源：SKILL.md 写坏（load_failed）或静默行为改变（load_warning）的最近记录
+  const le=$('#skLoadErrors');
+  if(le){
+    const errs=Array.isArray(load_errors)?load_errors:[];
+    if(errs.length){
+      le.style.display='block';
+      le.innerHTML='<h4 style="font-size:12px;color:var(--err);font-weight:600;margin-bottom:7px">加载异常（'+errs.length+'）——这些 skill 未正常载入或行为受损</h4>'
+        +errs.slice(0,8).map(e=>'<div class="ev-row"><span class="et">'+esc2(String(e.time||'').replace('T',' ').replace('Z',''))+'</span><span class="ee" style="width:96px;color:'+(e.event==='load_failed'?'var(--err)':'var(--warn)')+'">'+esc2(e.event==='load_failed'?'解析失败':'静默降级')+'</span><span class="es" title="'+esc2(e.error||e.reason||'')+'">'+esc2(String(e.file||'').split(/[\\/]/).pop())+'：'+esc2(String(e.reason||e.error||'').slice(0,70))+'</span></div>').join('');
+    }else{le.style.display='none';le.innerHTML='';}
+  }
   $('#skGen').textContent=generated_at?('评测生成于 '+generated_at.replace('T',' ').replace('Z',' UTC')):'';
   if(!has_report){
     $('#stageBand').style.display='none';$('#stageTip').style.display='none';

@@ -18,6 +18,7 @@ _usage_sample_day_counts: dict[str, int] = {}
 ONLINE_PROVENANCE_LOG = "online_provenance.jsonl"
 ONLINE_PROVENANCE_INDEX = "online_skill_provenance.json"
 SKILL_USAGE_STATS = "skill_usage_stats.json"
+SKILL_LOAD_ERRORS_LOG = "skill_load_errors.jsonl"
 HISTORY_DIR = "history"
 
 
@@ -37,6 +38,29 @@ def _append_jsonl(path: Path, row: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def record_skill_load_issue(
+    *,
+    event: str,
+    file: str,
+    error_type: str = "",
+    error: str = "",
+    reason: str = "",
+) -> None:
+    """记录 SKILL.md 加载层问题（load_failed=解析抛异常 / load_warning=静默行为改变）。
+
+    解析失败发生在自进化上游：文件进不了 SkillDefinition，进化体系看不见它，
+    信号也不在对话层输入里——所以溯源必须由加载层用确定性代码落盘，不走 LLM。
+    """
+    _append_jsonl(get_evolution_dir() / SKILL_LOAD_ERRORS_LOG, {
+        "event": event,
+        "time": _utc_now(),
+        "file": file,
+        "error_type": error_type,
+        "error": str(error)[:500],
+        "reason": reason,
+    })
 
 
 def _read_json(path: Path, default: Any) -> Any:

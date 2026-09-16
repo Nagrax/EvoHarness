@@ -16,6 +16,7 @@ from .skill_evolution import (
     record_online_skill_provenance,
     record_skill_feedback,
     record_skill_invocation,
+    record_skill_load_issue,
     record_skill_usage_judgments,
 )
 from .skill_status import (
@@ -117,12 +118,45 @@ def _load_skills_from_dir( base_dir: Path, source: str, skills:dict[str, SkillDe
                 continue
             skills[skill.name] = skill
 
+def _warn_suspicious_frontmatter(file_path: Path, raw: str, result) -> None:
+    """检测不抛异常但行为静默变坏的 SKILL.md，记 load_warning。
+
+    frontmatter.py 只认英文冒号（find(":")），找不到就整行跳过；front matter 未闭合时
+    meta 为空、全文进正文。两者都不报错，但 skill 会以错误行为加载：元数据丢失、
+    检索语料的元信息部分（名字+描述+触发条件，权重 ×3）缺失。
+    """
+    lines = raw.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return
+    if not result.meta and result.body.lstrip().startswith("---"):
+        # 未闭合：parse_frontmatter 把全文当正文返回，meta={}。
+        record_skill_load_issue(
+            event="load_warning",
+            file=str(file_path),
+            reason="front matter 未闭合：元数据全部丢失且混入正文",
+        )
+        return
+    end_idx = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), -1)
+    if end_idx == -1:
+        return
+    for line in lines[1:end_idx]:
+        if "：" in line and ":" not in line:
+            record_skill_load_issue(
+                event="load_warning",
+                file=str(file_path),
+                reason=f"中文冒号导致字段被跳过: {line.strip()[:120]}",
+            )
+
+
 def _parse_skill_file(file_path: Path, source: str, skill_dir: str) -> SkillDefinition:
     try:
         # SKILL.md = frontmatter 配置 + markdown 正文。
-        raw = file_path.read_text()
+        # utf-8-sig：与 skill_evolution 的 utf-8 写入闭环，并透明剥离手工编辑带入的 BOM；
+        # 坏编码（如 GBK）在此抛 UnicodeDecodeError，进 except 记 load_failed 而非静默消失。
+        raw = file_path.read_text(encoding="utf-8-sig")
         result = parse_frontmatter(raw)
         meta = result.meta
+        _warn_suspicious_frontmatter(file_path, raw, result)
 
         # name 没写时用目录名；user-invocable 默认 true；context 默认 inline。
         name = meta.get("name") or file_path.parent.name or "unknown"
@@ -153,7 +187,15 @@ def _parse_skill_file(file_path: Path, source: str, skill_dir: str) -> SkillDefi
             skill_dir=skill_dir,
         )
 
-    except Exception:
+    except Exception as ex:
+        # 静默消失是排障盲区：SKILL.md 写坏（编码/格式错）时至少留下溯源记录，
+        # 供 /api/skills 的 load_errors 与前端面板定位"为什么这条 skill 不在"。
+        record_skill_load_issue(
+            event="load_failed",
+            file=str(file_path),
+            error_type=type(ex).__name__,
+            error=str(ex),
+        )
         return None
 
 

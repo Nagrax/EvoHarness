@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-base", default=None, help="OpenAI-compatible API base URL")
     parser.add_argument("--resume", action="store_true", help="Resume last session")
     parser.add_argument("--max-cost", type=float, default=None, help="Max USD spend")
-    parser.add_argument("--max-turns", type=int, default=None, help="Max agentic turns")
+    parser.add_argument("--max-turns", type=int, default=50, help="Max agentic turns (default 50)")
     parser.add_argument("--help", "-h", action="store_true", help="Show help")
     return parser.parse_args()
 

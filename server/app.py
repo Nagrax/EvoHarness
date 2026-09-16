@@ -229,10 +229,10 @@ class StopRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Skills 观测台：只读聚合 .bear/skill-evolution/ 审计产物，不重写核心逻辑
+# Skills 观测台：只读聚合 .evoharness/skill-evolution/ 审计产物，不重写核心逻辑
 # ---------------------------------------------------------------------------
 
-EVOLUTION_DIR = ROOT / ".bear" / "skill-evolution"
+EVOLUTION_DIR = ROOT / ".evoharness" / "skill-evolution"
 ONLINE_EVAL_DIR = EVOLUTION_DIR / "online-eval"
 
 # 六门槛中文名（顺序：证据量三项 + 质量三项）
@@ -430,12 +430,16 @@ async def skills_overview():
         for e in events[-200:]
     ][::-1]
 
+    # 加载层溯源：SKILL.md 解析失败（load_failed）或静默行为改变（load_warning）的最近记录
+    load_errors = _read_jsonl_file(EVOLUTION_DIR / "skill_load_errors.jsonl")
+
     return {
         "generated_at": report.get("generated_at", ""),
         "thresholds": thresholds,
         "aggregate": report.get("aggregate", {}),
         "skills": skills_out,
         "events": events_out,
+        "load_errors": load_errors[-50:][::-1],
         "champion_count": len(champions) if isinstance(champions, dict) else 0,
         "has_report": bool(report),
     }
