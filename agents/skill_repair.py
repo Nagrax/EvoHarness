@@ -152,6 +152,30 @@ def _frontmatter_block(raw: str) -> str:
     return "\n".join(lines[1:end]) if end > 0 else ""
 
 
+def _verify_current_state(file_str: str, kind: str) -> str:
+    """判断一条历史 load_error 记录的当前状态（前端据此降级展示）。
+
+    repairable：文件存在且该类异常仍在（可出修复建议）；
+    fixed：文件存在但异常已消失（修复过或记录过期）；
+    gone：文件不存在（测试残留 / 已删除 / 已改名）。
+    """
+    path = Path(file_str)
+    if not path.is_file():
+        return "gone"
+    try:
+        raw = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        return "repairable" if kind == "encoding" else "gone"
+    from .frontmatter import parse_frontmatter
+
+    result = parse_frontmatter(raw)
+    if kind in ("colon", "unclosed") and not result.meta:
+        return "repairable"
+    if kind == "colon" and "：" in _frontmatter_block(raw):
+        return "repairable"
+    return "fixed"
+
+
 def _classify(event: str, reason: str) -> str:
     if event == "load_failed" or "UnicodeDecodeError" in reason or "codec" in reason:
         return "encoding"

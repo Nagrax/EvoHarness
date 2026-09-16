@@ -430,8 +430,17 @@ async def skills_overview():
         for e in events[-200:]
     ][::-1]
 
-    # 加载层溯源：SKILL.md 解析失败（load_failed）或静默行为改变（load_warning）的最近记录
-    load_errors = _read_jsonl_file(EVOLUTION_DIR / "skill_load_errors.jsonl")
+    # 加载层溯源：SKILL.md 解析失败（load_failed）或静默行为改变（load_warning）的最近记录。
+    # 每条附实时状态：repairable=文件存在且异常仍在；fixed=文件存在但已无此异常；
+    # gone=文件已不存在（测试残留/已删除），前端据此降级展示。
+    from agents.skill_repair import _classify, _verify_current_state
+
+    raw_errors = _read_jsonl_file(EVOLUTION_DIR / "skill_load_errors.jsonl")
+    load_errors = []
+    for e in raw_errors[-50:][::-1]:
+        item = dict(e)
+        item["state"] = _verify_current_state(str(e.get("file") or ""), _classify(str(e.get("event") or ""), str(e.get("reason") or e.get("error") or "")))
+        load_errors.append(item)
 
     return {
         "generated_at": report.get("generated_at", ""),
@@ -439,7 +448,7 @@ async def skills_overview():
         "aggregate": report.get("aggregate", {}),
         "skills": skills_out,
         "events": events_out,
-        "load_errors": load_errors[-50:][::-1],
+        "load_errors": load_errors,
         "champion_count": len(champions) if isinstance(champions, dict) else 0,
         "has_report": bool(report),
     }
