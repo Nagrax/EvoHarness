@@ -35,7 +35,7 @@ Web 端三个视图：**对话**（SSE 实时展示推理文本、工具调用�
   <img src="docs/screenshots/chat.png" width="82%" alt="对话与工具调用时间线" />
 </p>
 <p align="center">
-  <img src="docs/screenshots/skills.png" width="82%" alt="Skills 观测台" />
+  <img src="docs/screenshots/skills.png" width="82%" alt="Skills 观测台：五级状态分布、证据/成绩双组样本、折叠式加载异常面板" />
 </p>
 <p align="center">
   <img src="docs/screenshots/memory.png" width="82%" alt="Memory 记忆考核页" />
