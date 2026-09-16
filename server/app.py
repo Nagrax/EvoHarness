@@ -446,6 +446,41 @@ async def skills_overview():
 
 
 # ---------------------------------------------------------------------------
+# SKILL.md 加载异常：建议修复 + 一键应用（备份 + 重载验证 + 失败回滚）
+# ---------------------------------------------------------------------------
+
+class RepairRequest(BaseModel):
+    file: str
+    event: str
+    reason: str = ""
+
+
+@app.post("/api/skills/repair/suggest")
+async def repair_suggest(req: RepairRequest):
+    from agents.skill_repair import build_repair_suggestion
+
+    suggestion = build_repair_suggestion(req.file, req.event, req.reason)
+    return suggestion
+
+
+@app.post("/api/skills/repair/apply")
+async def repair_apply(req: RepairRequest):
+    from agents.skill_repair import apply_repair, _classify
+
+    kind = _classify(req.event, req.reason)
+    result = apply_repair(req.file, kind)
+    if result.get("ok"):
+        # 修复成功后刷新 skill 缓存，让新文件立即进入检索语料
+        try:
+            from agents.skills import reset_skill_cache
+
+            reset_skill_cache()
+        except Exception:  # noqa: BLE001
+            pass
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Evaluation：静态 Memory Benchmark 报告 + 实时 Skill Telemetry
 # ---------------------------------------------------------------------------
 

@@ -272,6 +272,19 @@ body[data-view="chat"] #skillsView{display:none!important}
 .le-detail{min-width:0;display:flex;gap:8px;align-items:baseline}
 .le-file{font-family:var(--mono);font-size:11.5px;color:var(--txt-2);background:var(--bg-hover);border-radius:5px;padding:1px 8px;flex-shrink:0;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .le-msg{color:var(--txt-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.le-fix{margin-left:auto;flex-shrink:0;font-size:11px;color:var(--acc);border:1px solid rgba(47,111,237,.35);border-radius:6px;padding:2px 10px;background:#fff;transition:all .15s;cursor:pointer}
+.le-fix:hover{background:var(--acc-soft);border-color:rgba(47,111,237,.55)}
+
+/* 修复确认弹层（复用 set-modal 视觉体系） */
+.repair-modal{width:560px;max-width:92vw}
+.repair-action{font-size:13px;color:var(--txt-2);line-height:1.7;margin-top:2px}
+.repair-action b{color:var(--txt)}
+.repair-auto{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:var(--ok);background:#E6F4EA;border:1px solid rgba(31,136,61,.3);border-radius:6px;padding:2px 9px;margin-left:8px}
+.repair-diff{margin-top:12px;background:#F6F8FA;border:1px solid var(--line);border-radius:9px;padding:12px 14px;font-family:var(--mono);font-size:11.5px;line-height:1.7;max-height:300px;overflow:auto;white-space:pre;color:var(--txt-2)}
+.repair-diff .add{color:var(--ok);background:rgba(31,136,61,.07);display:block}
+.repair-diff .del{color:var(--err);background:rgba(207,34,46,.06);display:block}
+.repair-diff .hunk{color:var(--acc);display:block;margin-top:4px}
+.repair-note{font-size:11.5px;color:var(--txt-3);margin-top:10px;line-height:1.6}
 
 /* ───────── settings modal ───────── */
 .set-mask{position:fixed;inset:0;background:rgba(31,35,40,.32);z-index:120;opacity:0;pointer-events:none;transition:opacity .2s}
@@ -817,6 +830,66 @@ document.querySelectorAll('.starter').forEach(b=>b.addEventListener('click',()=>
   input.value=b.dataset.p;autoGrow();input.focus();
 }));
 
+/* ───────── SKILL.md 修复弹层 ───────── */
+async function openRepair(file,event,reason){
+  const modal=$('#setModal'),mask=$('#setMask');
+  modal.querySelector('.set-head h3').textContent='建议修复';
+  const body=modal.querySelector('.set-body');
+  body.innerHTML='<div style="font-size:13px;color:var(--txt-2);padding:20px 0;text-align:center">生成建议中…</div>';
+  modal.querySelector('.set-foot').style.display='none';
+  modal.classList.add('open');mask.classList.add('open');
+  let s;
+  try{
+    const r=await fetch('/api/skills/repair/suggest',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({file,event,reason})});
+    s=await r.json();
+  }catch(e){s={available:false,why:'请求失败：'+e.message}}
+  if(!s.available){
+    body.innerHTML='<div class="set-note" style="text-align:center">无法生成建议：'+esc(s.why||'未知原因')+'<br>请人工检查该文件。</div>';
+    modal.querySelector('.set-foot').style.display='flex';
+    return;
+  }
+  const diffHtml=esc(s.diff||'').split('\n').map(l=>{
+    if(l.startsWith('+')&&!l.startsWith('+++'))return '<span class="add">'+l+'</span>';
+    if(l.startsWith('-')&&!l.startsWith('---'))return '<span class="del">'+l+'</span>';
+    if(l.startsWith('@@'))return '<span class="hunk">'+l+'</span>';
+    return l;
+  }).join('\n');
+  body.innerHTML=
+    '<label style="gap:8px"><div class="repair-action"><b>'+esc(s.action)+'</b>'
+    +(s.auto_safe?'<span class="repair-auto">✓ 纯编码变换，无语义风险</span>':'')
+    +'</div></label>'
+    +'<div class="repair-diff">'+diffHtml+'</div>'
+    +'<div class="repair-note">应用前自动备份为 .bak；应用后重新解析验证，失败自动回滚。'
+    +(s.auto_safe?'':'<b style="color:var(--warn)">此修复含语义判断，请确认 diff 内容符合预期。</b>')
+    +'</div>';
+  const foot=modal.querySelector('.set-foot');
+  foot.style.display='flex';
+  foot.innerHTML='';
+  const cancel=document.createElement('button');cancel.className='btn-ghost';cancel.textContent='取消';
+  cancel.onclick=closeSettings;
+  const apply=document.createElement('button');apply.className='btn-pri';apply.textContent='应用修复';
+  apply.onclick=async()=>{
+    apply.disabled=true;apply.textContent='应用中…';
+    try{
+      const r=await fetch('/api/skills/repair/apply',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({file,event,reason})});
+      const j=await r.json();
+      if(j.ok){
+        closeSettings();toast('修复成功（已备份原文件为 .bak），正在刷新');
+        loadSkills();
+      }else{
+        apply.disabled=false;apply.textContent='应用修复';
+        toast('修复失败：'+(j.error||'未知错误')+(j.rolled_back?'（已回滚）':''));
+      }
+    }catch(e){
+      apply.disabled=false;apply.textContent='应用修复';
+      toast('请求失败：'+e.message);
+    }
+  };
+  foot.append(cancel,apply);
+}
+
 /* ═════════ skills observatory ═════════ */
 const STAGES=[
   ['unobserved','未观测','还没有使用窗口或检索信号','#6E7781'],
@@ -883,9 +956,11 @@ function renderSkills(){
           return '<div class="le-row" title="'+esc2(fname+'：'+msg)+'">'
             +'<span class="le-time">'+esc2(String(e.time||'').replace('T',' ').replace('Z','').slice(5,16))+'</span>'
             +'<span class="le-kind '+(failed?'failed':'warned')+'">'+(failed?'解析失败':'静默降级')+'</span>'
-            +'<span class="le-detail"><span class="le-file">'+esc2(fname)+'</span><span class="le-msg">'+esc2(msg)+'</span></span>'
+            +'<span class="le-detail"><span class="le-file">'+esc2(fname)+'</span><span class="le-msg">'+esc2(msg)+'</span>'
+            +'<button class="le-fix" data-file="'+esc2(e.file||'')+'" data-event="'+esc2(e.event||'')+'" data-reason="'+esc2(msg.slice(0,200))+'">建议修复</button></span>'
             +'</div>';
         }).join('')+'</div>';
+      le.querySelectorAll('.le-fix').forEach(b=>b.addEventListener('click',()=>openRepair(b.dataset.file,b.dataset.event,b.dataset.reason)));
     }else{le.style.display='none';le.innerHTML='';}
   }
   $('#skGen').textContent=generated_at?('评测生成于 '+generated_at.replace('T',' ').replace('Z',' UTC')):'';
@@ -1000,9 +1075,23 @@ function loadApiCfg(){
 }
 function openSettings(){
   const cfg=loadApiCfg()||{};
+  // 恢复设置面板自己的内容（set-body/set-foot 可能被修复弹层复用改写过）
+  const body=$('#setModal .set-body');
+  body.innerHTML=
+    '<label>API 地址（OpenAI-compatible 或含 /anthropic 的 Anthropic 地址）'
+    +'<input id="setBase" placeholder="https://llmapi.paratera.com/v1" spellcheck="false"></label>'
+    +'<label>API Key（只保存在你的浏览器，不经过持久化存储）'
+    +'<input id="setKey" type="password" placeholder="sk-..." spellcheck="false"></label>'
+    +'<label>模型名<input id="setModel" placeholder="DeepSeek-V3.2" spellcheck="false"></label>'
+    +'<div class="set-note">公开部署使用 <b>自带 Key</b> 模式：配置只存在浏览器 localStorage、随请求发送给服务端用于本轮调用，不写盘、不进仓库。修改配置后当前会话上下文保留在服务端（属于原模型），建议<b>新建会话</b>后使用新模型。</div>';
+  const foot=$('#setModal .set-foot');
+  foot.style.display='flex';
+  foot.innerHTML='<button class="btn-ghost" id="setClear">清除本机配置</button><button class="btn-pri" id="setSave">保存</button>';
   $('#setBase').value=cfg.base||'';
   $('#setKey').value=cfg.key||'';
   $('#setModel').value=cfg.model||'';
+  $('#setClear').onclick=()=>{localStorage.removeItem('evo.api');closeSettings();updateSrvModel();toast('已清除本机保存的 API 配置')};
+  $('#setSave').onclick=()=>{const c={base:$('#setBase').value.trim(),key:$('#setKey').value.trim(),model:$('#setModel').value.trim()};localStorage.setItem('evo.api',JSON.stringify(c));closeSettings();updateSrvModel();toast(c.key?'配置已保存，发送消息即生效':'配置已清除')};
   $('#setModal').classList.add('open');$('#setMask').classList.add('open');
   setTimeout(()=>$('#setBase').focus(),80);
 }
@@ -1010,22 +1099,6 @@ function closeSettings(){$('#setModal').classList.remove('open');$('#setMask').c
 $('#srv').addEventListener('click',openSettings);
 $('#setClose').onclick=closeSettings;
 $('#setMask').onclick=closeSettings;
-$('#setSave').onclick=()=>{
-  const cfg={
-    base:$('#setBase').value.trim(),
-    key:$('#setKey').value.trim(),
-    model:$('#setModel').value.trim(),
-  };
-  localStorage.setItem('evo.api',JSON.stringify(cfg));
-  closeSettings();
-  updateSrvModel();
-  toast(cfg.key?'配置已保存，发送消息即生效':'配置已清除');
-};
-$('#setClear').onclick=()=>{
-  localStorage.removeItem('evo.api');
-  closeSettings();updateSrvModel();
-  toast('已清除本机保存的 API 配置');
-};
 function updateSrvModel(){
   const cfg=loadApiCfg();
   const el=$('#srvModel');
