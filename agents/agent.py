@@ -95,7 +95,14 @@ MODEL_CONTEXT = {
 }
 
 def _get_context_windows(model:str)->int:
-    return MODEL_CONTEXT.get(model, 200000)
+    # 未知模型的 fallback 取保守值：窗口高估会直接 413 崩任务（不可恢复），
+    # 低估只是提前折叠（可恢复）——不对称错误结构决定了宁可低估。
+    # GAIA 实测 12 题 413 即 200k 高估 fallback 所致。已知模型条目高于此值时
+    # 仍以条目为准；可用 EVOHARNESS_CONTEXT_WINDOW 显式覆盖（换 API/代理时）。
+    env_override = os.environ.get("EVOHARNESS_CONTEXT_WINDOW")
+    if env_override and env_override.strip().isdigit():
+        return int(env_override)
+    return MODEL_CONTEXT.get(model, 128000)
 
 
 #多层级压缩常数
