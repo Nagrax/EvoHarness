@@ -70,7 +70,7 @@ cp .env.example .env        # 填入 APIKEY / API / MODEL
 python -m server.app        # Web：http://127.0.0.1:8800（改 .env 或代码自动热重载）
 ```
 
-协议由 base URL 自动判断（路径含 `/anthropic` 走 Anthropic 协议）。CLI 与更多选项：
+协议由 base URL 自动判断（路径含 `/anthropic` 走 Anthropic 协议）。换用其他模型或代理时，若上下文窗口与内置假设不符，可设 `EVOHARNESS_CONTEXT_WINDOW` 显式指定；未知模型默认按保守窗口处理（宁可早折叠，不可撞 413）。CLI 与更多选项：
 
 ```bash
 python -m agents.main                         # 交互式 REPL
@@ -89,7 +89,7 @@ python -m agents.main --resume                # 恢复最近会话
 | # | 模块 | 核心问题 | 代表机制 | 主要代码 |
 | --- | --- | --- | --- | --- |
 | ① | 透明 Agent Loop | 消息历史每个字节可控 | 双协议、流式 tool 参数拼装、每轮落盘 + `--resume` 读档修复 | `agent.py` |
-| ② | 上下文压缩与会话折叠 | 长对话不丢任务状态 | 三层无损压缩优先、70% 硬阈值折叠为 episode/working/tool 三层结构化记忆 | `session_memory.py` |
+| ② | 上下文压缩与会话折叠 | 长对话不丢任务状态 | 三层无损压缩优先、70% 硬阈值折叠为 episode/working/tool 三层结构化记忆；折叠强制保留文件路径/已否定结果/下一步动作/用户约束四类硬状态，摘要附存档路径可 `read_file` 恢复 | `session_memory.py` + `agent.py` |
 | ③ | 工具权限与能力扩展 | 模型意图与环境动作隔离 | 识别层×策略层五档权限、Plan Mode、read+mtime 乐观锁、自研 MCP（全工具带安全注解）、三粒度子代理 | `tools.py` 等 |
 | ④ | 长期记忆 | 跨会话记住会消失的信息 | markdown 记忆文件 + 两段式召回（程序扫清单、模型挑文件）+ 硬预算 | `memory.py` |
 | ⑤ | Skills 在线自进化 | 从反馈沉淀可复用能力 | 下一轮反馈作证据、add/merge/revise/discard 四路决策、provenance 溯源 | `online_skill_evolution.py` |
@@ -120,6 +120,11 @@ LoCoMo 数据集（10 段长对话、1540 个非对抗性问题），与 MiniMem
 | --- | --- | --- |
 | P0 | 召回匹配用精确文件名比较，而模型选择器会照抄 manifest 整行 / 带围栏 / 带路径前缀回指——四种形态三种**静默丢失全部召回** | `_normalize_selector_ref` 规范化双向包含匹配，四形态全 MATCH、跨文件正确拒绝（`tests/test_memory_recall.py` 覆盖） |
 | P1 | 召回上限硬编码 `[:5]`，消融显示损失 judge 7.3pp | `MAX_MEMORY_RECALL` 环境变量化（默认 5），选择提示词同步参数化——上限与模型认知必须一致 |
+| P1 | `run_shell` 在中文 Windows 下解析 GBK 编码的命令输出直接崩溃进程 | 显式 `encoding="utf-8", errors="replace"`，坏字符降级为占位符而非异常 |
+
+## Agent 基准评测框架
+
+`eval/run_benchmark.py`：GAIA / HLE 上的可复现评测——每题独立会话、线程级超时看门狗、断点续跑、`--fold-threshold` 折叠消融开关；GAIA 官方宽松口径判分（规范化 + 数值容差 + 列表序无关）带单元测试，HLE 按精确匹配/多选双轨。完整方法、逐题预测与结论（含折叠消融的同题配对 McNemar 分析）见 `eval/RESULTS.md`，一条命令复现。
 
 ## 已知边界
 
@@ -165,6 +170,7 @@ EvoHarness/
 ├── server/                     # Web 后端（FastAPI + SSE 事件桥 + BYOK）
 ├── frontend/                   # Web 前端（零依赖单文件：对话 / Skills / Memory）
 ├── tests/                      # 单元测试（CI 自动运行）
+├── eval/                       # GAIA/HLE 基准评测框架（runner + 判分 + 逐题预测 + RESULTS.md）
 ├── desktop.pyw                 # 桌面启动器（pywebview）
 ├── docs/screenshots/           # 界面截图
 └── Dockerfile                  # 默认 Web 服务，PORT 注入端口
