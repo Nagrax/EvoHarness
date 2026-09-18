@@ -529,6 +529,8 @@ def _run_shell(inp: dict) -> str:
             shell=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_s,
         )
         output = result.stdout or ""

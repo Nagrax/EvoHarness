@@ -88,7 +88,10 @@ MODEL_CONTEXT = {
     "claude-opus-4-20250514": 200000,
     "gpt-4o": 128000,
     "gpt-4o-mini": 128000,
-    "deepseek-chat":200000
+    "deepseek-chat":200000,
+    # GAIA 165 题实测：12 题死于 413 上下文超限，且 0.70 折叠阈值从未触发——
+    # 200k 假设过大导致折叠窗口计算失真。V3.2 实际窗口 128k。
+    "DeepSeek-V3.2": 128000,
 }
 
 def _get_context_windows(model:str)->int:
@@ -884,6 +887,7 @@ class Agent:
         self._record_folded_session_memory(trigger, memory)
         self._record_fold_event()
         self._anthropic_messages = [{"role": "user", "content": format_folded_memory(memory)}]
+        self._append_fold_archive_hint()
         self.last_input_token_count = 0
         self._refresh_runtime_system_prompt()
         return True
@@ -902,6 +906,7 @@ class Agent:
             system_msg,
             {"role": "user", "content": format_folded_memory(memory)},
         ]
+        self._append_fold_archive_hint()
         self.last_input_token_count=0
         self._refresh_runtime_system_prompt()
         return True
@@ -926,6 +931,29 @@ class Agent:
         self._folded_session_memories.append(record)
         try:
             save_folded_session_memory(self.session_id, _sanitize_for_utf8(record))
+        except Exception:
+            pass
+
+    def _append_fold_archive_hint(self) -> None:
+        """折叠后在注入文本尾部附存档路径：丢状态时 agent 可 read_file 恢复完整折叠记录。
+
+        依据 GAIA 消融（p=0.011）：折叠状态保真度不足导致返工与超时。存档文件是
+        折叠摘要之外的安全网——环境即数据库，上下文丢了可以重读。
+        """
+        try:
+            from .session import get_project_session_dir
+
+            archive = get_project_session_dir() / f"{self.session_id}.folded-memory.latest.json"
+            hint = (
+                f"\n\n[fold archive] The full folded state (all key_events/tool_memory fields) "
+                f"is archived at {archive}. If you notice missing file paths, prior results, "
+                f"or task constraints after this fold, read_file that archive to recover them "
+                f"instead of redoing work."
+            )
+            if self.use_openai and self._openai_messages:
+                self._openai_messages[-1]["content"] = str(self._openai_messages[-1].get("content") or "") + hint
+            elif self._anthropic_messages:
+                self._anthropic_messages[-1]["content"] = str(self._anthropic_messages[-1].get("content") or "") + hint
         except Exception:
             pass
 
