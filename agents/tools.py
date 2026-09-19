@@ -520,6 +520,22 @@ def get_deferred_tool_names(all_tools: list[ToolDef] | None = None) -> list[str]
     return [t["name"] for t in tools if t.get("deferred") and t["name"] not in _activated_tools]
 
 #执行shell命令
+def _decode_console_output(raw: bytes | None) -> str:
+    """按 UTF-8 → GBK 顺序严格解码子进程输出，都失败才降级占位符。
+
+    中文 Windows 控制台命令（dir/ipconfig 等）输出 GBK，Python 等工具输出 UTF-8。
+    GBK 解码容忍度高，必须排在 UTF-8 之后，否则会把真 UTF-8 解成乱中文。
+    """
+    if not raw:
+        return ""
+    for encoding in ("utf-8", "gbk"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 def _run_shell(inp: dict) -> str:
     try:
         timeout_ms = inp.get("timeout", 30000)
@@ -528,16 +544,14 @@ def _run_shell(inp: dict) -> str:
             inp["command"],
             shell=True,
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=timeout_s,
         )
-        output = result.stdout or ""
+        output = _decode_console_output(result.stdout)
         if result.returncode != 0:
-            stderr = f"\nStderr: {result.stderr}" if result.stderr else ""
-            stdout = f"\nStdout: {result.stdout}" if result.stdout else ""
-            return f"Command failed (exit code {result.returncode}){stdout}{stderr}"
+            stderr = _decode_console_output(result.stderr)
+            stderr_text = f"\nStderr: {stderr}" if stderr else ""
+            stdout_text = f"\nStdout: {output}" if output else ""
+            return f"Command failed (exit code {result.returncode}){stdout_text}{stderr_text}"
         return output or "(no output)"
     except subprocess.TimeoutExpired:
         return f"Command timed out after {inp.get('timeout', 30000)}ms"
