@@ -11,6 +11,9 @@ class FrontmatterResult:
 
 
 def parse_frontmatter(content: str) -> FrontmatterResult:
+    # Strip BOM so a BOM-prefixed file still detects the leading "---".
+    if content.startswith("\ufeff"):
+        content = content[1:]
     lines = content.split("\n")
     if not lines or lines[0].strip() != "---":
         return FrontmatterResult(body=content)
@@ -30,6 +33,9 @@ def parse_frontmatter(content: str) -> FrontmatterResult:
             continue
         key = lines[i][:colon_idx].strip()
         value = lines[i][colon_idx + 1:].strip()
+        # Drop a matching pair of surrounding quotes (e.g. allowed-tools: "a, b").
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
         if key:
             meta[key] = value
 

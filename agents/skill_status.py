@@ -28,7 +28,11 @@ def status_map_path() -> Path:
 
 _cached_status_map: dict[str, str] | None = None
 _cached_certified_map: dict[str, str] | None = None
-_cached_mtime: float = -1.0
+# 两张缓存各自独立 mtime：共享一个 mtime 时，先刷新的表（检索路径上 certified 先行）
+# 会更新共享值，令另一张表误判"没变"而返回陈旧数据——评测重新物化 status_map.json 后
+# provisional 标注/状态展示将永久停留在旧值（部署分区标注矩阵测试抓到的既有缺陷）。
+_cached_status_mtime: float = -1.0
+_cached_certified_mtime: float = -1.0
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -42,20 +46,20 @@ def _read_json(path: Path, default: Any) -> Any:
 
 def get_trusted_status_map() -> dict[str, str]:
     """读评测物化的状态表；文件更新时自动刷新。没跑过评测时返回空 dict。"""
-    global _cached_status_map, _cached_mtime
+    global _cached_status_map, _cached_status_mtime
     path = status_map_path()
     if not path.is_file():
         _cached_status_map = {}
-        _cached_mtime = -1.0
+        _cached_status_mtime = -1.0
         return {}
     mtime = path.stat().st_mtime
-    if _cached_status_map is None or mtime != _cached_mtime:
+    if _cached_status_map is None or mtime != _cached_status_mtime:
         data = _read_json(path, {})
         statuses = data.get("statuses") if isinstance(data, dict) else None
         _cached_status_map = (
             {str(k): str(v) for k, v in statuses.items()} if isinstance(statuses, dict) else {}
         )
-        _cached_mtime = mtime
+        _cached_status_mtime = mtime
     return _cached_status_map
 
 
@@ -65,19 +69,20 @@ def get_certified_status_map() -> dict[str, str]:
     无答卷 skill 的估算状态（典型是手动导入）只用于试用期待遇，
     不加权不降权：行为达标是"不惩罚"，够不上"认证奖励"。
     """
-    global _cached_certified_map, _cached_mtime
+    global _cached_certified_map, _cached_certified_mtime
     path = status_map_path()
     if not path.is_file():
         _cached_certified_map = {}
+        _cached_certified_mtime = -1.0
         return {}
     mtime = path.stat().st_mtime
-    if _cached_certified_map is None or mtime != _cached_mtime:
+    if _cached_certified_map is None or mtime != _cached_certified_mtime:
         data = _read_json(path, {})
         certified = data.get("certified_statuses") if isinstance(data, dict) else None
         _cached_certified_map = (
             {str(k): str(v) for k, v in certified.items()} if isinstance(certified, dict) else {}
         )
-        _cached_mtime = mtime
+        _cached_certified_mtime = mtime
     return _cached_certified_map
 
 

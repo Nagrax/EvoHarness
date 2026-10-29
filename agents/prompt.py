@@ -135,7 +135,7 @@ def _resolve_includes(
             return f"<!-- not found: {raw} -->"
         try:
             visited.add(key)
-            included = resolved.read_text()
+            included = resolved.read_text(encoding="utf-8", errors="replace")
             return _resolve_includes(included, resolved.parent, visited, depth + 1)
         except Exception:
             return f"<!-- error reading: {raw} -->"
@@ -153,13 +153,18 @@ def _load_rules_dir(directory: Path) -> str:
         if not files:
             return ""
         parts: list[str] = []
+        skipped: list[str] = []
         for f in files:
             try:
-                content = f.read_text()
+                content = f.read_text(encoding="utf-8", errors="replace")
                 content = _resolve_includes(content, rules_dir)
                 parts.append(f"<!-- rule: {f.name} -->\n{content}")
-            except Exception:
-                pass
+            except Exception as error:  # noqa: BLE001
+                # 单份规则读失败 → 该规则不会进 system prompt。
+                # 用户会以为它在约束模型，必须至少留一行痕迹。
+                skipped.append(f"{f.name}({type(error).__name__})")
+        if skipped:
+            print(f"[rules] {len(skipped)} 个规则文件未能加载：{', '.join(skipped[:5])}")
         return "\n\n## Rules\n" + "\n\n".join(parts) if parts else ""
     except Exception:
         return ""
@@ -173,11 +178,11 @@ def load_claude_md() -> str:
         f = d / "CLAUDE.md"
         if f.is_file():
             try:
-                content = f.read_text()
+                content = f.read_text(encoding="utf-8", errors="replace")
                 content = _resolve_includes(content, d)
                 parts.insert(0, content)
-            except Exception:
-                pass
+            except Exception as error:  # noqa: BLE001
+                print(f"[claude-md] 未能加载 {f}：{type(error).__name__}: {error}")
         parent = d.parent
         if parent == d:
             break

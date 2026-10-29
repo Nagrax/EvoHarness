@@ -26,6 +26,8 @@ DEFAULT_MIN_RELEVANCE_RATE = 0.35
 DEFAULT_MIN_RULE_PASS_RATE = 0.8
 DEFAULT_DEV_SPLIT_RATIO = 0.75
 DEFAULT_MIN_SCORE_DELTA = 0.01
+# Decision Rules 区派生规则上限：为基线 response_nonempty 保留 1 个槽位，总规则数仍受 rules[:8] 兜底。
+MAX_DERIVED_RULES = 7
 ONLINE_EVAL_DIR = "online-eval"
 SideQuery = Callable[[str, str], Awaitable[str]]
 
@@ -35,6 +37,25 @@ _RE_SOURCE_LABEL = re.compile(r"(?im)^\s*(source|sources|reference|references|�
 _RE_JSON_PREFIX = re.compile(r"^\s*[\{\[]")
 _RE_CONCLUSION = re.compile(r"(?i)\b(tl;dr|answer|conclusion|bottom line)\b|结论|先说结论")
 _RE_PARAGRAPH_LIMIT = re.compile(r"(不超过|少于|最多|within|less than|at most)\s*(\d+)\s*(段|paragraph)")
+
+# —— Decision Rules 区派生规则（M2 写出规范形态，M3 只解析写盘后的 SKILL.md 文本事实） ——
+_RE_DECISION_HEADING = re.compile(r"^#{2,3}\s*(?:decision rules|决策规则)\s*$", re.IGNORECASE | re.MULTILINE)
+_RE_RULE_START = re.compile(r"when\s*[:：]", re.IGNORECASE)
+_RE_RULE_KEY = re.compile(r"(then|because)\s*[:：]\s*(.*)", re.IGNORECASE)
+_RE_QUOTED = re.compile(r"「([^」]+)」|『([^』]+)』|“([^”]+)”|\"([^\"]+)\"")
+_RE_CJK_RUN = re.compile(r"[\u4e00-\u9fff]+")
+_RE_LATIN_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9]*")
+_DERIVE_STOP_CHARS = frozenset("的了是在和与就也都还又把被对于从到向并或但而因此所以如果每当则即")
+_DERIVE_STOP_WORDS = frozenset(
+    {
+        "the", "a", "an", "and", "or", "but", "if", "then", "when", "because",
+        "must", "should", "shall", "will", "would", "may", "might", "can",
+        "reply", "output", "include", "includes", "including", "use", "used",
+        "using", "with", "without", "for", "to", "of", "in", "on", "at", "by",
+        "is", "are", "be", "been", "that", "this", "it", "as", "not", "do",
+        "does", "response", "always", "never", "before", "after", "from", "into",
+    }
+)
 
 
 def _utc_now() -> str:
@@ -176,6 +197,139 @@ def _normalized_messages(value: Any) -> list[dict[str, str]]:
     return out
 
 
+def _parse_decision_rules_section(instructions: str) -> list[dict[str, list[str]]]:
+    """从 SKILL.md 正文中截取 '## Decision Rules' 区并解析为块列表。
+
+    每块 {"when": [...], "then": [...], "because": [...]}，与 IR 的 decision_rules
+    数组形态对齐；区不存在或为空 → 返回 []。零 I/O 纯函数。
+    区头：^#{2,3}\\s*(decision rules|决策规则)\\s*$；区以下一个 # 开头的行或 EOF 终止。
+    块起始行：when[:：]（bullet 可选）；块内 then|because 键行并入当前块；
+    缩进续行并入上一个键（多行累积成数组）。
+    """
+    text = str(instructions or "")
+    heading = _RE_DECISION_HEADING.search(text)
+    if heading is None:
+        return []
+    blocks: list[dict[str, list[str]]] = []
+    current: dict[str, list[str]] | None = None
+    current_key = ""
+    for line in text[heading.end():].splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            break
+        body = stripped
+        if body[:1] in {"-", "*"}:
+            body = body[1:].lstrip()
+        start = _RE_RULE_START.match(body)
+        if start:
+            if current is not None:
+                blocks.append(current)
+            value = body[start.end():].strip()
+            current = {"when": [value] if value else [], "then": [], "because": []}
+            current_key = "when"
+            continue
+        key_match = _RE_RULE_KEY.match(body)
+        if key_match is not None and current is not None:
+            key = key_match.group(1).lower()
+            value = key_match.group(2).strip()
+            if value:
+                current[key].append(value)
+            current_key = key
+            continue
+        if current is not None and current_key and line[:1].isspace():
+            # 缩进续行并入上一个键：多行累积为同一条目。
+            if current[current_key]:
+                current[current_key][-1] = f"{current[current_key][-1]} {stripped}".strip()
+            else:
+                current[current_key].append(stripped)
+    if current is not None:
+        blocks.append(current)
+    return blocks
+
+
+def _derive_keywords(then_text: str, when_text: str) -> list[str]:
+    """从 then 文本提取判定关键词（去重、小写化、≤8 条、单条 ≤8 字符）。
+
+    Tier1 优先取「」『』“”"" 引号字面短语（全字面判据）；Tier2 无引号时按 CJK
+    连续段在停用单字处切片（长度≥2）+ 拉丁词（长度≥2、去 EN 停用词）。
+    丢弃出现在 when 文本中的短语（上下文词不作判据）。提取不出 → 返回 []，
+    调用方跳过该规则（绝不 emit 无法判定的规则）。
+    """
+    then_text = str(then_text or "")
+    when_low = str(when_text or "").lower()
+    candidates: list[str] = []
+
+    quoted = [next(group for group in match.groups() if group) for match in _RE_QUOTED.finditer(then_text) if any(match.groups())]
+    if quoted:
+        candidates.extend(quoted)
+    else:
+        for run in _RE_CJK_RUN.findall(then_text):
+            buf: list[str] = []
+            for ch in run:
+                if ch in _DERIVE_STOP_CHARS:
+                    if buf:
+                        candidates.append("".join(buf))
+                        buf = []
+                else:
+                    buf.append(ch)
+            if buf:
+                candidates.append("".join(buf))
+        candidates.extend(token.lower() for token in _RE_LATIN_TOKEN.findall(then_text))
+
+    keywords: list[str] = []
+    for candidate in candidates:
+        candidate = candidate.strip().lower()[:8]
+        if len(candidate) < 2 or candidate in when_low or candidate in keywords:
+            continue
+        keywords.append(candidate)
+        if len(keywords) >= 8:
+            break
+    return keywords
+
+
+def _derived_rules_from_instructions(instructions: str) -> list[dict[str, Any]]:
+    """解析 instructions 的 Decision Rules 区并编译为 programmatic 规则。
+
+    每块 → 一条 keyword_hit 规则；缺 then 或提不出关键词的块跳过；
+    上限 MAX_DERIVED_RULES（派生规则永不硬失败，hard=False）。
+    """
+    blocks = _parse_decision_rules_section(str(instructions or ""))
+    rules: list[dict[str, Any]] = []
+    for index, block in enumerate(blocks, start=1):
+        if len(rules) >= MAX_DERIVED_RULES:
+            break
+        then_parts = [str(part or "").strip() for part in block.get("then") or [] if str(part or "").strip()]
+        if not then_parts:
+            continue
+        when_parts = [str(part or "").strip() for part in block.get("when") or [] if str(part or "").strip()]
+        because_parts = [str(part or "").strip() for part in block.get("because") or [] if str(part or "").strip()]
+        keywords = _derive_keywords(" ".join(then_parts), " ".join(when_parts))
+        if not keywords:
+            continue
+        when_text = " ".join(when_parts)
+        rules.append(
+            {
+                "rule_id": f"decision-rule-{index:02d}",
+                "label": f"Decision rule {index}: {then_parts[0][:48]}",
+                "kind": "programmatic",
+                "hard": False,
+                "params": {
+                    "mode": "keyword_hit",
+                    "keywords": keywords,
+                    "when": when_text[:160],
+                },
+                "provenance": {
+                    "source": "skill_decision_rules",
+                    "because": " ".join(because_parts)[:160],
+                    "rule_index": index,
+                },
+            }
+        )
+    return rules
+
+
 def _compile_eval_rules(skill: dict[str, Any], *, include_llm_rules: bool = False) -> list[dict[str, Any]]:
     corpus = "\n".join(
         [
@@ -197,6 +351,9 @@ def _compile_eval_rules(skill: dict[str, Any], *, include_llm_rules: bool = Fals
             "provenance": {"source": "baseline"},
         }
     ]
+    # 派生规则插在通用 skill_text/llm 规则之前：区规则多的 skill 不至于被 [:8] 截掉派生规则；
+    # 代价是派生规则 ≥MAX_DERIVED_RULES 时后写的通用规则可能被截——有意取舍（skill 专属规则优先）。
+    rules.extend(_derived_rules_from_instructions(str(skill.get("instructions") or "")))
 
     skill_requirement = _skill_alignment_requirement(skill)
     if include_llm_rules and skill_requirement:
@@ -315,6 +472,34 @@ def _compile_eval_rules(skill: dict[str, Any], *, include_llm_rules: bool = Fals
     return rules[:8]
 
 
+def _truncated_eval_rules(
+    skill: dict[str, Any], rules: list[dict[str, Any]], *, include_llm_rules: bool = False
+) -> dict[str, Any]:
+    """标注被 rules[:8] 截断、未进编译产物的通用规则（不改 _compile_eval_rules 冻结输出）。
+
+    skill 含 ≥7 条 Decision Rules 时派生规则占满 rules[:8]，json_parseable/markdown_table
+    等基础硬规则被静默截掉。做法：去掉 Decision Rules 区头后重新编译——派生规则归零，
+    通用规则检测仍跑在完整语料上且总数 ≤8（基线 1 + 通用 ≤7）故无截断，其 id 即"应然
+    全集"；与冻结产物的差集即为被截断的规则，使代价可见。
+    """
+    compiled = [str(rule.get("rule_id") or "") for rule in (rules or []) if isinstance(rule, dict)]
+    stripped = dict(skill) if isinstance(skill, dict) else {}
+    stripped["instructions"] = _RE_DECISION_HEADING.sub("", str(stripped.get("instructions") or ""))
+    expected = _compile_eval_rules(stripped, include_llm_rules=include_llm_rules)
+    dropped = [
+        rid
+        for rid in (str(rule.get("rule_id") or "") for rule in expected)
+        if rid != "response_nonempty" and rid not in compiled
+    ]
+    return {
+        "cap": 8,
+        "compiled": len(compiled),
+        "derived": sum(1 for rid in compiled if rid.startswith("decision-rule-")),
+        "truncated": bool(dropped),
+        "dropped_rule_ids": dropped,
+    }
+
+
 def _skill_alignment_requirement(skill: dict[str, Any], *, max_chars: int = 3200) -> str:
     parts: list[str] = []
     name = str(skill.get("name") or "").strip()
@@ -400,6 +585,17 @@ def _evaluate_rule(rule: dict[str, Any], response_text: str) -> dict[str, Any]:
         fabrication_terms = ("可能", "假设", "if", "assuming", "needs verification")
         passed = any(term in stripped.lower() for term in uncertainty_terms + fabrication_terms)
         details = {"heuristic": "uncertainty_marker"}
+    elif mode == "keyword_hit":
+        keywords = [str(kw).strip() for kw in (params.get("keywords") or []) if str(kw).strip()]
+        if not keywords:
+            # 编译层保证不产生空关键词规则，此为防御。
+            passed = False
+            details = {"reason": "no_keywords"}
+        else:
+            normalized = _normalize_text(text)
+            matched = [kw for kw in keywords if kw in normalized]
+            passed = bool(matched)
+            details = {"matched": matched, "keywords": keywords}
     else:
         details = {"error": f"unsupported programmatic mode: {mode}"}
 
@@ -754,6 +950,17 @@ def _summarize_outcomes_from_rows(
     }
 
 
+def _dev_only_rule_summary(rule_summary: dict[str, Any]) -> dict[str, Any]:
+    """候选生成只允许看 mutate_dev 的失败；promotion-test 失败不得进入改写提示。"""
+    summary = dict(rule_summary or {})
+    summary["failures"] = [
+        item
+        for item in (rule_summary or {}).get("failures") or []
+        if str(item.get("split") or "") == "mutate_dev"
+    ]
+    return summary
+
+
 def _snapshot_with_instructions(snapshot: dict[str, Any], *, instructions: str, label: str) -> dict[str, Any]:
     out = dict(snapshot or {})
     out["instructions"] = str(instructions or "")
@@ -1007,6 +1214,8 @@ async def _build_candidate_eval_bundle_async(
         return {}
     # 触发变体：与指令变体并行的另一条轨——改 when_to_use，评测靠检索重放，零模型成本。
     trigger: dict[str, Any] = {}
+    trigger_variant = None
+    trigger_variant_error = ""
     try:
         trigger_variant = await _build_trigger_variant_async(
             snapshot=snapshot,
@@ -1014,8 +1223,11 @@ async def _build_candidate_eval_bundle_async(
             sample_count=len(replay_pool),
             side_query=side_query,
         )
-    except Exception:
+    except Exception as trigger_error:
+        # 触发变体是"检索入口是否写得太宽/太窄"的唯一信号。测不出来不等于没有信号：
+        # 静默置 None 会让报告显示"无触发变体数据"，而真实原因（语料构建失败等）被埋掉。
         trigger_variant = None
+        trigger_variant_error = f"{type(trigger_error).__name__}: {trigger_error}"
     if trigger_variant is not None:
         try:
             from .skills import build_retrieval_corpus
@@ -1032,8 +1244,9 @@ async def _build_candidate_eval_bundle_async(
                 )
                 if metrics.get("evaluated"):
                     trigger = {"variant": trigger_variant, "metrics": metrics}
-        except Exception:
-            pass
+        except Exception as trigger_eval_error:  # noqa: BLE001
+            # 同上：失败要能追溯到具体异常，而不是留一个空 trigger。
+            trigger_variant_error = f"{type(trigger_eval_error).__name__}: {trigger_eval_error}"
     variants = _build_heuristic_candidate_variants(
         lineage_id=lineage_id,
         snapshot=snapshot,
@@ -1060,8 +1273,27 @@ async def _build_candidate_eval_bundle_async(
     # 变体优先在成绩组上比（skill 在场的真实对话，考卷与现任同源）；
     # 新 skill 成绩组为空时退回证据组——正好是"出生题重答"场景。
     pool_for_variants = [s for s in replay_pool if s.get("group") == "score"] or list(replay_pool)
-    dev_samples = [sample for sample in pool_for_variants if sample.get("split") == "mutate_dev"] or pool_for_variants
+    dev_samples = [sample for sample in pool_for_variants if sample.get("split") == "mutate_dev"]
+    if not dev_samples:
+        # 没有 dev 失败时只能用证据组（出生题）做改写；绝不回退到 promotion_test。
+        dev_samples = [
+            sample for sample in replay_pool
+            if sample.get("group") != "score" and sample.get("split") == "evidence"
+        ]
     test_samples = [sample for sample in pool_for_variants if sample.get("split") == "promotion_test"]
+    if not dev_samples:
+        # 没有 dev 样本就没有合法的改写依据；宁可不出候选，也不能拿 promotion-test 反推。
+        return {
+            "candidate_variants": [],
+            "variant_summaries": [],
+            "best_variant": {},
+            "best_dev_summary": {},
+            "best_test_summary": {},
+            "outputs": [],
+            "judgments": [],
+            "trigger": trigger,
+            "triggerError": trigger_variant_error,
+        }
     outputs: list[dict[str, Any]] = []
     judgments: list[dict[str, Any]] = []
     scored: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
@@ -1087,6 +1319,7 @@ async def _build_candidate_eval_bundle_async(
             "outputs": outputs,
             "judgments": judgments,
             "trigger": trigger,
+            "triggerError": trigger_variant_error,
         }
     scored.sort(
         key=lambda item: (
@@ -1116,6 +1349,7 @@ async def _build_candidate_eval_bundle_async(
         "outputs": outputs,
         "judgments": judgments,
         "trigger": trigger,
+            "triggerError": trigger_variant_error,
     }
 
 
@@ -1596,6 +1830,50 @@ def _persist_eval_artifacts(
     }
 
 
+def _materialize_status_map(skills: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
+    """物化状态表：线上检索权重与试用期标注读这份缓存，不在检索路径上现算状态。
+
+    两条语义（拆出来就是为了能单测它们）：
+    - **有答卷**（replay.count > 0）→ runtime 与 certified 都用报告里的认证状态；
+      检索加权只认 certified 这份。
+    - **无答卷**（replay 为空——典型是手动导入，没有 provenance 决策记录）→
+      runtime 按使用数据估算，避免"用得很好却被钉死在试用期"；
+      certified **不写入**（诚实展示"未经认证"）。认证归认证、待遇归待遇。
+    """
+    from .skill_status import estimate_status_from_usage
+
+    runtime_statuses: dict[str, str] = {}
+    certified_statuses: dict[str, str] = {}
+    for item in skills:
+        name = str(item.get("skill") or "")
+        if not name:
+            continue
+        replay_info = item.get("replay") if isinstance(item.get("replay"), dict) else {}
+        if int(replay_info.get("count", 0) or 0) > 0:
+            status = str(item.get("status") or "")
+            runtime_statuses[name] = status
+            # 只有有答卷的才进认证表——检索加权只认这份。
+            certified_statuses[name] = status
+        else:
+            runtime_statuses[name] = estimate_status_from_usage(
+                {
+                    "pruned": str(item.get("status") or "") == "pruned",
+                    "retrieved": int(item.get("retrieved", 0) or 0),
+                    "relevant": int(item.get("relevant", 0) or 0),
+                    "used": int(item.get("used", 0) or 0),
+                }
+            )
+    _write_json(
+        _online_eval_root() / "status_map.json",
+        {
+            "generated_at": _utc_now(),
+            "statuses": runtime_statuses,
+            "certified_statuses": certified_statuses,
+        },
+    )
+    return runtime_statuses, certified_statuses
+
+
 async def _evaluate_online_skill_evolution_core(
     *,
     min_score_samples: int = DEFAULT_MIN_SCORE_SAMPLES,
@@ -1608,6 +1886,7 @@ async def _evaluate_online_skill_evolution_core(
     write_artifacts: bool = True,
     side_query: SideQuery | None = None,
     include_llm_rules: bool = False,
+    gates_path: str | None = None,
 ) -> dict[str, Any]:
     root = get_evolution_dir()
     provenance_rows = _read_jsonl(root / ONLINE_PROVENANCE_LOG)
@@ -1652,6 +1931,9 @@ async def _evaluate_online_skill_evolution_core(
     all_names.update(str(name) for name in lifecycle_stats if str(name).strip())
 
     skills: list[dict[str, Any]] = []
+    # M2 分层漏斗摘要：汇总全部 skill 的成绩组 outcomes 与样本（纯聚合，不改既有评测）。
+    funnel_outcomes: list[dict[str, Any]] = []
+    funnel_samples: list[dict[str, Any]] = []
     for name in sorted(all_names):
         lineage_raw = provenance_index.get(name, {}) if isinstance(provenance_index, dict) else {}
         usage_raw = usage_stats.get(name, {}) if isinstance(usage_stats, dict) else {}
@@ -1685,6 +1967,9 @@ async def _evaluate_online_skill_evolution_core(
             skill_name=name,
             side_query=side_query,
         )
+        # 漏斗摘要只吃成绩组：outcomes 按样本聚合，样本提供正文（缺正文整体 N/A）。
+        funnel_outcomes.extend(rule_summary.get("outcomes") or [])
+        funnel_samples.extend(score_samples)
         # 证据组只做诊断（出生差距 before），程序规则零成本跑一遍供 before/after 对比。
         evidence_eval = (
             _summarize_rule_outcomes(rules, evidence_samples) if evidence_samples else {}
@@ -1711,8 +1996,12 @@ async def _evaluate_online_skill_evolution_core(
             min_relevance_rate=min_relevance_rate,
             min_rule_pass_rate=min_rule_pass_rate,
         )
-        if status == "incubating":
+        if status in {"incubating", "unobserved"}:
             # 僵尸孵化期清理：沉淀后长期从未被检索的 skill 归档（对称于"被检索没用"的 prune）。
+            # 含 unobserved：retrieved==0 且成绩组为空的 skill 恒判 unobserved（score_count<=0
+            # and retrieved<=0 提前返回），只认 incubating 会让本分支永不可达——纳入后
+            # "从未被检索"的滞留 skill 才真正进入归档判定（是否真归档仍由 maybe_archive 的
+            # 试用期/来源门决定，故默认行为不变）。
             rows_for_skill = grouped_rows.get(name, [])
             seen_times = [str(r.get("time") or "") for r in rows_for_skill if r.get("time")]
             first_seen = min(seen_times) if seen_times else str(
@@ -1721,6 +2010,14 @@ async def _evaluate_online_skill_evolution_core(
             zombie_stats = {
                 "source": str(snapshot.get("source") or usage.get("source") or ""),
                 "retrieved": retrieved,
+                "used": used,
+                "relevant": relevant,
+                # 手动 /<skill> 调用过即算被真实使用：只看 retrieved/used/relevant 会误归档
+                # "从未被检索但被人工调用"的 user-invocable skill（report 已暴露 invocations）。
+                "invocations": int(lifecycle.get("invocations", 0) or 0),
+                # 自进化 vs 手写：有在线溯源（provenance index 条目）或 create 事件即自进化；
+                # 仓库手写 project skill 两者皆无 → self_evolved=False，僵尸门据此保护不误归档。
+                "self_evolved": bool(lineage) or bool(str(lifecycle.get("created_at") or "")),
                 "skill_dir": str(snapshot.get("skill_dir") or usage.get("skill_dir") or ""),
             }
             try:
@@ -1743,7 +2040,7 @@ async def _evaluate_online_skill_evolution_core(
             snapshot=snapshot,
             replay_pool=replay_pool,
             rules=rules,
-            rule_summary=rule_summary,
+            rule_summary=_dev_only_rule_summary(rule_summary),
             side_query=side_query,
             usage=usage,
         )
@@ -1815,6 +2112,10 @@ async def _evaluate_online_skill_evolution_core(
                     "sources": sorted({str(item.get("source_type") or "") for item in replay_pool if item.get("source_type")}),
                 },
                 "eval": public_rule_summary,
+                # rules[:8] 截断代价显式可见（派生规则占满 8 槽时基础硬规则被截掉）。
+                "eval_rule_truncation": _truncated_eval_rules(
+                    snapshot, rules, include_llm_rules=include_llm_rules
+                ),
                 "evidence_eval": {
                     "pass_rate": float(evidence_eval.get("pass_rate", 0.0) or 0.0),
                     "hard_failures": int(evidence_eval.get("hard_failures", 0) or 0),
@@ -1831,42 +2132,8 @@ async def _evaluate_online_skill_evolution_core(
             }
         )
 
-    # 物化状态表：线上检索权重与试用期标注读这份缓存，不在检索路径上现算状态。
-    # 没有答卷的 skill（replay 为空——典型是手动导入：没有 provenance 决策记录，
-    # 状态机只能给 incubating）：状态表按使用数据估算写入，避免"用得很好却被
-    # 钉死在试用期"；报告里的认证状态保持不变，诚实展示"未经认证"——
-    # 认证归认证、待遇归待遇，两张表分开。
-    from .skill_status import estimate_status_from_usage
-
-    runtime_statuses: dict[str, str] = {}
-    certified_statuses: dict[str, str] = {}
-    for item in skills:
-        name = str(item.get("skill") or "")
-        if not name:
-            continue
-        replay_info = item.get("replay") if isinstance(item.get("replay"), dict) else {}
-        if int(replay_info.get("count", 0) or 0) > 0:
-            status = str(item.get("status") or "")
-            runtime_statuses[name] = status
-            # 只有有答卷的才进认证表——检索加权只认这份。
-            certified_statuses[name] = status
-        else:
-            runtime_statuses[name] = estimate_status_from_usage(
-                {
-                    "pruned": str(item.get("status") or "") == "pruned",
-                    "retrieved": int(item.get("retrieved", 0) or 0),
-                    "relevant": int(item.get("relevant", 0) or 0),
-                    "used": int(item.get("used", 0) or 0),
-                }
-            )
-    _write_json(
-        _online_eval_root() / "status_map.json",
-        {
-            "generated_at": _utc_now(),
-            "statuses": runtime_statuses,
-            "certified_statuses": certified_statuses,
-        },
-    )
+    # 物化状态表（拆出独立函数，语义可单测）
+    runtime_statuses, certified_statuses = _materialize_status_map(skills)
 
     status_counts: dict[str, int] = {}
     champion_status_counts: dict[str, int] = {}
@@ -1939,15 +2206,37 @@ async def _evaluate_online_skill_evolution_core(
             "llm_rule_outcomes": total_llm_rule_outcomes,
             "llm_rule_pass_rate": _ratio(total_llm_rule_passed, total_llm_rule_outcomes),
             "candidate_variants": total_candidate_variants,
+            # M2 分层漏斗摘要（纯增补字段，既有键语义不变）。
+            "funnel": summarize_funnel(funnel_outcomes, funnel_samples),
         },
         "skills": skills,
         "recent_failures": recent_failures[-10:],
     }
+    # M4 发布门禁（显式 opt-in）：仅当调用方给出 gates_path 时求值并写字段；
+    # 缺省 None 完全不改写报文（默认语义不变）。
+    if gates_path:
+        release_gate = _evaluate_release_gate(report.get("aggregate") or {}, gates_path)
+        if release_gate is not None:
+            report["aggregate"]["release_gate"] = release_gate
     if write_report:
         report_path = root / "online_eval_report.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         report["report_file"] = str(report_path)
+    # 部署分区钩子：experimental→staging 自动晋升（healthy + champion 门双断言）。
+    # fail-closed：只消费报告内 skills[].artifacts.promotion，绝不回读 status_map.json
+    # ——write_artifacts=False 的干跑也会物化 status_map，回读会让干跑触发晋升。
+    # fail-open：分区故障绝不影响评测主流程（对齐上方僵尸归档先例）。
+    try:
+        from .skill_tiers import apply_eval_promotions
+
+        apply_eval_promotions(report)
+    except Exception as error:  # noqa: BLE001
+        # fail-open 保留（分区故障不阻塞评测主流程），但必须可见：
+        # 否则"晋级没生效、报告却正常"会被误读为技能已转正。
+        detail = f"{type(error).__name__}: {error}"[:300]
+        report.setdefault("promotion_errors", []).append(detail)
+        print(f"[online-eval] promotion failed (report kept): {detail}")
     return report
 
 
@@ -1961,6 +2250,7 @@ def evaluate_online_skill_evolution(
     min_rule_pass_rate: float = DEFAULT_MIN_RULE_PASS_RATE,
     write_report: bool = True,
     write_artifacts: bool = True,
+    gates_path: str | None = None,
 ) -> dict[str, Any]:
     import asyncio
 
@@ -1976,6 +2266,7 @@ def evaluate_online_skill_evolution(
             write_artifacts=write_artifacts,
             side_query=None,
             include_llm_rules=False,
+            gates_path=gates_path,
         )
     )
 
@@ -1991,9 +2282,10 @@ async def evaluate_online_skill_evolution_async(
     min_rule_pass_rate: float = DEFAULT_MIN_RULE_PASS_RATE,
     write_report: bool = True,
     write_artifacts: bool = True,
+    gates_path: str | None = None,
 ) -> dict[str, Any]:
     return await _evaluate_online_skill_evolution_core(
-        min_replay_samples=min_replay_samples,
+        min_score_samples=min_score_samples,
         min_promotion_tests=min_promotion_tests,
         min_retrieved=min_retrieved,
         min_used_rate=min_used_rate,
@@ -2003,6 +2295,7 @@ async def evaluate_online_skill_evolution_async(
         write_artifacts=write_artifacts,
         side_query=side_query,
         include_llm_rules=side_query is not None,
+        gates_path=gates_path,
     )
 
 
@@ -2140,5 +2433,123 @@ async def format_online_skill_eval_async(
     return format_online_skill_eval(report)
 
 
+# ─── M2 分层漏斗摘要（纯新增；不触碰任何既有函数与 _compile_eval_rules 输出）──
+try:
+    from .skill_eval_rubric import (
+        LAYER_ORDER as _FUNNEL_LAYER_ORDER,
+        assign_layer as _funnel_assign_layer,
+        evaluate_funnel as _evaluate_funnel_core,
+    )
+
+    _FUNNEL_RUBRIC_AVAILABLE = True
+except Exception:  # pragma: no cover - 纯兜底：rubric 缺失时摘要降级为空 dict
+    _FUNNEL_RUBRIC_AVAILABLE = False
+    _FUNNEL_LAYER_ORDER = ()
+
+
+def summarize_funnel(
+    outcomes: list[dict[str, Any]],
+    samples: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """把规则 outcome 汇成分层漏斗摘要（串行短路 + RED 独立）。
+
+    只做聚合，不重跑也不改写既有评测逻辑；rule_id → 层 归因走
+    agents.skill_eval_rubric.assign_layer（绝不复用 _compile_eval_rules 产物）。
+    提供 samples 时按样本判漏斗；未提供则按 outcome 的 sample_id 分组（无正文 → 证据
+    不足，整体 N/A）。返回值聚合 overall 分布、失败层分布与层×子项失败计数。
+    """
+    if not _FUNNEL_RUBRIC_AVAILABLE:
+        return {}
+    rows = [item for item in (outcomes or []) if isinstance(item, dict)]
+    sample_list = [item for item in (samples or []) if isinstance(item, dict)]
+    by_sample: dict[str, list[dict[str, Any]]] = {}
+    for item in rows:
+        by_sample.setdefault(str(item.get("sample_id") or ""), []).append(item)
+
+    if sample_list:
+        iterable = [(str(item.get("sample_id") or ""), item) for item in sample_list]
+    else:
+        iterable = [(sample_id, {"sample_id": sample_id}) for sample_id in sorted(by_sample)]
+
+    evaluated = 0
+    na_count = 0
+    overall_counts = {"pass": 0, "fail": 0, "na": 0}
+    failed_layer_counts: dict[str, int] = {}
+    sub_items_failed_counts: dict[str, int] = {}
+    layer_counts: dict[str, dict[str, int]] = {
+        code: {"passed": 0, "failed": 0} for code in _FUNNEL_LAYER_ORDER
+    }
+
+    for sample_id, sample in iterable:
+        rule_results: list[dict[str, Any]] = []
+        for item in by_sample.get(sample_id, []):
+            layer, sub_item = _funnel_assign_layer(item.get("rule_id"))
+            rule_results.append(
+                {
+                    "rule_id": item.get("rule_id", ""),
+                    "layer": layer,
+                    "sub_item": sub_item,
+                    "passed": bool(item.get("passed")),
+                }
+            )
+        result = _evaluate_funnel_core(sample, {}, rule_results)
+        overall = result.get("overall")
+        if overall == "N/A":
+            na_count += 1
+            overall_counts["na"] += 1
+        else:
+            evaluated += 1
+            overall_counts["pass" if overall == 1 else "fail"] += 1
+        failed_layer = str(result.get("failed_layer") or "")
+        if failed_layer:
+            failed_layer_counts[failed_layer] = failed_layer_counts.get(failed_layer, 0) + 1
+        for code, value in (result.get("layers") or {}).items():
+            slot = layer_counts.setdefault(code, {"passed": 0, "failed": 0})
+            if value == 1:
+                slot["passed"] += 1
+            elif value == 0:
+                slot["failed"] += 1
+        for sub_item in result.get("sub_items_failed") or []:
+            sub_items_failed_counts[sub_item] = sub_items_failed_counts.get(sub_item, 0) + 1
+
+    return {
+        "samples": len(iterable),
+        "evaluated": evaluated,
+        "na": na_count,
+        "overall": overall_counts,
+        "failed_layer_counts": failed_layer_counts,
+        "sub_items_failed_counts": sub_items_failed_counts,
+        "layer_counts": layer_counts,
+    }
+
+
+def _evaluate_release_gate(metrics: dict[str, Any], gates_path: str) -> dict[str, Any] | None:
+    """显式入口：按可选 gates 文件对 report.aggregate 指标求值（M4 release_gate）。
+
+    仅当调用方显式给出 gates_path 时生效；导入/加载/求值任一失败一律降级
+    （返回 None 或带 error 的 dict），绝不外抛、绝不影响评测主流程。
+    """
+    try:
+        from eval.release_gate import evaluate_gate, load_gates
+    except Exception:
+        return None
+    try:
+        gates = load_gates(gates_path)
+    except Exception as exc:
+        return {"passed": False, "violations": [], "error": str(exc)}
+    try:
+        return evaluate_gate(dict(metrics or {}), gates)
+    except Exception as exc:
+        return {"passed": False, "violations": [], "error": str(exc)}
+
+
 if __name__ == "__main__":
-    print(format_online_skill_eval())
+    import os
+
+    # 显式入口：可选 gates 文件由环境变量 EVOHARNESS_RELEASE_GATES 给出；缺省 None
+    # → 不评估也不写字段，默认输出语义与既有完全一致。
+    # 置于文件末尾：core 运行期依赖 summarize_funnel 与 _evaluate_release_gate，
+    # 两者必须先于本块定义，否则 `python -m agents.online_skill_eval` 触发 NameError。
+    print(format_online_skill_eval(evaluate_online_skill_evolution(
+        gates_path=os.environ.get("EVOHARNESS_RELEASE_GATES") or None,
+    )))

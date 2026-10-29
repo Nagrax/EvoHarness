@@ -14,6 +14,9 @@ from .tools import tool_definitions, ToolDef
 # explore / plan 子代理只能拿到这几个只读工具，避免它们修改项目文件或系统状态。
 READ_ONLY_TOOLS = {"read_file", "list_files", "grep_search"}
 
+# 内置代理类型集合：这些类型由代码定义，不允许被 .evoharness/agents/*.md 的同名自定义代理覆盖其语义保证。
+BUILTIN_AGENT_TYPES = ("explore", "plan", "general")
+
 # explore 子代理的系统提示词：定位为“代码库搜索专家”，强调只读、快速搜索和清晰汇报。
 EXPLORE_PROMPT = """You are a file search specialist for EvoHarness. You excel at thoroughly navigating and exploring codebases.
 
@@ -107,7 +110,7 @@ def _load_agents_from_dir(directory: Path, agents: dict[str, dict]) -> None:
         if not entry.suffix == ".md":
             continue
         try:
-            raw = entry.read_text()
+            raw = entry.read_text(encoding="utf-8")
             result = parse_frontmatter(raw)
             meta = result.meta
             name = meta.get("name") or entry.stem
@@ -121,20 +124,25 @@ def _load_agents_from_dir(directory: Path, agents: dict[str, dict]) -> None:
                 "allowed_tools": allowed_tools,
                 "system_prompt": result.body,
             }
-        except Exception:
-            # 单个自定义代理文件解析失败时不影响整个程序启动或其他代理加载。
-            pass
+        except Exception as error:  # noqa: BLE001
+            # 单个自定义代理文件解析失败时不影响整个程序启动或其他代理加载，
+            # 但必须留痕：否则用户的自定义代理会静默消失。
+            print(f"[subagent] 自定义代理加载失败 ({f if 'f' in dir() else '?'}): "
+                  f"{type(error).__name__}: {error}")
 
 
 
 
 def get_sub_agent_config(agent_type: str) -> dict:
     """根据代理类型生成 Agent 运行时需要的 system_prompt 和 tools 配置。"""
-    custom = _discover_custom_agents().get(agent_type)
+    # 内置代理类型（explore/plan/general）优先，禁止同名自定义文件覆盖其语义保证（如 explore=只读）。
+    custom = None if agent_type in BUILTIN_AGENT_TYPES else _discover_custom_agents().get(agent_type)
     if custom:
         if custom["allowed_tools"]:
-            # 自定义代理显式声明工具白名单时，只授予白名单中的工具。
-            tools = [t for t in tool_definitions if t["name"] in custom["allowed_tools"]]
+            # 自定义代理显式声明工具白名单时，只授予白名单中的工具；
+            # 但无论白名单怎么写都要剔除 agent，避免子代理递归创建子代理。
+            tools = [t for t in tool_definitions
+                     if t["name"] in custom["allowed_tools"] and t["name"] != "agent"]
         else:
             # 不允许子代理再调用 agent 工具，避免递归创建子代理导致控制流复杂化。
             tools = [t for t in tool_definitions if t["name"] != "agent"]
@@ -162,6 +170,8 @@ def get_available_agent_types() -> list[dict[str, str]]:
         {"name": "general", "description": "Full tools for independent tasks"},
     ]
     for name, defn in _discover_custom_agents().items():
+        if name in BUILTIN_AGENT_TYPES:
+            continue
         types.append({"name": name, "description": defn["description"]})
     return types
 

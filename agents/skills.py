@@ -27,6 +27,30 @@ from .skill_status import (
 )
 
 
+def _skill_tier(skill_name: str) -> str:
+    """部署分区运行时动态读（延迟导入防循环；缺省 core）。
+
+    契约：绝不烤进 discover_skills 的 _cached_skills/SkillDefinition——晋升发生在
+    评测 CLI 的另一进程，必须在下一次检索时生效（mtime 缓存在 skill_tiers 内部）。
+    """
+    try:
+        from .skill_tiers import get_tier
+
+        return get_tier(skill_name)
+    except Exception:
+        return "core"
+
+
+def _experimental_injection_enabled() -> bool:
+    """保守注入开关（EVOHARNESS_TIER_EXPERIMENTAL_INJECT），每次调用时读。"""
+    try:
+        from .skill_tiers import experimental_injection_enabled
+
+        return experimental_injection_enabled()
+    except Exception:
+        return True
+
+
 @dataclass
 class SkillDefinition:
     # 一个 skill 在程序内的统一表示，由 SKILL.md 的 frontmatter 和正文解析得到。
@@ -370,6 +394,11 @@ def retrieve_relevant_skills(
         skill = by_name.get(name)
         if skill is None:
             continue
+        tier = _skill_tier(skill.name)
+        if tier == "experimental" and not _experimental_injection_enabled():
+            # 保守模式：实验区默认不注入。代价：使用窗口样本断供、只剩证据组，
+            # 自动晋升不可达（README 已知边界披露），故默认关闭此模式。
+            continue
         name_bonus = 0.15 if skill.name.lower() in str(query or "").lower() else 0.0
         weight = STATUS_WEIGHTS.get(certified.get(skill.name, ""), 1.0)
         score = min(1.0, base_score + name_bonus) * weight
@@ -386,6 +415,7 @@ def retrieve_relevant_skills(
                 "user_invocable": bool(skill.user_invocable),
                 "skill_dir": skill.skill_dir,
                 "status": effective.get(skill.name, "incubating"),
+                "tier": tier,
             }
         )
 
@@ -453,6 +483,9 @@ def format_retrieved_skill_context(query: str, *, limit: int = 3) -> tuple[str, 
         notes = ""
         if str(hit.get("status", "")) in PROVISIONAL_STATUSES:
             notes += " [provisional: not yet validated]"
+        if str(hit.get("tier", "")) == "experimental":
+            # 实验区来源标注：与 provisional 标注同一位置叠加（溯源是现有卖点）。
+            notes += " [experimental: self-evolved, pending promotion]"
         clash = [n for n in conflicts.get(hit["name"], []) if n in retrieved_names]
         if clash:
             notes += f" [conflicts with {', '.join(sorted(clash))}; choose by current intent]"

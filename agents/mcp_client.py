@@ -39,11 +39,66 @@ from typing import Any
 from .ui import print_error, print_info
 
 
+# ─── 工具 hint（tool annotations）语义 ──────────────────────────────────────────
+# MCP 工具可声明 readOnlyHint 等注解。未声明的「未知工具」必须按可能有副作用处理
+# （不得默认声称只读 / 非破坏），供 MCP 信任索引与工具目录检查消费。
+_HINT_KEYS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
+_CONSERVATIVE_HINTS = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": False,
+    "openWorldHint": True,
+}
+
+
+def _declared_hints(annotations: Any) -> dict[str, bool] | None:
+    """从 MCP tool annotations 抽取已知 hint；无任何已知 hint 时返回 None（表示未知）。
+
+    仅接受真正的 bool（上游可能传入 "false" / 0 / null 等非布尔值，一律视为未声明，
+    交给上层按保守默认处理，绝不 bool() 强转把 "false" 当成 True）。
+    """
+    if not isinstance(annotations, dict):
+        return None
+    hints = {k: annotations[k] for k in _HINT_KEYS if isinstance(annotations.get(k), bool)}
+    return hints or None
+
+
 # ─── 单个 MCP 连接：一个 McpConnection 对应一个 MCP Server 子进程 ──────────────────
+
+
+def _close_pipe(pipe: Any) -> None:
+    """关闭一条 stdio 管道（StreamWriter / StreamReader），异常一律吞掉。
+
+    StreamWriter 自带 close()；StreamReader 没有 close()，需关闭其底层 transport。
+    Windows ProactorEventLoop 下若只 kill 子进程而不关闭管道，传输层会残留未关闭的
+    transport（ResourceWarning），并在 GC 时因访问已关闭句柄抛
+    `ValueError: I/O operation on closed pipe`。
+    """
+    if pipe is None:
+        return
+    try:
+        transport = getattr(pipe, "_transport", None)
+        if transport is not None:
+            transport.close()
+            return
+    except Exception:
+        pass
+    close = getattr(pipe, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
 
 
 class McpConnection:
     """管理单个 MCP Server 子进程，以及和它之间的 JSON-RPC 通信。"""
+
+    # 每请求 deadline（秒）：acceptance 要求"每请求在 deadline 内成功或明确失败"。
+    # 60s 覆盖慢启动的 stdio server（npx 首次拉包），又不至于把挂死拖成用户可感的卡顿。
+    REQUEST_TIMEOUT_S = 60.0
+    # 单条消息上限（字节）：超长行直接丢弃。无上限时异常 server 能用一行输出耗尽内存。
+    MAX_MESSAGE_BYTES = 1 * 1024 * 1024
 
     def __init__(self, server_name: str, command: str, args: list[str] | None = None,
                  env: dict[str, str] | None = None):
@@ -63,6 +118,10 @@ class McpConnection:
         self._pending: dict[int, asyncio.Future] = {}
         # 后台读取 stdout 的任务。MCP Server 的响应会从 stdout 持续读出。
         self._reader_task: asyncio.Task | None = None
+        # 有界消费 stderr 的后台任务。不消费时 server 写满 stderr 管道缓冲会把自己卡死。
+        self._stderr_task: asyncio.Task | None = None
+        # 串行化 stdin 写入：并发请求交织写会产生非法 JSON-RPC 流。
+        self._write_lock: asyncio.Lock | None = None
 
     async def connect(self) -> None:
         """启动 MCP Server 子进程，并开始后台读取它的 stdout。"""
@@ -81,41 +140,109 @@ class McpConnection:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=merged_env,
+            # readline 的行长度上限要与 MAX_MESSAGE_BYTES 一致：默认 64KB 时，
+            # 正常的大响应（如 list_tools 返回大 schema）会被 readline 直接抛
+            # ValueError（"chunk exceed the limit"），到不了我们的长度检查。
+            limit=max(1, self.MAX_MESSAGE_BYTES),
         )
         # 后台持续读取 stdout。这里不阻塞 connect()，否则后续无法继续初始化。
         self._reader_task = asyncio.create_task(self._read_loop())
+        # 有界消费 stderr：只计数不保存，防止 server 因 stderr 管道写满而阻塞。
+        self._stderr_task = asyncio.create_task(self._drain_stderr_loop())
+        self._write_lock = asyncio.Lock()
 
     async def _read_loop(self) -> None:
-        """持续读取 MCP Server stdout 中按行分隔的 JSON-RPC 响应。"""
-        assert self._process and self._process.stdout
-        while True:
-            # MCP stdio 通常是一行一个 JSON-RPC 消息。
-            line = await self._process.stdout.readline()
-            if not line:
-                # 读不到内容说明子进程 stdout 已关闭，通常表示进程退出。
-                break
-            try:
-                msg = json.loads(line)
-            except json.JSONDecodeError:
-                # 非法 JSON 直接忽略，避免单条脏输出打断整个连接。
-                continue
+        """持续读取 MCP Server stdout 中按行分隔的 JSON-RPC 响应。
 
-            # JSON-RPC 响应会带 id；通知类消息通常没有 id。
-            msg_id = msg.get("id")
-            if msg_id is not None and msg_id in self._pending:
-                fut = self._pending.pop(msg_id)
-                if "error" in msg:
-                    # Server 返回 JSON-RPC error 时，把等待中的 Future 标记为异常。
-                    e = msg["error"]
-                    fut.set_exception(
-                        RuntimeError(f"MCP error {e.get('code')}: {e.get('message')}")
-                    )
-                else:
-                    # 正常响应只把 result 部分交给调用方。
-                    fut.set_result(msg.get("result"))
+        退出纪律：无论正常 EOF、协议错还是读循环自身异常，都必须统一结算
+        `_pending`（全部置异常），否则等待方永远挂起——server 崩溃后
+        "请求挂死" 会被用户当成 "工具没响应"，无从排查。
+        """
+        assert self._process and self._process.stdout
+        try:
+            while True:
+                # MCP stdio 通常是一行一个 JSON-RPC 消息。
+                try:
+                    line = await self._process.stdout.readline()
+                except ValueError:
+                    # 超过 StreamReader limit 的行：异常本身已消费 limit 字节，
+                    # 流会从同一行的下一段继续；continue 后逐段吞到行尾再恢复正常。
+                    continue
+                if not line:
+                    # 读不到内容说明子进程 stdout 已关闭，通常表示进程退出。
+                    break
+                if len(line) > self.MAX_MESSAGE_BYTES:
+                    # 超长消息：readline 已把它整行读出，丢弃即可；
+                    # 不设上限的话异常 server 能用一行输出耗尽客户端内存。
+                    continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    # 非法 JSON 直接忽略，避免单条脏输出打断整个连接。
+                    continue
+                # JSON-RPC 消息必须是对象：null / 数组 / 标量都没有 .get，
+                # 直接走到下面会让 read_loop 崩溃（未捕获异常 → reader 任务死亡 → 全部请求挂死）。
+                if not isinstance(msg, dict):
+                    continue
+
+                # JSON-RPC 响应会带 id；通知类消息通常没有 id。
+                msg_id = msg.get("id")
+                if msg_id is not None and msg_id in self._pending:
+                    fut = self._pending.pop(msg_id)
+                    if "error" in msg:
+                        # Server 返回 JSON-RPC error 时，把等待中的 Future 标记为异常。
+                        e = msg["error"]
+                        fut.set_exception(
+                            RuntimeError(f"MCP error {e.get('code')}: {e.get('message')}")
+                        )
+                    else:
+                        # 正常响应只把 result 部分交给调用方。
+                        fut.set_result(msg.get("result"))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            # 读循环自身崩溃（如传输层被关闭）也必须结算 pending，原因要带出去。
+            self._settle_pending_on_exit(f"MCP server '{self.server_name}' reader crashed: {exc}")
+            raise
+        # EOF：server 退出。统一结算所有还在等待的请求。
+        self._settle_pending_on_exit(f"MCP server '{self.server_name}' exited (stdout closed)")
+
+    async def _drain_stderr_loop(self) -> None:
+        """有界消费 stderr：只丢弃内容并计数，防止 server 写满管道缓冲把自己卡死。
+
+        之前 stderr=PIPE 但无人消费：server 一旦输出超过管道缓冲（Windows ~4-64KB），
+        它的下一次 stderr 写就阻塞，连带整个 server 卡死——这是"stderr 填满"用例的根因。
+        """
+        assert self._process and self._process.stderr
+        try:
+            while True:
+                chunk = await self._process.stderr.read(8192)
+                if not chunk:
+                    break
+                # 丢弃内容（不落盘、不打印，避免把 server 日志泄进主输出）。
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            # stderr 读失败不影响主链路：stdout 承载 JSON-RPC，stderr 只是排洪道。
+            pass
+
+    def _settle_pending_on_exit(self, reason: str) -> None:
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.set_exception(RuntimeError(reason))
+        self._pending.clear()
 
     async def _send_request(self, method: str, params: dict | None = None) -> Any:
-        """发送一条 JSON-RPC request，并等待对应 id 的 response。"""
+        """发送一条 JSON-RPC request，并在 deadline 内等待对应 id 的 response。
+
+        修复的两个真实竞态（对应验收里的 "快速响应" 与 "无响应" 用例）：
+        1. **先写后登记**：旧实现先 `drain()` 再登记 Future。快速 server 在 drain
+           返回前就把响应送进 read_loop，`msg_id not in _pending` → 响应被静默丢弃
+           → 请求永远挂起。现在**先登记、再写**，早到响应一定能找到 Future。
+        2. **无 deadline**：旧实现 `await fut` 永等。server 不响应时请求挂死。
+           现在每请求有 REQUEST_TIMEOUT_S 上限，超时显式失败并清理登记。
+        并发写 stdin 会交织出非法 JSON-RPC 流，因此用写锁串行化。
+        """
         assert self._process and self._process.stdin
         # 为本次请求分配唯一 id。读循环会用这个 id 找到对应 Future。
         req_id = self._next_id
@@ -129,15 +256,26 @@ class McpConnection:
         #   "params": {...}
         # }
         msg = json.dumps({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}})
-        # stdio 传输使用换行作为消息边界。
-        self._process.stdin.write((msg + "\n").encode())
-        await self._process.stdin.drain()
 
-        # 创建 Future 并登记到 _pending，等待 _read_loop 收到相同 id 的响应后唤醒。
+        # 先登记 Future，再写 stdin：早到的响应必须在 _pending 里能找到归宿。
         loop = asyncio.get_event_loop()
         fut: asyncio.Future = loop.create_future()
         self._pending[req_id] = fut
-        return await fut
+        try:
+            async with self._write_lock:
+                # stdio 传输使用换行作为消息边界。
+                self._process.stdin.write((msg + "\n").encode())
+                await self._process.stdin.drain()
+            # deadline 内必须成功或明确失败；不允许无限等待。
+            return await asyncio.wait_for(fut, timeout=self.REQUEST_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"MCP request '{method}' timed out after {self.REQUEST_TIMEOUT_S}s "
+                f"(server '{self.server_name}')"
+            ) from None
+        finally:
+            # 超时/取消/异常路径都要把登记清掉，避免 pending 泄漏累积。
+            self._pending.pop(req_id, None)
 
     def _send_notification(self, method: str, params: dict | None = None) -> None:
         """发送一条 JSON-RPC notification。notification 没有 id，也不等待响应。"""
@@ -169,35 +307,82 @@ class McpConnection:
                 "description": t.get("description", ""),
                 "inputSchema": t.get("inputSchema"),
                 "serverName": self.server_name,
+                # 透传上游声明的 tool annotations；未声明时置 None，由上层按未知保守处理。
+                "hints": _declared_hints(t.get("annotations")),
             }
             for t in result["tools"]
         ]
 
-    async def call_tool(self, name: str, args: dict) -> str:
-        """调用当前 MCP Server 上的某个工具，并把结果转换成字符串返回。"""
+    async def call_tool(self, name: str, args: dict):
+        """调用 MCP Server 工具，返回保留协议状态的 ToolResult。
+
+        MCP 规范用 `isError` 表示工具失败；历史实现把它丢掉，只拼 content 文本，
+        于是 Agent 只能靠正文里有没有 "error" 来猜 —— 工具返回一段说明错误的文本
+        会被当成失败，而真正的 isError=true 若正文没那个词就会被当成成功。
+        """
+        from agents.tools import ToolResult, TOOL_FAILED, TOOL_OK
+
         result = await self._send_request("tools/call", {"name": name, "arguments": args})
+        is_error = bool(isinstance(result, dict) and result.get("isError"))
         if isinstance(result, dict) and isinstance(result.get("content"), list):
             # MCP 工具结果通常是 content block 列表。当前 Agent 只消费 text block。
-            return "\n".join(
-                c["text"] for c in result["content"] if c.get("type") == "text"
+            text = "\n".join(
+                str(c.get("text") or "") for c in result["content"]
+                if isinstance(c, dict) and c.get("type") == "text"
+            )
+            return ToolResult(
+                text,
+                status=TOOL_FAILED if is_error else TOOL_OK,
+                error_code="mcp-is-error" if is_error else "",
+                metadata={"mcp": True, "serverTool": name, "isError": is_error},
             )
         # 如果不是标准 content list，就退回为 JSON 字符串，避免丢失信息。
-        return json.dumps(result)
+        return ToolResult(
+            json.dumps(result),
+            status=TOOL_FAILED if is_error else TOOL_OK,
+            error_code="mcp-is-error" if is_error else "",
+            metadata={"mcp": True, "serverTool": name, "isError": is_error},
+        )
 
     def close(self) -> None:
-        """关闭 MCP Server 子进程，并让所有等待中的请求失败。"""
+        """关闭 MCP Server 子进程与全部 stdio 管道，并让所有等待中的请求失败。
+
+        幂等：重复调用安全。Windows ProactorEventLoop 下只 kill 进程而不回收传输层，
+        会让传输层残留未关闭的管道 / 子进程，触发 `ResourceWarning: unclosed transport`
+        与 `ValueError: I/O operation on closed pipe`。
+        """
         if self._reader_task:
             # 停止 stdout 后台读取任务。
             self._reader_task.cancel()
             self._reader_task = None
-        if self._process:
+        if self._stderr_task:
+            # 停止 stderr 排洪任务。
+            self._stderr_task.cancel()
+            self._stderr_task = None
+        proc = self._process
+        self._process = None
+        if proc is not None:
             try:
                 # 直接杀掉子进程，确保外部 MCP Server 不继续残留。
-                self._process.kill()
-            except ProcessLookupError:
+                proc.kill()
+            except (ProcessLookupError, OSError):
                 # 进程已经退出时 kill 可能抛出该异常，忽略即可。
                 pass
-            self._process = None
+            # 显式关闭子进程传输层：仅 kill 并关闭管道时，_WindowsSubprocessTransport
+            # 仍以 "running" 状态被 GC，打印 `unclosed transport`（子进程未 reap）。
+            transport = getattr(proc, "_transport", None)
+            if transport is not None:
+                try:
+                    transport.close()
+                except Exception:
+                    pass
+            # 显式关闭 stdin/stdout/stderr 管道，释放传输层资源、避免管道泄漏。
+            for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                _close_pipe(pipe)
+            # 置空，保证后续不再误用已关闭的管道。
+            proc.stdin = None
+            proc.stdout = None
+            proc.stderr = None
         # 连接关闭后，所有还没收到响应的请求都不可能再完成，需要显式置为异常。
         for fut in self._pending.values():
             if not fut.done():
@@ -280,13 +465,21 @@ class McpManager:
                 "input_schema": t.get("inputSchema") or {"type": "object", "properties": {}},
             }
             if with_hints:
-                hints = t.get("hints") or {}
-                item["hints"] = {
-                    "readOnlyHint": bool(hints.get("readOnlyHint", False)),
-                    "destructiveHint": bool(hints.get("destructiveHint", False)),
-                    "idempotentHint": bool(hints.get("idempotentHint", False)),
-                    "openWorldHint": bool(hints.get("openWorldHint", False)),
-                }
+                hints = t.get("hints")
+                if hints is None:
+                    # 上游未声明任何 hint 的未知工具：保守默认，不声称只读 / 不声称非破坏。
+                    item["hints"] = dict(_CONSERVATIVE_HINTS)
+                else:
+                    # 部分声明时，未声明的字段一律取保守值（不得默认声称只读 / 非破坏）。
+                    resolved = {
+                        key: bool(hints[key]) if key in hints else _CONSERVATIVE_HINTS[key]
+                        for key in _HINT_KEYS
+                    }
+                    # readOnly 与 destructive 互斥：只读工具不得再被补 destructiveHint=True，
+                    # 否则同一 tool 的 hint 自相矛盾（readOnly=True 却 destructive=True）。
+                    if resolved["readOnlyHint"]:
+                        resolved["destructiveHint"] = False
+                    item["hints"] = resolved
             out.append(item)
         return out
 
@@ -296,17 +489,38 @@ class McpManager:
 
     async def call_tool(self, prefixed_name: str, args: dict) -> str:
         """把带前缀的 MCP 工具调用路由到正确的 MCP Server。"""
-        # 工具名格式为 mcp__serverName__toolName。
-        parts = prefixed_name.split("__")
-        if len(parts) < 3:
-            raise ValueError(f"Invalid MCP tool name: {prefixed_name}")
-        server_name = parts[1]
-        # 工具名本身也可能包含 "__"，所以第 3 段之后要重新拼回去。
-        tool_name = "__".join(parts[2:])  # tool name might contain __
+        # 工具名格式为 mcp__serverName__toolName。serverName 本身可能含 "__"，
+        # 因此按「已注册 server 名的最长前缀匹配」解析，而不是简单 split('__')[1]。
+        server_name, tool_name = self._split_prefixed_name(prefixed_name)
         conn = self._connections.get(server_name)
         if not conn:
             raise RuntimeError(f"MCP server '{server_name}' not connected")
         return await conn.call_tool(tool_name, args)
+
+    def _split_prefixed_name(self, prefixed_name: str) -> tuple[str, str]:
+        """把 `mcp__<server>__<tool>` 解析为 (server_name, tool_name)。
+
+        server 名可能包含 "__"，故取已连接 server 名中「最长且后接 '__' 的前缀」；
+        找不到时退回首个 '__' 后的分段并交由调用方报「未连接」。
+        """
+        prefix = "mcp__"
+        if not isinstance(prefixed_name, str) or not prefixed_name.startswith(prefix):
+            raise ValueError(f"Invalid MCP tool name: {prefixed_name}")
+        rest = prefixed_name[len(prefix):]
+        best = ""
+        for name in self._connections:
+            if rest.startswith(name + "__") and len(name) > len(best):
+                best = name
+        if not best:
+            # 无已注册 server 匹配：取首个 "__" 前的一段作为 server 名（能给出更准确的报错）。
+            idx = rest.find("__")
+            if idx == -1:
+                raise ValueError(f"Invalid MCP tool name: {prefixed_name}")
+            best = rest[:idx]
+        tool_name = rest[len(best) + 2:]
+        if not tool_name:
+            raise ValueError(f"Invalid MCP tool name: {prefixed_name}")
+        return best, tool_name
 
     async def disconnect_all(self) -> None:
         """断开所有 MCP Server 连接，并清空工具缓存。"""
@@ -321,6 +535,9 @@ class McpManager:
     def _load_configs(self) -> dict[str, dict]:
         """按优先级加载并合并 MCP Server 配置。"""
         merged: dict[str, dict] = {}
+        # 解析失败的配置文件记入这里（而不是静默跳过）——
+        # 否则用户会以为这些 MCP server 正常工作，实际一个都没加载。
+        self.config_errors = []
 
         # 1. 全局配置：~/.evoharness/settings.json
         global_path = Path.home() / ".evoharness" / "settings.json"
@@ -341,7 +558,7 @@ class McpManager:
         if not path.exists():
             return
         try:
-            raw = json.loads(path.read_text())
+            raw = json.loads(path.read_text(encoding="utf-8"))
             # 支持两种格式：
             # 1. {"mcpServers": {"name": {...}}}
             # 2. {"name": {...}}
@@ -350,6 +567,11 @@ class McpManager:
                 # 只接收包含 command 的对象；无效配置直接忽略。
                 if isinstance(config, dict) and "command" in config:
                     target[name] = config
-        except Exception:
-            # 配置文件格式错误时跳过，避免一个坏配置导致整个 Agent 启动失败。
-            pass
+        except Exception as error:  # noqa: BLE001
+            # 配置格式错误时跳过（避免一个坏配置拖垮 Agent 启动），但必须可见：
+            # 用户否则会以为这些 MCP server 正常工作，实际一个都没加载。
+            self.config_errors.append({
+                "path": str(path),
+                "error": f"{type(error).__name__}: {error}"[:200],
+            })
+            print(f"[mcp] config skipped ({path}): {type(error).__name__}: {error}")

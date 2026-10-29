@@ -7,11 +7,14 @@ import asyncio
 import os
 import signal
 import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 from dotenv import find_dotenv, load_dotenv
 
 from .agent import Agent
+from .session import load_stage_segment, load_session, get_latest_session_id
+from .stages import load_manifest
 from .ui import (
     print_welcome,
     print_user_prompt,
@@ -25,7 +28,7 @@ from .ui import (
     print_skill_entries,
     print_warning,
 )
-from .session import load_session, get_latest_session_id
+from .session_memory import format_stage_handover
 from .memory import list_memories
 from .skills import (
     create_skill,
@@ -56,8 +59,42 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", action="store_true", help="Resume last session")
     parser.add_argument("--max-cost", type=float, default=None, help="Max USD spend")
     parser.add_argument("--max-turns", type=int, default=50, help="Max agentic turns (default 50)")
+    parser.add_argument(
+        "--skills-tier",
+        nargs="+",
+        default=None,
+        help="Deployment tier ops (no agent, no API key): list | promote <skill> | rollback <skill> | core <skill>",
+    )
     parser.add_argument("--help", "-h", action="store_true", help="Show help")
     return parser.parse_args()
+
+
+def _run_skills_tier_command(parts: list[str]) -> None:
+    """部署分区人工操作入口（评审第 3 条）：manual_promote / 一键回退 / core 晋级的 CLI 承载。"""
+    from . import skill_tiers
+
+    action = str(parts[0] or "").strip().lower()
+    if action == "list":
+        print(skill_tiers.format_tiers())
+        return
+    if len(parts) < 2 or not str(parts[1] or "").strip():
+        print("usage: --skills-tier list | promote <skill> | rollback <skill> | core <skill>")
+        sys.exit(1)
+    skill_name = str(parts[1]).strip()
+    if action == "promote":
+        result = skill_tiers.manual_promote(skill_name)
+    elif action == "rollback":
+        result = skill_tiers.rollback(skill_name)
+    elif action == "core":
+        result = skill_tiers.manual_promote_core(skill_name)
+    else:
+        print(f"unknown --skills-tier action: {action}")
+        sys.exit(1)
+    if result.get("ok"):
+        print(f"{skill_name}: {result.get('from_tier')} -> {result.get('to_tier')} ({result.get('trigger')})")
+    else:
+        print(f"failed: {result.get('error')}")
+        sys.exit(1)
 
 
 def _resolve_permission_mode(args: argparse.Namespace) -> str:
@@ -123,6 +160,12 @@ def _resolve_api_config(cli_api_base: str | None) -> tuple[str | None, str | Non
     return None, None, False
 
 
+def _agent_is_processing(agent: Agent) -> bool:
+    """Agent 是否正在处理一轮：chat() 运行中 _turn_output_buffer 非 None；
+    旧判据误用 _output_buffer（仅 run_once() 置非 None，REPL 走 chat() 时恒为 None）。"""
+    return agent._aborted is False and agent._turn_output_buffer is not None
+
+
 async def run_repl(agent: Agent) -> None:
     """Interactive REPL loop."""
 
@@ -164,7 +207,7 @@ async def run_repl(agent: Agent) -> None:
 
     def handle_sigint(sig, frame):
         nonlocal sigint_count
-        if agent._aborted is False and agent._output_buffer is not None:
+        if _agent_is_processing(agent):
             # Agent is processing
             agent.abort()
             print_interrupted()
@@ -232,7 +275,7 @@ async def run_repl(agent: Agent) -> None:
             print_info(skill_stats())
             continue
         if inp == "/skill-eval":
-            side_query = agent._build_side_query(max_tokens=2400)
+            side_query = agent._build_side_query(max_tokens=2400, label="skill_eval")
             print_info(await format_online_skill_eval_async(side_query=side_query))
             continue
         if inp.startswith("/extract_now"):
@@ -323,6 +366,63 @@ async def run_one_shot(agent: Agent, prompt: str) -> None:
     await agent.drain_background_skill_tasks()
 
 
+def _resume_staged_session(agent: Agent, metadata: dict) -> bool:
+    """--resume staged 分支（改造二）：恢复到最近阶段边界而非任意中间态。
+
+    评审 #6：不自动恢复权限档——manifest 记录的 advisory_mode 只是咨询信息，
+    resume 后有效权限一律维持 Agent 构造档（default），提权需用户显式确认。
+    评审 #8：manifest 用全局会话 metadata 的 plan_dir_abs 绝对路径定位，跨 cwd 可恢复；
+    目录/manifest 缺失 → 返回 False，回退全局原始存档并显式告警。
+    评审 #9：无任何交接记录（如 plan 段内即崩溃）→ 返回 False 回退并提示重新激活。
+    """
+    plan_dir = Path(str(metadata.get("plan_dir_abs") or ""))
+    manifest = load_manifest(plan_dir)
+    if manifest is None:
+        print_warning(f"Stage manifest missing at {plan_dir} — falling back to raw history restore.")
+        return False
+    stages_list = list(manifest.get("stages") or [])
+    target = None
+    skipped = 0
+    for record in reversed(stages_list):
+        if record.get("handover"):
+            target = record
+            break
+        skipped += 1
+    if target is None:
+        print_warning(
+            "阶段机未形成边界（无任何交接记录，如首段内即崩溃）——回退全局原始存档；"
+            "可用 --plan 重新激活阶段机。"
+        )
+        return False
+    if skipped:
+        print_warning(f"{skipped} 个续段无交接（如预算强制收段），恢复点回退到最近阶段边界。")
+    idx = stages_list.index(target)
+    from_stage = str(stages_list[idx - 1].get("name")) if idx > 0 else "start"
+    # 存档指针指向上一段（已关闭、已落盘）的段文件；target 自己的文件要等它关闭才写。
+    archive_file = str(plan_dir / str(stages_list[idx - 1].get("session_file"))) if idx > 0 else ""
+    content = format_stage_handover(
+        target["handover"],
+        from_stage=from_stage,
+        to_stage=str(target.get("name")),
+        stage_file=archive_file,
+    )
+    if agent.use_openai:
+        agent.restore_session({"openaiMessages": [
+            {"role": "system", "content": agent._system_prompt},
+            {"role": "user", "content": content},
+        ]})
+    else:
+        agent.restore_session({"anthropicMessages": [{"role": "user", "content": content}]})
+    timeline = " -> ".join(f"{r.get('name')}({r.get('status')})" for r in stages_list)
+    print_info(
+        f"Resumed at stage boundary '{target.get('name')}' (plan {manifest.get('plan_id')}).\n"
+        f"  Stage timeline: {timeline}\n"
+        f"  Recorded advisory permission mode: {target.get('advisory_mode') or 'n/a'} — "
+        "resume stays in the current mode; re-confirm elevation explicitly."
+    )
+    return True
+
+
 def main() -> None:
     """CLI 程序入口：准备运行配置，创建 Agent，并按参数选择一次性执行或交互模式。"""
     # 解析命令行参数，例如 --plan、--resume、--model，以及可选的一次性 prompt。
@@ -337,7 +437,7 @@ Usage: evoharness [options] [prompt]
 Options:
   --yolo, -y          Skip all confirmation prompts (bypassPermissions mode)
   --plan              Plan mode: read-only, describe changes without executing
-  --accept-edits      Auto-approve file edits, still confirm dangerous shell
+  --accept-edits      Auto-approve file edits; shell commands still require confirmation
   --dont-ask          Auto-deny anything needing confirmation (for CI)
   --thinking          Enable extended thinking (Anthropic only)
   --model, -m         Model to use (default: deepseek-chat, or MODEL env)
@@ -374,6 +474,11 @@ Examples:
 """)
         sys.exit(0)
 
+    if args.skills_tier:
+        # 部署分区人工操作：不启动 Agent、不需要 API key（纯文件运维）。
+        _run_skills_tier_command(args.skills_tier)
+        return
+
     # 将命令行布尔开关统一转换成 Agent 内部使用的权限模式。
     permission_mode = _resolve_permission_mode(args)
     # 模型优先使用命令行参数，其次读取 .env 中的 MODEL，最后回落到默认模型。
@@ -400,6 +505,9 @@ Examples:
         api_base=resolved_api_base if resolved_use_openai else None,
         anthropic_base_url=resolved_api_base if not resolved_use_openai else None,
         api_key=resolved_api_key,
+        # Loop 阶段状态机（改造二评审 #5）：仅 --plan CLI 显式激活；REPL /plan、
+        # enter_plan_mode 与子 Agent 不激活。
+        loop_stages=args.plan,
     )
 
     # Resume session
@@ -409,10 +517,18 @@ Examples:
         if session_id:
             session = load_session(session_id)
             if session:
-                agent.restore_session({
-                    "anthropicMessages": session.get("anthropicMessages"),
-                    "openaiMessages": session.get("openaiMessages"),
-                })
+                metadata = session.get("metadata") or {}
+                # staged 会话（改造二）：恢复到最近阶段边界；失败/非 staged 回退原始历史。
+                restored = False
+                if metadata.get("loop_staged") and metadata.get("plan_dir_abs"):
+                    restored = _resume_staged_session(agent, metadata)
+                if not restored:
+                    agent.restore_session({
+                        # 上次落盘协议：跨协议恢复时据其把历史迁进当前协议的列表。
+                        "protocol": metadata.get("protocol"),
+                        "anthropicMessages": session.get("anthropicMessages"),
+                        "openaiMessages": session.get("openaiMessages"),
+                    })
             else:
                 print_info("No session found to resume.")
         else:

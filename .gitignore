@@ -244,6 +244,12 @@ analysis_progress.md
 .evoharness/skills/create-readme/
 
 # 私人笔记与面试材料（永不发布）
+# 已归拢到 docs/ 分类目录：interview/（面试与三条链路）、design/（架构与实现说明）、
+# eval/（评测说明）、handoff/（交接与论文规划）——四类均为私人材料，整体忽略。
+docs/interview/
+docs/design/
+docs/eval/
+docs/handoff/
 wiki/
 .bear/
 paper/
@@ -257,3 +263,40 @@ paper/
 
 # 整体链路私人笔记
 整体链路.md
+
+# 评测过程的一次性跑题产物（归拢目录，非项目文档）
+_scratch/
+
+# ============================================================
+# 安全：凭据与环境文件（绝不入库）
+# ============================================================
+.env
+.env.*
+.env.bak*
+*.key
+*.pem
+*.p12
+*.pfx
+credentials*
+*credential*.json
+
+# 抓取的页面快照里可能内嵌第三方 key（实测 rule601.html 含 bitly apiKey）
+rule601.html
+malko_content.json
+combined_pdf_text.txt
+
+# ============================================================
+# 运行产物（可重建，不入库）
+# ============================================================
+.evoharness/
+eval/runs/
+eval/data/
+!eval/runs/.gitkeep
+
+# ============================================================
+# 超大二进制（实测 ffmpeg.zip 185MB）
+# ============================================================
+*.zip
+*.7z
+*.tar.gz
+ffmpeg.zip

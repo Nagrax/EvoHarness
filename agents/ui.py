@@ -9,6 +9,7 @@ import time
 from rich import box
 from rich.align import Align
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -20,6 +21,15 @@ console = Console(highlight=False)
 
 def _safe_text(value: object) -> str:
     return str(value).encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _safe_markup(value: object) -> str:
+    """转义 rich markup 后再交给 console/Panel。
+
+    工具输出、异常文本等用户内容里若含 '[' / ']'（如 '[/]'），rich 会当成标记并抛
+    MarkupError 打断当前轮；转义后可安全地按字面渲染。
+    """
+    return escape(_safe_text(value))
 
 
 def _safe_stdout_write(text: object) -> None:
@@ -87,9 +97,9 @@ def print_tool_call(name: str, inp: dict) -> None:
     table = Table.grid(padding=(0, 1))
     table.add_column(style="bold yellow", no_wrap=True)
     table.add_column(style="white")
-    table.add_row("tool", f"{icon} {name}")
+    table.add_row("tool", f"{icon} {_safe_markup(name)}")
     if summary:
-        table.add_row("input", _safe_text(summary))
+        table.add_row("input", _safe_markup(summary))
     console.print(Panel(
         table,
         title="[bold yellow]Tool Call[/bold yellow]",
@@ -109,8 +119,8 @@ def print_tool_result(name: str, result: str) -> None:
     if len(result) > max_len:
         truncated = result[:max_len] + f"\n  ... ({len(result)} chars total)"
     console.print(Panel(
-        _safe_text(truncated),
-        title=f"[dim]{name} result[/dim]",
+        _safe_markup(truncated),
+        title=f"[dim]{_safe_markup(name)} result[/dim]",
         border_style="dim",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -120,7 +130,7 @@ def print_tool_result(name: str, result: str) -> None:
 def _print_file_change_result(_name: str, result: str) -> None:
     lines = result.split("\n")
     console.print(Panel(
-        _safe_text(lines[0]),
+        _safe_markup(lines[0]),
         title="[bold green]File Change[/bold green]",
         border_style="green",
         box=box.ROUNDED,
@@ -134,21 +144,22 @@ def _print_file_change_result(_name: str, result: str) -> None:
     for line in display_lines:
         if not line.strip():
             continue
+        rendered = _safe_markup(line)
         if line.startswith("@@"):
-            console.print(f"[cyan]  {line}[/cyan]")
+            console.print(f"[cyan]  {rendered}[/cyan]")
         elif line.startswith("- "):
-            console.print(f"[red]  {line}[/red]")
+            console.print(f"[red]  {rendered}[/red]")
         elif line.startswith("+ "):
-            console.print(f"[green]  {line}[/green]")
+            console.print(f"[green]  {rendered}[/green]")
         else:
-            console.print(f"[dim]  {line}[/dim]")
+            console.print(f"[dim]  {rendered}[/dim]")
     if len(content_lines) > max_display:
         console.print(f"[dim]  ... ({len(content_lines) - max_display} more lines)[/dim]")
 
 
 def print_error(msg: str) -> None:
     console.print(Panel(
-        _safe_text(msg),
+        _safe_markup(msg),
         title="[bold red]Error[/bold red]",
         border_style="red",
         box=box.ROUNDED,
@@ -158,7 +169,7 @@ def print_error(msg: str) -> None:
 
 def print_confirmation(command: str) -> None:
     console.print(Panel(
-        _safe_text(command),
+        _safe_markup(command),
         title="[bold yellow]Dangerous command[/bold yellow]",
         border_style="yellow",
         box=box.ROUNDED,
@@ -184,12 +195,12 @@ def print_cost(input_tokens: int, output_tokens: int) -> None:
 
 
 def print_retry(attempt: int, max_retries: int, reason: str) -> None:
-    console.print(_safe_text(f"\n  [yellow]↻ Retry {attempt}/{max_retries}: {reason}[/yellow]"))
+    console.print(f"\n  [yellow]↻ Retry {attempt}/{max_retries}: {_safe_markup(reason)}[/yellow]")
 
 
 def print_info(msg: str) -> None:
     console.print(Panel(
-        _safe_text(msg),
+        _safe_markup(msg),
         title="[bold cyan]Info[/bold cyan]",
         border_style="cyan",
         box=box.ROUNDED,
@@ -199,7 +210,7 @@ def print_info(msg: str) -> None:
 
 def print_warning(msg: str) -> None:
     console.print(Panel(
-        _safe_text(msg),
+        _safe_markup(msg),
         title="[bold yellow]Notice[/bold yellow]",
         border_style="yellow",
         box=box.ROUNDED,
@@ -266,7 +277,7 @@ def print_plan_for_approval(plan_content: str) -> None:
     if len(lines) > max_lines:
         preview += f"\n\n... ({len(lines) - max_lines} more lines)"
     console.print(Panel(
-        _safe_text(preview),
+        _safe_markup(preview),
         title="[bold cyan]Plan for Approval[/bold cyan]",
         border_style="cyan",
         box=box.ROUNDED,
@@ -291,8 +302,8 @@ def print_plan_approval_options() -> None:
 
 def print_sub_agent_start(agent_type: str, description: str) -> None:
     console.print(Panel(
-        _safe_text(description),
-        title=f"[bold magenta]Sub-agent started: {agent_type}[/bold magenta]",
+        _safe_markup(description),
+        title=f"[bold magenta]Sub-agent started: {_safe_markup(agent_type)}[/bold magenta]",
         border_style="magenta",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -302,7 +313,7 @@ def print_sub_agent_start(agent_type: str, description: str) -> None:
 def print_sub_agent_end(agent_type: str, _description: str) -> None:
     console.print(Panel(
         "completed",
-        title=f"[bold magenta]Sub-agent finished: {agent_type}[/bold magenta]",
+        title=f"[bold magenta]Sub-agent finished: {_safe_markup(agent_type)}[/bold magenta]",
         border_style="magenta",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -316,9 +327,9 @@ def print_memory_entries(memories: list[object]) -> None:
     table.add_column("Description", style="dim")
     for m in memories:
         table.add_row(
-            _safe_text(getattr(m, "type", "")),
-            _safe_text(getattr(m, "name", "")),
-            _safe_text(getattr(m, "description", "")),
+            _safe_markup(getattr(m, "type", "")),
+            _safe_markup(getattr(m, "name", "")),
+            _safe_markup(getattr(m, "description", "")),
         )
     console.print(Panel(table, title="[bold cyan]Memories[/bold cyan]", border_style="cyan", box=box.ROUNDED))
 
@@ -333,10 +344,10 @@ def print_skill_entries(skills: list[object]) -> None:
         name = getattr(s, "name", "")
         tag = f"/{name}" if getattr(s, "user_invocable", False) else name
         table.add_row(
-            _safe_text(tag),
-            _safe_text(getattr(s, "source", "")),
-            _safe_text(getattr(s, "context", "")),
-            _safe_text(getattr(s, "description", "")),
+            _safe_markup(tag),
+            _safe_markup(getattr(s, "source", "")),
+            _safe_markup(getattr(s, "context", "")),
+            _safe_markup(getattr(s, "description", "")),
         )
     console.print(Panel(table, title="[bold cyan]Skills[/bold cyan]", border_style="cyan", box=box.ROUNDED))
 

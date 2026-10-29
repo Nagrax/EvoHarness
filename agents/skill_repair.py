@@ -13,8 +13,12 @@
 from __future__ import annotations
 
 import difflib
+import re
 from pathlib import Path
 from typing import Any
+
+# frontmatter 区内的中文冒号（含其后的空白，替换为 ": " 以免重复补空格）。
+_RE_CHINESE_COLON = re.compile(r"：\s*")
 
 
 def _read_bytes(path: Path) -> bytes:
@@ -29,6 +33,14 @@ def _decode_gbk(raw: bytes) -> str | None:
         except UnicodeDecodeError:
             continue
     return None
+
+
+def _decode_utf8(raw: bytes) -> str | None:
+    """以 utf-8-sig 解码；非 UTF-8（如 GBK）返回 None，供 colon/unclosed 前置编码门。"""
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return None
 
 
 def build_repair_suggestion(file_str: str, event: str, reason: str) -> dict[str, Any]:
@@ -95,22 +107,31 @@ def apply_repair(file_str: str, kind: str) -> dict[str, Any]:
 
     raw_bytes = _read_bytes(path)
     backup = path.with_suffix(path.suffix + ".bak")
-    if not backup.exists():
-        backup.write_bytes(raw_bytes)
 
+    # 先算定修复内容（纯变换、不写盘），再落 .bak / 重写：解码失败时原文件与
+    # 备份都不动，避免生成"半成品"（.bak 已落但原文件未改）。
     if kind == "encoding":
         fixed = _decode_gbk(raw_bytes)
         if fixed is None:
             return {"ok": False, "error": "解码失败，未修改文件"}
         fixed = _normalize_newlines(fixed)
     elif kind == "colon":
-        fixed = _fix_chinese_colons(raw_bytes.decode("utf-8-sig"))
+        text = _decode_utf8(raw_bytes)
+        if text is None:
+            return {"ok": False, "error": "文件编码非 UTF-8，无法按此类型修复（未修改文件）"}
+        fixed = _fix_chinese_colons(text)
     elif kind == "unclosed":
-        fixed = _fix_unclosed_frontmatter(raw_bytes.decode("utf-8-sig"))
+        text = _decode_utf8(raw_bytes)
+        if text is None:
+            return {"ok": False, "error": "文件编码非 UTF-8，无法按此类型修复（未修改文件）"}
+        fixed = _fix_unclosed_frontmatter(text)
         if fixed is None:
             return {"ok": False, "error": "无法定位闭合位置，未修改文件"}
     else:
         return {"ok": False, "error": "未知修复类型"}
+
+    if not backup.exists():
+        backup.write_bytes(raw_bytes)
 
     # newline="\n"：内容已统一 LF，禁止 Windows 文本模式再转 CRLF
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -122,6 +143,24 @@ def apply_repair(file_str: str, kind: str) -> dict[str, Any]:
         backup_text = backup.read_bytes()
         path.write_bytes(backup_text)
         return {"ok": False, "error": f"验证未通过已回滚：{err}", "rolled_back": True}
+    try:
+        # 部署分区审计：修复不改 tier（已评审偏离——人工触发（server /api/skills/repair/apply）、
+        # 作用于本已解析失败的文件、.bak+重解析验证+失败自动回滚），只留痕并记录 kind。
+        # 豁免不外推到未来自动修复路径：全自动修复必须走 register_evolution_write。
+        # 延迟导入防循环（skill_tiers 模块级依赖 skill_evolution，与本文件同链）。
+        from .skill_tiers import register_repair
+
+        try:
+            from .frontmatter import parse_frontmatter
+
+            skill_name = str(
+                parse_frontmatter(path.read_text(encoding="utf-8-sig")).meta.get("name") or path.parent.name
+            )
+        except Exception:
+            skill_name = path.parent.name
+        register_repair(skill_name, kind=kind, evidence={"file": str(path), "backup": str(backup)})
+    except Exception:
+        pass
     return {"ok": True, "backup": str(backup)}
 
 
@@ -169,9 +208,11 @@ def _verify_current_state(file_str: str, kind: str) -> str:
     from .frontmatter import parse_frontmatter
 
     result = parse_frontmatter(raw)
-    if kind in ("colon", "unclosed") and not result.meta:
-        return "repairable"
-    if kind == "colon" and "：" in _frontmatter_block(raw):
+    if kind == "colon":
+        # 与 build_repair_suggestion 同口径：frontmatter 区仍能被 _fix_chinese_colons
+        # 改写（含 `description: 说明：xxx` 这类混合冒号行）才算 repairable；否则 fixed。
+        return "repairable" if _fix_chinese_colons(raw) != raw else "fixed"
+    if kind == "unclosed" and not result.meta:
         return "repairable"
     return "fixed"
 
@@ -195,6 +236,9 @@ def _fix_chinese_colons(text: str) -> str:
     """frontmatter 区内的 ：→ : （正文不动）。
 
     替换后冒号后补一个空格（YAML 规范 key: value），已是冒号+空格的不再重复加。
+    一并覆盖混合冒号行（如 `description: 说明：xxx`）：只要 frontmatter 区仍残留中文
+    冒号就消除——与 _verify_current_state「frontmatter 无中文冒号才算修好」严格同口径，
+    否则这类行会被 build_repair_suggestion 误判为「已修复」而在 UI 隐藏修复入口。
     """
     text = _normalize_newlines(text)
     lines = text.split("\n")
@@ -203,14 +247,7 @@ def _fix_chinese_colons(text: str) -> str:
     end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), -1)
     if end == -1:
         return text
-    fixed = []
-    for line in lines[:end]:
-        if "：" in line and ":" not in line:
-            head, _, value = line.partition("：")
-            sep = " " if (value and not value.startswith(" ")) else ""
-            fixed.append(f"{head}:{sep}{value}")
-        else:
-            fixed.append(line)
+    fixed = [_RE_CHINESE_COLON.sub(": ", line) for line in lines[:end]]
     return "\n".join(fixed + lines[end:])
 
 

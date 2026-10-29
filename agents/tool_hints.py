@@ -22,6 +22,7 @@ TOOL_HINTS: dict[str, dict[str, bool]] = {
     "run_shell":       {"readOnlyHint": False, "destructiveHint": True,  "idempotentHint": False, "openWorldHint": True},
     "skill":           {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
     "compact_context": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,  "openWorldHint": False},
+    "advance_stage":   {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
     "skill_evolve":    {"readOnlyHint": False, "destructiveHint": True,  "idempotentHint": False, "openWorldHint": False},
     "skill_create":    {"readOnlyHint": False, "destructiveHint": True,  "idempotentHint": False, "openWorldHint": False},
     "enter_plan_mode": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,  "openWorldHint": False},

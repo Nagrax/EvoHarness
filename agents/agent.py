@@ -19,16 +19,28 @@ from agents.memory import MemoryPrefetch, start_memory_prefetch, format_memories
 from agents.prompt import build_system_prompt
 from agents.session_memory import (
     FOLD_SESSION_MEMORY_SYSTEM,
+    HANDOVER_SYSTEM,
     build_anthropic_transcript,
     build_folding_user_prompt,
+    build_handover_user_prompt,
     build_openai_transcript,
     fallback_folded_memory,
+    fallback_handover,
     format_folded_memory,
+    format_stage_handover,
     parse_folded_memory,
+    parse_handover,
+    split_keep_recent_tail,
 )
-from agents.session import save_folded_session_memory, save_session
+from agents.session import (
+    get_stage_dir,
+    save_folded_session_memory,
+    save_session,
+    save_stage_segment,
+)
+from agents import stages as stage_fsm
 from agents.subagent import get_sub_agent_config
-from agents.tools import ToolDef, tool_definitions, execute_tool, CONCURRENCY_SAFE_TOOLS, check_permission, \
+from agents.tools import ToolDef, tool_definitions, execute_tool, CONCURRENCY_SAFE_TOOLS, EDIT_TOOLS, check_permission, \
     get_active_tool_definitions
 from agents.ui import print_info, print_divider, print_assistant_text, print_sub_agent_start, print_sub_agent_end, \
     start_spinner, stop_spinner, print_cost, print_tool_call, print_tool_result, print_confirmation, print_retry, \
@@ -50,6 +62,79 @@ def _is_retryable(error: Exception) -> bool:
 
 def _safe_utf8_text(value: object) -> str:
     return str(value).encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _memory_prefetch_disabled() -> bool:
+    """EVOHARNESS_DISABLE_MEMORY_PREFETCH=1 关闭记忆预取。
+
+    这是"轻量 harness design vs 重封装 design"对照的真实开关：
+    关掉后每轮少一次旁路模型调用，理论上省 token（是否更划算要实测，不能假设）。
+    """
+    return _env_flag("EVOHARNESS_DISABLE_MEMORY_PREFETCH")
+
+
+def _tool_hints_disabled() -> bool:
+    """EVOHARNESS_DISABLE_TOOL_HINTS=1 关闭工具安全注解注入。
+
+    提示注入会让系统提示变长（成本）、但可能帮助模型避免危险调用（收益）。
+    做成开关才能在真实任务上量出这一取舍。
+    """
+    return _env_flag("EVOHARNESS_DISABLE_TOOL_HINTS")
+
+
+def denied_tool_result(kind: str, detail: str = "") -> str:
+    """构造"拒绝"类工具结果：文本保持历史措辞，状态机器化为 denied。
+
+    拒绝不是"正文里恰好有 denied 字样"，而是明确的执行事实；调用方读 .status 即可。
+    """
+    from agents.tools import TOOL_DENIED, ToolResult
+
+    if kind == "deny":
+        text = f"Action denied: {detail}"
+        code = "permission-denied"
+    else:
+        text = "User denied this action."
+        code = "user-denied"
+    return ToolResult(text, status=TOOL_DENIED, error_code=code)
+
+
+def utf8_tool_result(value: object) -> str:
+    """UTF-8 归一化工具结果，但**保留**结构化状态。
+
+    直接 `_safe_utf8_text(raw)` 会把 ToolResult 降级成普通 str，状态随之丢失；
+    主循环随后只能退回正文猜测，结构化结果等于白做。
+    """
+    from agents.tools import FAILURE_STATUSES, ToolResult, coerce_tool_result
+
+    sanitized = _safe_utf8_text(value)
+    if isinstance(value, ToolResult):
+        return ToolResult(
+            sanitized,
+            status=value.status,
+            error_code=value.error_code,
+            exit_code=value.exit_code,
+            duration_ms=value.duration_ms,
+            artifact_paths=value.artifact_paths,
+            metadata=dict(value.metadata),
+        )
+    # 工具抛异常等历史字符串路径：标记为失败，而不是让正文决定命运。
+    lowered = sanitized.lstrip()[:64].lower()
+    if lowered.startswith("error executing tool"):
+        return ToolResult(sanitized, status="error", error_code="tool-exception")
+    return coerce_tool_result(sanitized)
+
+
+def tool_failure_code(value: object) -> str:
+    from agents.tools import coerce_tool_result
+
+    return coerce_tool_result(value).error_code
 
 
 def _sanitize_for_utf8(value: Any) -> Any:
@@ -107,12 +192,52 @@ def _get_context_windows(model:str)->int:
 
 #多层级压缩常数
 SNIP_THRESHOLD = 0.60
-AUTO_COMPACT_THRESHOLD = 0.70
+
+
+def _env_float(name: str, default: float, *, lo: float = 0.0, hi: float = 1.0) -> float:
+    """环境变量覆盖阈值（越界/非法回退默认）。
+
+    折叠触发点是 Harness² 的核心可优化轴：晚折叠→token 高但状态更全，
+    早折叠→省 token 但可能丢状态。把它做成真实可配置，实验才有意义。
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    if value != value or not (lo < value <= hi):  # NaN / 越界
+        return default
+    return value
+
+
+# 折叠触发线：0.70 默认（70% 占用即硬折叠）
+AUTO_COMPACT_THRESHOLD = _env_float("EVOHARNESS_AUTO_COMPACT_THRESHOLD", 0.70, lo=0.1, hi=0.95)
 SNIP_PLACEHOLDER = "[Content snipped - re-read if needed]"
 SNIPPABLE_TOOLS = {"read_file", "grep_search", "list_files", "run_shell"}
 MICROCOMPACT_IDLE_S = 5 * 60  # 5 minutes
 
 KEEP_RECENT_RESULTS = 3
+
+
+def _fold_keep_recent_turns() -> int:
+    """E-05 尾部保留：折叠时保留最近完整轮数（默认 0 = 沿用整段折叠的旧行为，逐次读取 env）。"""
+    try:
+        return max(0, int(str(os.environ.get("EVOHARNESS_FOLD_KEEP_RECENT_TURNS", "0")).strip()))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _merge_fold_into_user(content: Any, folded_text: str) -> Any | None:
+    """把折叠摘要并入首个保留用户消息的内容；含工具结果块等无法安全合并时返回 None。"""
+    if isinstance(content, str):
+        return folded_text + "\n\n" + content
+    if isinstance(content, list) and not any(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+    ):
+        return [{"type": "text", "text": folded_text}] + content
+    return None
 
 
 
@@ -155,11 +280,15 @@ class Agent:
                  confirm_fn:Callable[[str], Awaitable[bool]] | None=None,
                  custom_system_prompt: str | None=None,
                  custom_tools: list[ToolDef] | None=None,
-                 is_sub_agent: bool=False,):
+                 is_sub_agent: bool=False,
+                 loop_stages: bool=False):
         self.permission_mode = permission_mode
         self.thinking = thinking
         self.model = model
         self.use_openai = bool(api_base)
+        # 子代理继承父代理的凭据与 base url（父用通用 APIKEY 配置时子代理 api_key=None 会静默失败）。
+        self._api_key = api_key
+        self._anthropic_base_url = anthropic_base_url
         self.is_sub_agent = is_sub_agent
         self.tools = custom_tools or tool_definitions
         self.max_cost_usd = max_cost_usd
@@ -173,8 +302,17 @@ class Agent:
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.last_input_token_count = 0
+        # 最近一次自动存档失败的原因（空串=最近一次成功）。供 UI/CLI 展示脱敏诊断，
+        # 避免"会话丢了"与"从未保存过"无法区分。
+        self.last_save_error = ""
         self.current_turns = 0
         self.last_api_call_time = 0
+        # 旁路查询（side query）单独记账：主循环之外的调用（记忆召回、折叠/交接、
+        # 沉淀抽取与使用判定、离线评测）此前不计 token；分开之后才能把"沉淀开销"
+        # 从"对话开销"里单独量出来。
+        self.side_query_input_tokens = 0
+        self.side_query_output_tokens = 0
+        self.side_query_tokens_by_label: dict[str, dict[str, int]] = {}
 
 
         self._aborted = False
@@ -187,7 +325,8 @@ class Agent:
         # 计划模式”（Plan Mode）状态的变量
         self._pre_plan_mode: str | None=None
         self._plan_file_path: str | None=None
-        self._plan_approval_fn : Callable[[str], Awaitable[bool]] | None=None
+        # 修复（改造二评审 #1）：审批函数是 async，返回 dict（choice/feedback）。
+        self._plan_approval_fn : Callable[[str], Awaitable[dict]] | None=None
         self._context_cleared : bool=False
 
         #思考模式
@@ -224,6 +363,17 @@ class Agent:
         self._same_tool_repeat_count: int = 0
         self._last_tool_name: str = ""
 
+        #Loop 阶段状态机（改造二）：仅 --plan CLI 显式置位；REPL /plan toggle、
+        #enter_plan_mode 工具与子 Agent 一律不激活——普通 REPL 不进阶段机，
+        #子代理（agent.py 两处会被赋 plan 档）不写主 manifest。
+        self._loop_stages_active = bool(loop_stages) and not is_sub_agent
+        self._stage_manifest: dict[str, Any] | None = None
+        self._stage_plan_dir: Path | None = None
+        self._stage_close_reason: str = ""
+        self._stage_tokens_start: tuple[int, int] = (0, 0)
+        self._stage_fold_start: int = 0
+        self._stage_artifact_paths: list[dict[str, str]] = []
+
         #构建系统提示词
         self._base_system_prompt = custom_system_prompt or build_system_prompt()
 
@@ -235,7 +385,13 @@ class Agent:
 
         #初始化大模型客户端
         if self.use_openai:
-            self._openai_client = openai.AsyncOpenAI(base_url=api_base, api_key=api_key)
+            # openai SDK 在 api_key=None 时**直接抛 OpenAIError**（不是延迟到请求期），
+            # 而本地端点（Ollama/vLLM/自建网关）常常免 key。旧代码把 None 原样传进去，
+            # 结果是 Web 侧 /api/chat 的 SSE 生成器在构造 Agent 时就炸掉，用户看到的是
+            # 一条 Python 异常，而不是"未配置 key"这种可操作提示。这里给本地无凭据情形
+            # 一个显式占位串（多数本地端点会忽略 Authorization），并让解析层决定是否允许。
+            effective_key = api_key or os.environ.get("EVOHARNESS_LOCAL_PLACEHOLDER_KEY", "local-no-key")
+            self._openai_client = openai.AsyncOpenAI(base_url=api_base, api_key=effective_key)
             self._anthropic_client = None
             self._openai_messages.append({"role": "system", "content": self._system_prompt})
         else:
@@ -248,6 +404,15 @@ class Agent:
             self._openai_client = None
 
         self._refresh_runtime_system_prompt()
+
+        if self._loop_stages_active:
+            try:
+                self._stage_setup()
+            except Exception as e:
+                # setup 失败按 fail-closed 降级：不激活阶段机，回到普通会话路径。
+                self._loop_stages_active = False
+                self._stage_manifest = None
+                print_error(f"Loop stages setup failed, staging deactivated: {e}")
 
     #判断返回模型的思考模式
     def _resolve_thinking_mode(self) -> str:
@@ -304,7 +469,7 @@ class Agent:
         return self._current_task is not None and not self._current_task.done()
 
     #大模型调用的工厂方法,构建一个用于记忆召回（memory recall）的 sideQuery 可调用对象，兼容anthropic, openai。
-    def _build_side_query(self, *, max_tokens: int = 256):
+    def _build_side_query(self, *, max_tokens: int = 256, label: str = ""):
         if self._anthropic_client:
             client = self._anthropic_client
             model = self.model
@@ -313,6 +478,10 @@ class Agent:
                 resp = await client.messages.create(
                     model=model, max_tokens=max(1, int(max_tokens)), system=system,
                 messages=[{"role": "user", "content": user_message}],
+                )
+                _usage = getattr(resp, "usage", None)
+                self._record_side_query_tokens(
+                    getattr(_usage, "input_tokens", 0), getattr(_usage, "output_tokens", 0), label
                 )
                 text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
                 if not text.strip():
@@ -338,6 +507,10 @@ class Agent:
                     ],
 
                 )
+                _usage = getattr(resp, "usage", None)
+                self._record_side_query_tokens(
+                    getattr(_usage, "prompt_tokens", 0), getattr(_usage, "completion_tokens", 0), label
+                )
                 if not resp.choices:
                     logging.warning("side_query returned no OpenAI-compatible choices: model=%s", model)
                     return ""
@@ -353,6 +526,32 @@ class Agent:
                 return content
             return _sq_openai
         return None
+
+    def _record_side_query_tokens(self, input_tokens: Any = 0, output_tokens: Any = 0, label: str = "") -> None:
+        """把一次旁路查询的 token 记进独立计数器（按用途分桶）。
+
+        与主循环的 total_input/output_tokens 分开：主循环每轮全量重发历史，是主要
+        开销；旁路查询单次量小但次数多（记忆召回、折叠/交接、沉淀抽取与使用判定、
+        离线评测），此前完全没有记账。分开后"沉淀开销"才可被单独量出。
+        解析失败或用量缺失时静默跳过，绝不影响调用主流程。
+        """
+        try:
+            inp = max(0, int(input_tokens or 0))
+            out = max(0, int(output_tokens or 0))
+        except (TypeError, ValueError) as error:  # noqa: BLE001
+            # 用量解析失败 = 这次调用没记账 → 预算统计会偏小，不能纯静默。
+            print_error(f"token usage parse failed: "
+                        f"{type(error).__name__} (in={input_tokens!r}, out={output_tokens!r})")
+            return
+        if not inp and not out:
+            return
+        self.side_query_input_tokens += inp
+        self.side_query_output_tokens += out
+        key = str(label or "unlabeled")
+        bucket = self.side_query_tokens_by_label.setdefault(key, {"input": 0, "output": 0})
+        bucket["input"] += inp
+        bucket["output"] += out
+
     #异步任务取消（Abort）
     def abort(self) -> None:
         self._aborted = True
@@ -362,7 +561,7 @@ class Agent:
     def set_confirm_fn(self, fn:Callable[[str], Awaitable[bool]]) -> None:
         self.confirm_fn = fn
 
-    def set_plan_approval_fn(self, fn:Callable[[str], Awaitable[bool]]) -> None:
+    def set_plan_approval_fn(self, fn:Callable[[str], Awaitable[dict]]) -> None:
         self._plan_approval_fn = fn
 
 
@@ -454,6 +653,8 @@ class Agent:
             )
         if not self.is_sub_agent:
             print_divider()
+            # 预算强制收段（改造二评审 #7）：break 前只置标志，收段动作统一在此执行。
+            self._finalize_staged_chat()
             self._auto_save()
 
 
@@ -509,6 +710,7 @@ class Agent:
         else:
             self._system_prompt = self._base_system_prompt
         self._system_prompt += self._build_fold_guidance_section()
+        self._system_prompt += self._build_stage_guidance_section()
         if self.use_openai and self._openai_messages:
             self._openai_messages[0]["content"] = self._system_prompt
 
@@ -530,11 +732,290 @@ class Agent:
         self._same_tool_repeat_count = 0
         self._last_tool_name = ""
 
+    #--------------Loop 阶段状态机（改造二）---------------
+
+    def _stage_setup(self) -> None:
+        """激活阶段机：plan_id = 本会话 id（uuid hex，目录名安全）；起始段按权限档取
+        plan（--plan）或 execute（评测二期强制激活时无 plan 边界的起始段）。"""
+        self._stage_plan_dir = get_stage_dir(self.session_id)
+        start = "plan" if self.permission_mode == "plan" else "execute"
+        self._stage_manifest = stage_fsm.new_manifest(self.session_id, str(self._stage_plan_dir), start_stage=start)
+        stage_fsm.write_manifest(self._stage_plan_dir, self._stage_manifest)
+        self._stage_tokens_start = (self.total_input_tokens, self.total_output_tokens)
+        self._stage_fold_start = self._fold_count
+        if self._plan_file_path:
+            self._note_artifact(self._plan_file_path, "plan file")
+        self._stage_write_segment(stage_fsm.current_record(self._stage_manifest))
+
+    def _note_artifact(self, path: str, why: str = "") -> None:
+        """确定性产物采集：write/edit 成功路径、>30KB 工具结果落盘路径、plan 文件。
+        确定性工作交给代码，语义筛选才交给模型（advance_stage 的 artifacts 参数）。"""
+        if not self._loop_stages_active:
+            return
+        p = str(path or "").strip()
+        if not p:
+            return
+        if not any(a["path"] == p for a in self._stage_artifact_paths):
+            self._stage_artifact_paths.append({"path": p, "why": why})
+
+    def _deterministic_artifacts(self) -> list[dict[str, str]]:
+        arts = list(self._stage_artifact_paths)
+        if self._plan_file_path and Path(self._plan_file_path).exists():
+            arts.append({"path": self._plan_file_path, "why": "plan file"})
+        return stage_fsm.normalize_artifacts(arts)
+
+    def _stage_write_segment(self, record: dict[str, Any] | None) -> None:
+        """段会话文件（沿用 save_session 载荷形状，restore_session 可直接读回）。"""
+        if not self._loop_stages_active or record is None or self._stage_plan_dir is None:
+            return
+        try:
+            save_stage_segment(self._stage_plan_dir, str(record.get("session_file") or ""), {
+                "metadata": {
+                    "id": self.session_id,
+                    "plan_id": self.session_id,
+                    "stage": record.get("name"),
+                    "status": record.get("status"),
+                    "cwd": str(Path.cwd()),
+                    "startTime": self.session_start_time,
+                    "messageCount": self._get_message_count(),
+                    "protocol": "openai" if self.use_openai else "anthropic",
+                },
+                "anthropicMessages": _sanitize_for_utf8(self._anthropic_messages) if not self.use_openai else None,
+                "openaiMessages": _sanitize_for_utf8(self._openai_messages) if self.use_openai else None,
+                "foldedSessionMemories": _sanitize_for_utf8(self._folded_session_memories),
+            })
+        except Exception as error:  # noqa: BLE001
+            # 阶段段会话落盘失败不能静默：段文件是阶段交接的唯一载体，
+            # 写不进去会让"恢复后接着做"变成"从零重来"，而用户毫无提示。
+            self.last_save_error = f"stage-segment-save-failed: {type(error).__name__}: {error}"
+
+    def _stage_record_metrics(self, record: dict[str, Any]) -> None:
+        record["tokens"] = {
+            "input": self.total_input_tokens - self._stage_tokens_start[0],
+            "output": self.total_output_tokens - self._stage_tokens_start[1],
+        }
+        record["folds"] = self._fold_count - self._stage_fold_start
+
+    def _replace_messages_with_handover(self, content: str) -> None:
+        """双协议对称的历史整体替换：OpenAI 保留 system 首消息，Anthropic 以 user 消息开场。"""
+        if self.use_openai:
+            system_msg = self._openai_messages[0] if self._openai_messages else {"role": "system", "content": self._system_prompt}
+            self._openai_messages = [system_msg, {"role": "user", "content": content}]
+        else:
+            self._anthropic_messages = [{"role": "user", "content": content}]
+
+    async def _generate_handover(self, transcript: str) -> dict[str, Any]:
+        """LLM 交接（side_query max_tokens=4000，折叠路径为 6000）；输出不可信 → fallback 兜底。"""
+        side_query = self._build_side_query(max_tokens=4000, label="handover")
+        if side_query is None:
+            return fallback_handover(transcript, self._deterministic_artifacts())
+        try:
+            raw = await side_query(HANDOVER_SYSTEM, build_handover_user_prompt(transcript))
+            payload = parse_handover(raw)
+        except Exception:
+            return fallback_handover(transcript, self._deterministic_artifacts())
+        # 模型产物与确定性采集合并：模型可能漏报，确定性路径不丢。
+        payload["artifacts"] = stage_fsm.merge_artifacts(payload.get("artifacts"), self._deterministic_artifacts())
+        return payload
+
+    def _reset_segment_counters(self) -> None:
+        """收段第⑤步：复位触发状态。同折叠后置 last_input_token_count=0 的既有语义
+        （防\"刚折完/刚收完又再触发\"的分叉风暴）。"""
+        self.last_input_token_count = 0
+        self._tool_error_streak = 0
+        self._same_tool_repeat_count = 0
+        self._last_tool_name = ""
+        self._stage_tokens_start = (self.total_input_tokens, self.total_output_tokens)
+        self._stage_fold_start = self._fold_count
+        self._stage_artifact_paths = []
+        if self._plan_file_path:
+            self._note_artifact(self._plan_file_path, "plan file")
+
+    async def _close_stage_boundary(
+        self,
+        *,
+        next_stage: str,
+        status: str,
+        close_reason: str,
+        summary: str = "",
+        extra_conclusions: list[str] | None = None,
+        replace_messages: bool = True,
+    ) -> str:
+        """通用收段，固定五步（崩溃一致性顺序）：① 交接生成（summary 非空=确定性豁免，
+        不调 side_query）→ ② 段文件写盘 → ③ manifest 原子更新 → ④ 内存消息替换 →
+        ⑤ 计数复位。磁盘先于内存：中断落在 ①/② manifest 未更新，工作在原段继续。"""
+        manifest = self._stage_manifest
+        cur = stage_fsm.current_record(manifest)
+        cur_name = str(cur.get("name"))
+        transcript = (
+            build_openai_transcript(_sanitize_for_utf8(self._openai_messages))
+            if self.use_openai
+            else build_anthropic_transcript(_sanitize_for_utf8(self._anthropic_messages))
+        )
+        # ① 交接生成
+        if summary:
+            payload: dict[str, Any] = {
+                "conclusions": [summary],
+                "artifacts": self._deterministic_artifacts(),
+                "constraints": [],
+                "next_actions": [],
+            }
+        else:
+            payload = await self._generate_handover(transcript)
+        if extra_conclusions:
+            payload["conclusions"] = [str(c) for c in extra_conclusions if str(c).strip()] + list(payload.get("conclusions") or [])
+        first_conclusion = next((str(c) for c in payload.get("conclusions") or [] if str(c).strip()), "")
+        # ② 段文件写盘
+        self._stage_record_metrics(cur)
+        stage_fsm.close_record(
+            cur,
+            status=status,
+            summary=summary or first_conclusion[:200],
+            close_reason=close_reason,
+            artifacts=payload.get("artifacts"),
+        )
+        self._stage_write_segment(cur)
+        # ③ manifest 原子更新
+        nxt = stage_fsm.open_segment(manifest, next_stage, close_reason=close_reason, advisory_mode=self.permission_mode)
+        nxt["handover"] = payload
+        stage_fsm.write_manifest(self._stage_plan_dir, manifest)
+        # ④ 内存消息替换
+        if replace_messages:
+            self._replace_messages_with_handover(format_stage_handover(
+                payload,
+                from_stage=cur_name,
+                to_stage=next_stage,
+                stage_file=str(Path(self._stage_plan_dir) / str(cur.get("session_file") or "")),
+            ))
+        # ⑤ 计数复位
+        self._reset_segment_counters()
+        return summary or first_conclusion[:200]
+
+    async def _stage_on_plan_exit(self, choice: str) -> None:
+        """计划→执行边界①（确定性交接，豁免 side_query）：choice ∈ {clear-and-execute,
+        execute, manual-execute, auto-exit}。choice=1 清历史重注入计划、choice=2/3 历史延续、
+        无审批回退同理——上下文由既有机制承载，只落盘不开新上下文（replace_messages=False）。
+        必须在 _clear_history_keep_system() 之前调用（choice=1 要先落盘 plan 段文件）。"""
+        if not self._loop_stages_active or self._stage_manifest is None:
+            return
+        cur = stage_fsm.current_record(self._stage_manifest)
+        if cur is None or cur.get("name") != "plan":
+            return
+        await self._close_stage_boundary(
+            next_stage="execute",
+            status="completed",
+            close_reason=f"plan-approved:{choice}",
+            summary=f"Plan approved (choice={choice}); plan file: {self._plan_file_path}",
+            replace_messages=False,
+        )
+
+    async def _execute_advance_stage_tool(self, inp: dict) -> str:
+        if not self._loop_stages_active or self._stage_manifest is None:
+            return "advance_stage error: loop stages are not active for this session (staged --plan only)."
+        manifest = self._stage_manifest
+        cur = stage_fsm.current_record(manifest)
+        cur_name = str(cur.get("name"))
+        nxt = str(inp.get("stage") or "").strip()
+        user_summary = str(inp.get("summary") or "").strip()
+        if cur_name == "plan":
+            return "advance_stage error: stage 'plan' is closed via exit_plan_mode approval, not advance_stage."
+        if cur_name == "deliver":
+            return "advance_stage error: 'deliver' is the final stage; wrap up with your final answer instead."
+        if not stage_fsm.is_valid_transition(cur_name, nxt):
+            expected = stage_fsm.STAGES[stage_fsm.STAGES.index(cur_name) + 1]
+            return f"advance_stage error: cannot advance from '{cur_name}' to '{nxt or '(missing)'}'; expected '{expected}'."
+        for item in inp.get("artifacts") or []:
+            if isinstance(item, dict) and str(item.get("path") or "").strip():
+                self._note_artifact(str(item.get("path")), str(item.get("why") or ""))
+        await self._close_stage_boundary(
+            next_stage=nxt,
+            status="completed",
+            close_reason=f"advance:{cur_name}->{nxt}",
+            extra_conclusions=[user_summary] if user_summary else None,
+        )
+        # 走既有 _context_cleared 通道（同 compact_context）：结果作为 user 消息追加进
+        # 新历史，批内剩余工具 break 掉；旧 assistant 消息连同批内 tool_use 一起消失，
+        # Anthropic/OpenAI 均无悬空 tool_use/tool_call。
+        self._context_cleared = True
+        print_info(f"Stage advanced: {cur_name} -> {nxt}")
+        return (
+            f"Stage '{cur_name}' closed with handover. You are now in stage '{nxt}'. "
+            "Continue from the <stage-handover> now at the start of the conversation."
+        )
+
+    async def _force_stage_split(self) -> None:
+        """70% 硬阈值改道：同阶段开续段（status=split），段间走 LLM 交接。
+        复位在 _close_stage_boundary 第⑤步完成——不复位则段内剩余每轮都会再触发收段。"""
+        cur = stage_fsm.current_record(self._stage_manifest)
+        name = str(cur.get("name"))
+        await self._close_stage_boundary(next_stage=name, status="split", close_reason="threshold:70%")
+        print_info(f"Stage segment split (threshold:70%): '{name}' continues from a handover.")
+
+    def _finalize_staged_chat(self) -> None:
+        """chat() 收尾的预算强制收段：确定性关闭（不调 side_query——预算已是约束）、
+        不替换消息（进程收尾）。续段无交接 payload，resume 时回退最近边界并显式提示。"""
+        if not self._loop_stages_active or self._stage_manifest is None or not self._stage_close_reason:
+            return
+        reason = self._stage_close_reason
+        self._stage_close_reason = ""
+        manifest = self._stage_manifest
+        cur = stage_fsm.current_record(manifest)
+        name = str(cur.get("name"))
+        self._stage_record_metrics(cur)
+        stage_fsm.close_record(
+            cur,
+            status="split",
+            summary=f"Budget stop (deterministic close, no LLM handover): {reason}",
+            close_reason=reason,
+            artifacts=self._deterministic_artifacts(),
+        )
+        self._stage_write_segment(cur)
+        stage_fsm.open_segment(manifest, name, close_reason=reason, advisory_mode=self.permission_mode)
+        stage_fsm.write_manifest(self._stage_plan_dir, manifest)
+        self._reset_segment_counters()
+        print_info(f"Stage segment closed at budget stop: '{name}' ({reason}).")
+
+    def _build_stage_guidance_section(self) -> str:
+        if not self._loop_stages_active or self._stage_manifest is None:
+            return ""
+        cur = stage_fsm.current_record(self._stage_manifest)
+        name = str(cur.get("name"))
+        idx = stage_fsm.STAGES.index(name) if name in stage_fsm.STAGES else -1
+        nxt = stage_fsm.STAGES[idx + 1] if 0 <= idx < len(stage_fsm.STAGES) - 1 else "(final)"
+        return (
+            "\n\n# Loop Stages (staged long task)\n"
+            f"- Current stage: {name} | Next stage: {nxt}\n"
+            "- Stages run plan -> execute -> verify -> deliver. Work within the current stage.\n"
+            "- When the stage goal is reached, call `advance_stage` with a summary and key artifacts. "
+            "Leave stage 'plan' via exit_plan_mode. At the boundary the raw conversation is replaced "
+            "by your handover, so record conclusions and artifact paths before advancing.\n"
+        )
+
+    #--------------Loop 阶段状态机结束---------------
+
     def _looks_like_tool_failure(self, tool_name: str, raw: str, result: str) -> bool:
-        text = f"{raw}\n{result}".lower()
-        if any(marker in text for marker in ("error", "denied", "timed out", "timeout")):
-            return True
-        if tool_name == "compact_context" and "no context compaction" in text:
+        """判定工具成功/失败：优先读结构化状态，绝不扫描正文里的词。
+
+        历史实现在正文里找 "error"/"denied"/"timeout"：读一份记录错误码的文档会被误判失败，
+        而 `Command failed (exit code 3)` 反而命中不了任何关键词 → 真失败被记成功。
+        现在以 ToolResult.status 为准；只有当调用方传入的是裸字符串（历史兼容 / 测试桩 /
+        MCP 文本）时才退回保守的失败前缀匹配。
+        """
+        from agents.tools import FAILURE_STATUSES, ToolResult, coerce_tool_result
+
+        for candidate in (result, raw):
+            if isinstance(candidate, ToolResult):
+                return coerce_tool_result(candidate).status in FAILURE_STATUSES
+        # 裸字符串回退：只认明确表示执行失败的前缀，避免把正文内容当状态。
+        for candidate in (raw, result):
+            if not candidate:
+                continue
+            text = str(candidate).lstrip()
+            lowered = text[:64].lower()
+            if lowered.startswith(("command failed", "command timed out", "error executing tool",
+                                   "action denied", "unknown tool", "error: you must read")):
+                return True
+        if tool_name == "compact_context" and "no context compaction" in f"{raw}\n{result}".lower():
             return True
         return False
 
@@ -600,11 +1081,13 @@ class Agent:
         return self.permission_mode in {"bypassPermissions", "acceptEdits"}
 
     def _online_evolution_enabled(self) -> bool:
+        if os.environ.get("EVOHARNESS_HOLDOUT_READONLY", "0").strip().lower() in {"1", "true", "yes", "on"}:
+            return False
         raw = os.environ.get("EVOHARNESS_AUTO_SKILL_EVOLUTION", "1").strip().lower()
         return raw not in {"0", "false", "no", "off"}
 
     def _schedule_background_skill_task(self, coro) -> None:
-        if self.permission_mode == "plan":
+        if self.permission_mode == "plan" or not self._online_evolution_enabled():
             try:
                 coro.close()
             except Exception:
@@ -617,8 +1100,10 @@ class Agent:
             self._background_skill_tasks.discard(done_task)
             try:
                 done_task.result()
-            except Exception:
-                pass
+            except Exception as error:  # noqa: BLE001
+                # 后台技能任务失败必须留痕：旧实现直接 pass，故障对上层完全不可见
+                # （2026-10-29 判读 silent-except 时发现）。
+                print(f"[background-skill] task failed: {type(error).__name__}: {error}")
 
         task.add_done_callback(_done)
 
@@ -647,6 +1132,8 @@ class Agent:
         assistant_text: str,
         retrieved_reference: dict[str, Any] | None,
     ) -> None:
+        if os.environ.get("EVOHARNESS_HOLDOUT_READONLY", "0").strip().lower() in {"1", "true", "yes", "on"}:
+            return
         if not original_user_message.strip() or not assistant_text.strip():
             return
         self._pending_skill_extraction_window = {
@@ -669,13 +1156,16 @@ class Agent:
         if not messages:
             return
 
-        side_query = self._build_side_query(max_tokens=2200)
+        side_query = self._build_side_query(max_tokens=2200, label="evolution_extract")
         if side_query is None:
             return
 
         try:
             from .online_skill_evolution import online_ingest
-        except Exception:
+        except Exception as error:  # noqa: BLE001
+            # 导入失败 = 整个在线进化被跳过。用户会以为进化在跑，必须可见。
+            print_error(f"Online skill evolution unavailable: "
+                        f"{type(error).__name__}: {error}")
             return
 
         result = await online_ingest(
@@ -699,7 +1189,7 @@ class Agent:
         hits = list(self._last_retrieved_skill_hits or [])
         if not hits or not assistant_text.strip():
             return
-        side_query = self._build_side_query(max_tokens=700)
+        side_query = self._build_side_query(max_tokens=700, label="evolution_usage_judge")
         try:
             from .online_skill_evolution import judge_retrieved_skill_usage
             from .skills import record_usage_judgments
@@ -724,12 +1214,19 @@ class Agent:
                     latest_user=original_user_message,
                     latest_assistant=assistant_text,
                 )
-            except Exception:
-                pass
-        except Exception:
+            except Exception as error:  # noqa: BLE001
+                # 样本缺失会让后续评测/晋升判断少数据，必须可见。
+                print_error(f"record_usage_samples failed: "
+                            f"{type(error).__name__}: {error}")
+        except Exception as error:  # noqa: BLE001
+            # 整条在线进化失败不能静默返回：否则"进化没发生"和"进化失败"无法区分。
+            print_error(f"Online skill evolution failed: "
+                        f"{type(error).__name__}: {error}")
             return
 
     async def extract_now(self, hint: str = "") -> dict[str, Any]:
+        if not self._online_evolution_enabled():
+            return {"ok": False, "error": "online skill evolution disabled"}
         pending = self._pending_skill_extraction_window
         if not pending:
             return {"ok": False, "error": "no pending online skill extraction window"}
@@ -756,6 +1253,9 @@ class Agent:
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.last_input_token_count = 0
+        self.side_query_input_tokens = 0
+        self.side_query_output_tokens = 0
+        self.side_query_tokens_by_label = {}
         print_info("Conversation cleared.")
 
     def show_cost(self):
@@ -763,7 +1263,9 @@ class Agent:
         budget_info = f" / ${self.max_cost_usd} budget" if self.max_cost_usd else ""
         turn_info = f" | Turns: {self.current_turns}/{self.max_turns}" if self.max_turns else ""
         print_info(
-            f"Tokens: {self.total_input_tokens} in / {self.total_output_tokens} out\n  Estimated cost: ${total:.4f}{budget_info}{turn_info}")
+            f"Tokens: {self.total_input_tokens} in / {self.total_output_tokens} out\n"
+            f"  Side-query tokens (memory/fold/evolution): {self.side_query_input_tokens} in / {self.side_query_output_tokens} out\n"
+            f"  Estimated cost: ${total:.4f}{budget_info}{turn_info}")
 
     #获取当前的花费，
     def _get_current_cost_usd(self) -> float:
@@ -786,13 +1288,148 @@ class Agent:
 
     #恢复会话信息
     def restore_session(self, data:dict)->None:
-        if data.get("anthropicMessages"):
-            self._anthropic_messages = self._normalize_anthropic_messages(_sanitize_for_utf8(data["anthropicMessages"]))
-        if data.get("openaiMessages"):
-            self._openai_messages = _sanitize_for_utf8(data["openaiMessages"])
+        """恢复会话。
+
+        协议标记（data["protocol"] 或 data["metadata"]["protocol"]）记录上次落盘所用
+        协议；跨协议恢复时把来源历史迁移进**当前协议**的列表，避免"上次 OpenAI、
+        这次 Anthropic"（或反之）时历史被塞进当前不用的列表而静默丢失。
+        """
+        protocol = str(
+            data.get("protocol") or (data.get("metadata") or {}).get("protocol") or ""
+        ).strip().lower()
+        anthropic_msgs = data.get("anthropicMessages")
+        openai_msgs = data.get("openaiMessages")
+        if protocol not in {"openai", "anthropic"}:
+            # 无标记（旧会话/未显式传标记）：按 payload 中实际存在的列表推断来源协议。
+            if openai_msgs and not anthropic_msgs:
+                protocol = "openai"
+            elif anthropic_msgs and not openai_msgs:
+                protocol = "anthropic"
+        current = "openai" if self.use_openai else "anthropic"
+        source_msgs = openai_msgs if protocol == "openai" else anthropic_msgs
+        if protocol in {"openai", "anthropic"} and protocol != current and source_msgs:
+            # 跨协议迁移：来源历史 → 当前协议的表示，灌入当前协议列表。
+            migrated = (
+                self._anthropic_messages_to_openai(source_msgs)
+                if current == "openai"
+                else self._openai_messages_to_anthropic(source_msgs)
+            )
+            if current == "openai":
+                system_msg = self._openai_messages[0] if self._openai_messages else {
+                    "role": "system", "content": self._system_prompt,
+                }
+                self._openai_messages = [system_msg] + migrated
+            else:
+                self._anthropic_messages = migrated
+            restored_count = len(migrated)
+        else:
+            restored_count = 0
+            if anthropic_msgs:
+                loaded = self._normalize_anthropic_messages(_sanitize_for_utf8(anthropic_msgs))
+                self._anthropic_messages = loaded
+                restored_count = len(loaded)
+            if openai_msgs:
+                loaded_openai = _sanitize_for_utf8(openai_msgs)
+                self._openai_messages = loaded_openai
+                restored_count = len(loaded_openai) if isinstance(loaded_openai, list) else 0
         if isinstance(data.get("foldedSessionMemories"), list):
             self._folded_session_memories = _sanitize_for_utf8(data["foldedSessionMemories"])
-        print_info(f"Session restored ({self._get_message_count()} messages).")
+        print_info(f"Session restored ({restored_count} messages).")
+
+    def _openai_messages_to_anthropic(self, messages: list[dict]) -> list[dict]:
+        """OpenAI 消息 → Anthropic 消息（跨协议迁移用）：跳过 system（走 system 参数）。
+
+        assistant.tool_calls → assistant 的 tool_use 块；role="tool" → user 的
+        tool_result 块，与 Anthropic 的成对约束对齐；文本块合并为 content。
+        """
+        out: list[dict] = []
+        for msg in messages if isinstance(messages, list) else []:
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role") or "").strip().lower()
+            if role == "system":
+                continue
+            if role == "tool":
+                out.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": str(msg.get("tool_call_id") or ""),
+                        "content": str(msg.get("content") or ""),
+                    }],
+                })
+                continue
+            tool_calls = msg.get("tool_calls")
+            if isinstance(tool_calls, list) and tool_calls:
+                blocks: list[dict] = []
+                text = msg.get("content")
+                if text:
+                    blocks.append({"type": "text", "text": str(text)})
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+                    arguments = fn.get("arguments")
+                    try:
+                        parsed = json.loads(arguments) if isinstance(arguments, str) and arguments.strip() else {}
+                    except Exception:
+                        parsed = {}
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": str(tc.get("id") or ""),
+                        "name": str(fn.get("name") or ""),
+                        "input": parsed if isinstance(parsed, dict) else {},
+                    })
+                out.append({"role": "assistant", "content": blocks})
+                continue
+            out.append({"role": role or "user", "content": str(msg.get("content") or "")})
+        return self._normalize_anthropic_messages(out)
+
+    def _anthropic_messages_to_openai(self, messages: list[dict]) -> list[dict]:
+        """Anthropic 消息 → OpenAI 消息（跨协议迁移用）：tool_use 块 → tool_calls，
+        tool_result 块 → role="tool"，文本块合并为 content；system 块不并入 messages。"""
+        out: list[dict] = []
+        for msg in messages if isinstance(messages, list) else []:
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role") or "").strip().lower()
+            if role == "system":
+                continue
+            content = msg.get("content")
+            if isinstance(content, str):
+                out.append({"role": role or "user", "content": content})
+                continue
+            text_parts: list[str] = []
+            tool_calls: list[dict] = []
+            tool_results: list[dict] = []
+            for block in content if isinstance(content, list) else []:
+                if not isinstance(block, dict):
+                    continue
+                block_type = block.get("type")
+                if block_type == "text":
+                    text_parts.append(str(block.get("text") or ""))
+                elif block_type == "tool_use":
+                    tool_calls.append({
+                        "id": str(block.get("id") or ""),
+                        "type": "function",
+                        "function": {
+                            "name": str(block.get("name") or ""),
+                            "arguments": json.dumps(block.get("input") or {}, ensure_ascii=False),
+                        },
+                    })
+                elif block_type == "tool_result":
+                    tool_results.append({
+                        "role": "tool",
+                        "tool_call_id": str(block.get("tool_use_id") or ""),
+                        "content": str(block.get("content") or ""),
+                    })
+            text = "\n".join(p for p in text_parts if p)
+            if tool_calls:
+                out.append({"role": "assistant", "content": text or None, "tool_calls": tool_calls})
+            elif text:
+                out.append({"role": role or "user", "content": text})
+            out.extend(tool_results)
+        return out
 
 
 
@@ -813,19 +1450,59 @@ class Agent:
             msg = role_normalized[i]
             tool_use_ids = self._anthropic_tool_use_ids(msg)
             if not tool_use_ids:
-                normalized.append(msg)
+                # 孤儿 tool_result（tool_use_id 无对应 tool_use）会产出非法序列，
+                # 跨协议迁移尤甚；按上一条已保留的 assistant tool_use 过滤掉无处对应的块。
+                cleaned = self._strip_orphan_tool_results(msg, normalized)
+                if cleaned is not None:
+                    normalized.append(cleaned)
                 i += 1
                 continue
 
-            next_msg = role_normalized[i + 1] if i + 1 < len(role_normalized) else None
-            result_ids = self._anthropic_tool_result_ids(next_msg) if next_msg else set()
-            if tool_use_ids.issubset(result_ids):
-                normalized.append(msg)
-                normalized.append(next_msg)
-                i += 2
+            # 收集紧跟其后的连续 tool_result 消息：跨协议迁移会把 N 条 OpenAI tool
+            # 回复拆成 N 条 user 消息，只按"下一条"补配对会把第 2 条及以后的真实
+            # tool_result 当孤儿删除（真实工具输出永久丢失），故一并收集后再合并。
+            j = i + 1
+            result_msgs = []
+            while j < len(role_normalized) and self._anthropic_tool_result_ids(role_normalized[j]):
+                result_msgs.append(role_normalized[j])
+                j += 1
+
+            if not result_msgs:
+                # 无任何对应 tool_result：只剔 tool_use、保留 text 块（正文/推理），
+                # 与孤儿 user tool_result 的处理一致，避免连带丢弃正文。
+                stripped = self._strip_assistant_tool_use(msg)
+                if stripped is not None:
+                    normalized.append(stripped)
+                i += 1
                 continue
 
-            i += 1
+            result_ids = set()
+            for rm in result_msgs:
+                result_ids |= self._anthropic_tool_result_ids(rm)
+
+            # 部分覆盖：保留 assistant 与全部真实 tool_result，仅为缺失的 tool_use
+            # 补合成占位结果——保持成对，且绝不用占位覆盖真实输出，也避免产生
+            # "只有 tool_result、没有 tool_use"的非法序列。
+            missing = tool_use_ids - result_ids
+            normalized.append(msg)
+            blocks: list = []
+            for rm in result_msgs:
+                for block in rm.get("content") or []:
+                    # 合并后仍需剔除无处对应的孤儿 tool_result（tool_use_id 无对应 tool_use）：
+                    # 否则其会与其后合法结果并进同一条 user 消息保留，产出非法序列（API 400）。
+                    if (
+                        isinstance(block, dict)
+                        and block.get("type") == "tool_result"
+                        and block.get("tool_use_id") not in tool_use_ids
+                    ):
+                        continue
+                    blocks.append(block)
+            blocks.extend({
+                "type": "tool_result", "tool_use_id": tid,
+                "content": "Missing tool_result repaired during history normalization.",
+            } for tid in missing)
+            normalized.append({**result_msgs[0], "content": blocks})
+            i = j
         return normalized
 
     @staticmethod
@@ -848,10 +1525,56 @@ class Agent:
             if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id")
         }
 
+    @staticmethod
+    def _strip_orphan_tool_results(msg: dict, normalized: list[dict]) -> dict | None:
+        """过滤消息中无对应 tool_use 的孤儿 tool_result。
+
+        仅对 user 列表消息生效：以上一条已保留消息中的 assistant tool_use id 为有效集合，
+        丢弃 tool_use_id 不在其中的 tool_result 块。若过滤后仅剩空内容返回 None（整条丢弃），
+        否则返回带过滤后 content 的副本；非目标形态原样返回。
+        """
+        if not (isinstance(msg, dict) and msg.get("role") == "user" and isinstance(msg.get("content"), list)):
+            return msg
+        content = msg["content"]
+        valid = Agent._anthropic_tool_use_ids(normalized[-1]) if normalized else set()
+        filtered = [
+            block for block in content
+            if not (
+                isinstance(block, dict)
+                and block.get("type") == "tool_result"
+                and block.get("tool_use_id") not in valid
+            )
+        ]
+        if len(filtered) == len(content):
+            return msg
+        if not filtered:
+            return None
+        return {**msg, "content": filtered}
+
+    @staticmethod
+    def _strip_assistant_tool_use(msg: dict) -> dict | None:
+        """剔除 assistant 列表消息中的孤儿 tool_use 块，保留 text 块（正文/推理）。
+
+        未配对的 assistant tool_use 会产出非法序列，需剔除；但不得连带丢弃同一
+        消息里的 text 块（与对孤儿 user tool_result 的处理一致）。剔除后无剩余
+        块返回 None（整条丢弃），非目标形态返回 None。
+        """
+        if not (isinstance(msg, dict) and msg.get("role") == "assistant" and isinstance(msg.get("content"), list)):
+            return None
+        filtered = [
+            block for block in msg["content"]
+            if not (isinstance(block, dict) and block.get("type") == "tool_use")
+        ]
+        if not filtered:
+            return None
+        return {**msg, "content": filtered}
+
     def _get_message_count(self) -> int:
         return len(self._openai_messages) if self.use_openai else len(self._anthropic_messages)
 
     def _auto_save(self) -> None:
+        if os.environ.get("EVOHARNESS_HOLDOUT_READONLY", "0").strip().lower() in {"1", "true", "yes", "on"}:
+            return
         try:
             save_session(self.session_id, {
                 "metadata": {
@@ -860,16 +1583,50 @@ class Agent:
                     "cwd": str(Path.cwd()),
                     "startTime": self.session_start_time,
                     "messageCount": self._get_message_count(),
+                    # 协议标记：--resume 跨协议恢复时据此把历史迁进当前协议的列表，
+                    # 避免"上次 OpenAI、这次 Anthropic"导致的静默丢历史。
+                    "protocol": "openai" if self.use_openai else "anthropic",
+                    # staged 会话标记（改造二评审 #8）：--resume 用 plan_dir_abs 绝对路径
+                    # 定位阶段目录，跨 cwd 可恢复。
+                    **(
+                        {"loop_staged": True, "plan_id": self.session_id, "plan_dir_abs": str(self._stage_plan_dir)}
+                        if self._loop_stages_active else {}
+                    ),
                 },
                 "anthropicMessages": _sanitize_for_utf8(self._anthropic_messages) if not self.use_openai else None,
                 "openaiMessages": _sanitize_for_utf8(self._openai_messages) if self.use_openai else None,
                 "foldedSessionMemories": _sanitize_for_utf8(self._folded_session_memories),
             })
-        except Exception:
-            pass
+            # 复用每轮落盘节奏刷新当前段文件（崩溃最多丢一轮，同全局存档语义）。
+            if self._loop_stages_active:
+                self._stage_write_segment(stage_fsm.current_record(self._stage_manifest))
+            self.last_save_error = ""
+        except Exception as error:  # noqa: BLE001
+            # 保存失败不能静默：旧实现 `except Exception: pass` 让"会话丢了"与
+            # "会话保存失败"在用户侧无法区分（面试反复追问的可见性问题）。
+            self.last_save_error = f"{type(error).__name__}: {error}"
+            try:
+                from agents.memory import record_encoding_event
+                record_encoding_event("session_save_failed", Path(self.session_id or "session"),
+                                      self.last_save_error[:400])
+            except Exception:  # noqa: BLE001
+                # 诊断自身失败不再递归抛错；原因已在 last_save_error 中保留。
+                pass
 
     #自动压缩
     async def _check_and_compact(self)->None:
+        # E-05 对照组 S1（无折叠）：显式禁用一切自动压缩/折叠。
+        # 只挡"自动"路径——模型/用户主动调用 compact_context 工具仍可用，
+        # 保证策略对照测的是"被动压缩策略"，不是"完全失去压缩能力"。
+        if _env_flag("EVOHARNESS_DISABLE_AUTO_FOLD"):
+            return
+        if self._loop_stages_active:
+            # 阶段机激活：70% 硬线改道为强制收段（LLM 交接，status=split）——
+            # 0.70 保留为最后防线；复位在收段第⑤步完成，防"刚收完又收"分叉风暴。
+            if self.last_input_token_count > self.effective_window * AUTO_COMPACT_THRESHOLD:
+                print_info("Context window filling up, forcing stage segment handover...")
+                await self._force_stage_split()
+            return
         if self.last_input_token_count > self.effective_window * AUTO_COMPACT_THRESHOLD:
             print_info("Context window filling up, compacting conversation...")
             await self._compact_conversation(trigger="auto")
@@ -887,13 +1644,26 @@ class Agent:
         if len (self._anthropic_messages)<4:
             return False
 
-        transcript = build_anthropic_transcript(_sanitize_for_utf8(self._anthropic_messages))
+        keep = _fold_keep_recent_turns()
+        older, recent = split_keep_recent_tail(self._anthropic_messages, keep, anthropic=True)
+        if keep > 0 and not older:
+            return False  # 无老段可折：不整段折叠，避免丢掉最近轮
+        transcript = build_anthropic_transcript(_sanitize_for_utf8(older))
         if not transcript.strip():
             return False
         memory = await self._generate_folded_session_memory(transcript)
         self._record_folded_session_memory(trigger, memory)
         self._record_fold_event()
-        self._anthropic_messages = [{"role": "user", "content": format_folded_memory(memory)}]
+        folded_text = format_folded_memory(memory)
+        if recent:
+            # 尾部保留：摘要并入 recent 首个用户消息，维持 Anthropic 角色交替合法。
+            merged = _merge_fold_into_user(recent[0].get("content"), folded_text)
+            if merged is not None:
+                self._anthropic_messages = [{"role": "user", "content": merged}] + recent[1:]
+            else:
+                self._anthropic_messages = [{"role": "user", "content": folded_text}] + recent
+        else:
+            self._anthropic_messages = [{"role": "user", "content": folded_text}]
         self._append_fold_archive_hint()
         self.last_input_token_count = 0
         self._refresh_runtime_system_prompt()
@@ -903,23 +1673,33 @@ class Agent:
         if len (self._openai_messages)<4:
             return False
         system_msg = self._openai_messages[0]
-        transcript = build_openai_transcript(_sanitize_for_utf8(self._openai_messages))
+        keep = _fold_keep_recent_turns()
+        older, recent = split_keep_recent_tail(self._openai_messages[1:], keep, anthropic=False)
+        if keep > 0 and not older:
+            return False  # 无老段可折：不整段折叠，避免丢掉最近轮
+        source = older if keep > 0 else self._openai_messages
+        transcript = build_openai_transcript(_sanitize_for_utf8(source))
         if not transcript.strip():
             return False
         memory = await self._generate_folded_session_memory(transcript)
         self._record_folded_session_memory(trigger, memory)
         self._record_fold_event()
-        self._openai_messages=[
-            system_msg,
-            {"role": "user", "content": format_folded_memory(memory)},
-        ]
+        folded_text = format_folded_memory(memory)
+        if recent:
+            merged = _merge_fold_into_user(recent[0].get("content"), folded_text)
+            if merged is not None:
+                self._openai_messages = [system_msg, {"role": "user", "content": merged}] + recent[1:]
+            else:
+                self._openai_messages = [system_msg, {"role": "user", "content": folded_text}] + recent
+        else:
+            self._openai_messages=[system_msg, {"role": "user", "content": folded_text}]
         self._append_fold_archive_hint()
         self.last_input_token_count=0
         self._refresh_runtime_system_prompt()
         return True
 
     async def _generate_folded_session_memory(self, transcript: str) -> dict[str, Any]:
-        side_query = self._build_side_query(max_tokens=6000)
+        side_query = self._build_side_query(max_tokens=6000, label="fold")
         if side_query is None:
             return fallback_folded_memory(transcript)
         try:
@@ -938,8 +1718,13 @@ class Agent:
         self._folded_session_memories.append(record)
         try:
             save_folded_session_memory(self.session_id, _sanitize_for_utf8(record))
-        except Exception:
-            pass
+            # 落盘成功：折叠已被别的路径（内存列表）保住，但"存档文件能否重读"
+            # 是折叠安全网的前提，所以这里同样要清掉陈旧诊断。
+            self.last_save_error = ""
+        except Exception as error:  # noqa: BLE001
+            # 折叠记录落盘失败同样不能静默：内存里有、磁盘上没有，重启后
+            # `--resume` 会把"折叠过"变成"从未折叠"，用户侧无从分辨。
+            self.last_save_error = f"folded-memory-save-failed: {type(error).__name__}: {error}"
 
     def _append_fold_archive_hint(self) -> None:
         """折叠后在注入文本尾部附存档路径：丢状态时 agent 可 read_file 恢复完整折叠记录。
@@ -1127,6 +1912,8 @@ class Agent:
         filename = f"{int(time.time() * 1000)}-{tool_name}.txt"
         filepath = d / filename
         filepath.write_text(result, encoding="utf-8")
+        # 确定性产物采集（改造二）：落盘路径进当前段 artifacts 清单。
+        self._note_artifact(str(filepath), f"{tool_name} result dump (>30KB)")
 
         lines = result.split("\n")
         preview = "\n".join(lines[:200])
@@ -1144,6 +1931,9 @@ class Agent:
     async def _execute_tool_call(self, name: str, inp: dict) -> str:
         if name == "compact_context":
             return await self._execute_compact_context_tool(inp)
+        if name == "advance_stage":
+            # Loop 阶段边界（改造二）：走 _context_cleared 通道，同 compact_context。
+            return await self._execute_advance_stage_tool(inp)
         if name in ("enter_plan_mode", "exit_plan_mode"):
             return await self._execute_plan_mode_tool(name)
         if name == "agent":
@@ -1154,6 +1944,13 @@ class Agent:
         if self._mcp_manager.is_mcp_tool(name):
             return await self._mcp_manager.call_tool(name, inp)
         result = await execute_tool(name, inp, self._read_file_state)
+        if name in {"write_file", "edit_file"}:
+            # 确定性产物采集（改造二）：只有**真正成功**的写入才登记产物。
+            # 失败调用不得留下 artifact，否则"假产物"会污染阶段交接与交付清单。
+            from agents.tools import tool_result_ok
+            path_in = (inp or {}).get("file_path") or (inp or {}).get("path")
+            if path_in and tool_result_ok(result):
+                self._note_artifact(str(path_in), name)
         if name in {"skill_create", "skill_evolve"}:
             try:
                 parsed = json.loads(result)
@@ -1188,16 +1985,22 @@ class Agent:
 
         #fork 表示这个 skill 不直接把 prompt 塞回当前对话，而是要启动一个子 Agent 单独完成任务。
         if result["context"] == "fork":
-            from .skill_status import PROVISIONAL_STATUSES, get_effective_status_map
+            try:
+                # fork 禁令统一裁决（试用期状态机门 + 实验区分区门，见 skill_tiers.fork_blocked_reason）：
+                # 运行时动态读两张表——另一进程的晋升/回退在下一次 fork 请求即生效，不烤进 skill 缓存。
+                from .skill_tiers import fork_blocked_reason
 
-            trial_status = get_effective_status_map().get(str(inp.get("skill_name") or ""), "")
-            if trial_status in PROVISIONAL_STATUSES:
-                # 试用期隔离：未验证的 skill 禁止 fork（带工具的子代理是爆炸半径最大的出口），降级 inline。
+                blocked_reason = fork_blocked_reason(str(inp.get("skill_name") or ""))
+            except Exception:
+                # fail-open：分区模块缺失时退回放行（缺省 core 可 fork），缺口由审计暴露。
+                blocked_reason = ""
+            if blocked_reason:
+                # 试用期/实验区隔离：未验证的 skill 禁止 fork（带工具的子代理是爆炸半径最大的出口），降级 inline。
                 print_info(
-                    f"Skill '{inp.get('skill_name', '')}' is in trial period ({trial_status}); fork downgraded to inline."
+                    f"Skill '{inp.get('skill_name', '')}' is gated ({blocked_reason}); fork downgraded to inline."
                 )
                 return (
-                    f'[Skill "{inp.get("skill_name", "")}" activated in inline trial mode (status={trial_status}); '
+                    f'[Skill "{inp.get("skill_name", "")}" activated in inline trial mode ({blocked_reason}); '
                     f"fork execution is disabled until the skill is validated.]\n\n{result['prompt']}"
                 )
             # result["allowed_tools"] - 直接访问
@@ -1214,10 +2017,18 @@ class Agent:
             sub_agent = Agent(
                 model=self.model,
                 api_base=str(self._openai_client.base_url) if self.use_openai and self._openai_client else None,
+                api_key=self._api_key,
+                anthropic_base_url=self._anthropic_base_url,
                 custom_system_prompt=result["prompt"],
                 custom_tools=tools,
                 is_sub_agent=True,
-                permission_mode="plan" if self.permission_mode == "plan" else "bypassPermissions",
+                # 子代理继承父代理的权限档：不得默认升级为 bypassPermissions，
+                # 否则一次 skill fork 即可绕过五档门禁 / confirm / 用户 deny 规则。
+                permission_mode=self.permission_mode,
+                # 一并继承父代理的确认通道：子代理在 confirm 判定下必须复用父的
+                # confirm_fn（本地自动批准 / CLI y/n / Web 确认），不得退化到 input()
+                # ——EOF 时静默拒绝（工具白跑/误判失败），TTY 下阻塞事件循环。
+                confirm_fn=self.confirm_fn,
             )
             try:
                 sub_result = await sub_agent.run_once(inp.get("args") or "Execute this skill task.")
@@ -1248,10 +2059,19 @@ class Agent:
                 return "Not in plan mode."
             plan_content = "(No plan file found)"
             if self._plan_file_path and Path(self._plan_file_path).exists():
-                plan_content = self._plan_file_path
+                # 审批面板/回显需展示计划正文，而非文件路径。
+                # 读取加异常保护：非 UTF-8/IO 失败若直接抛出，会中断审批流程、
+                # permission_mode 滞留 plan 档；此处退化为安全兜底文本，保证审批继续。
+                try:
+                    plan_content = Path(self._plan_file_path).read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    plan_content = "(Plan file could not be read as UTF-8; approval continues with this placeholder)"
             # 交互式审批流程（如果有审批函数）
             if self._plan_approval_fn:
-                result = self._plan_approval_fn(plan_content)
+                # P0 修复（改造二评审 #1）：审批函数是 async，原实现缺 await——拿到的是
+                # coroutine，result.get 抛 AttributeError 后被主循环吞成 tool_result，
+                # 审批体从未执行、permission_mode 滞留 plan、REPL 4 选项从未真实弹出。
+                result = await self._plan_approval_fn(plan_content)
                 choice = result.get("choice", "manual-execute")
 
                 if choice =="keep-planning":
@@ -1270,8 +2090,16 @@ class Agent:
                     target_mode = self._pre_plan_mode or "default"
 
                 #离开计划模式
-                self._pre_plan_mode = target_mode
+                # P0 修复（改造二评审 #1 补充，探针实证）：原实现误写
+                # self._pre_plan_mode = target_mode，permission_mode 从未迁移——
+                # 审批通过后模型仍滞留 plan 档（只读），"Executing in acceptEdits
+                # mode" 只是提示词。三入口共用此分支，必须真实迁移。
+                self.permission_mode = target_mode
                 self._pre_plan_mode = None
+                # 计划→执行边界①（审批分支，改造二）：确定性交接、豁免 side_query。
+                # 顺序约束：在 permission_mode 迁移之后（advisory_mode 记录真实执行档）、
+                # _clear_history_keep_system() 之前（choice=1 要先落盘 plan 段文件）。
+                await self._stage_on_plan_exit(choice)
                 saved_plan_path = self._plan_file_path
                 self._plan_file_path = None
                 self._system_prompt = self._base_system_prompt
@@ -1295,8 +2123,12 @@ class Agent:
                     f"Proceed with implementation."
                 )
             # 没有审批函数时的回退（例如子代理）
+            # 计划→执行边界①（无审批回退分支，改造二评审 #2）：一次性 --plan 走这里，
+            # 同样开 execute 段（确定性交接、豁免 side_query）。钩子在模式恢复之后，
+            # 让 advisory_mode 记录真实执行档。
             self.permission_mode = self._pre_plan_mode or "default"
             self._pre_plan_mode = None
+            await self._stage_on_plan_exit("auto-exit")
             self._plan_file_path = None
             self._system_prompt = self._base_system_prompt
             if self.use_openai and self._openai_messages:
@@ -1331,10 +2163,18 @@ class Agent:
         sub_agent = Agent(
             model=self.model,
             api_base=str(self._openai_client.base_url) if self.use_openai and self._openai_client else None,
+            api_key=self._api_key,
+            anthropic_base_url=self._anthropic_base_url,
             custom_system_prompt=config["system_prompt"],
             custom_tools=config["tools"],
             is_sub_agent=True,
-            permission_mode="plan" if self.permission_mode == "plan" else "bypassPermissions",
+            # 子代理继承父代理的权限档：不得默认升级为 bypassPermissions，
+            # 否则一次 agent 调用即可绕过五档门禁 / confirm / 用户 deny 规则。
+            permission_mode=self.permission_mode,
+            # 一并继承父代理的确认通道：子代理在 confirm 判定下必须复用父的
+            # confirm_fn（本地自动批准 / CLI y/n / Web 确认），不得退化到 input()
+            # ——EOF 时静默拒绝（工具白跑/误判失败），TTY 下阻塞事件循环。
+            confirm_fn=self.confirm_fn,
         )
         try:
             result = await sub_agent.run_once(prompt)
@@ -1355,9 +2195,10 @@ class Agent:
 
         # 异步内存预取：主 agent 才需要查 memory，sub agent 不额外注入记忆。
         # 这里只启动后台任务，不阻塞当前模型调用流程。
+        # EVOHARNESS_DISABLE_MEMORY_PREFETCH=1 可关闭整条预取（试验场：轻量设计对照用）。
         memory_prefetch:MemoryPrefetch | None = None
-        if not self.is_sub_agent:
-            sq = self._build_side_query()
+        if not self.is_sub_agent and not _memory_prefetch_disabled():
+            sq = self._build_side_query(label="memory_recall")
             if sq:
                 memory_prefetch = start_memory_prefetch(
                     user_message, sq,
@@ -1397,7 +2238,7 @@ class Agent:
                             # 记录本 session 已经注入过的 memory，后续检索时可避免重复 surfaced。
                             self._already_surfaced_memories.add(m.path)
                             self._session_memory_bytes += m.size
-                except:
+                except Exception:  # 裸 except 会连 KeyboardInterrupt/SystemExit 一起吞
                     # memory 注入失败不应该中断主对话流程。
                     pass
 
@@ -1450,6 +2291,9 @@ class Agent:
             budget = self._check_budget()
             if budget["exceeded"]:
                 print_info(f"Budget exceeded: {budget['reason']}")
+                # 预算强制收段落点（改造二评审 #7）：chat() 收尾 _finalize_staged_chat 执行确定性收段。
+                if self._loop_stages_active:
+                    self._stage_close_reason = f"budget:{budget['reason']}"
                 self._anthropic_messages.append({
                     "role": "user",
                     "content": [
@@ -1468,75 +2312,101 @@ class Agent:
             tool_results: list[dict] = []
             context_break = False
 
-            for tu in tool_uses:
-                # context_break 表示某个工具执行期间清理了上下文，需要停止继续处理本轮剩余工具。
-                if context_break or self._aborted:
-                    break
+            cancelled = False
+            try:
+                for tu in tool_uses:
+                    # context_break 表示某个工具执行期间清理了上下文，需要停止继续处理本轮剩余工具。
+                    if context_break or self._aborted:
+                        break
 
-                # 将工具入参转为普通 dict，便于权限检查、打印和实际执行。
-                inp = dict(tu.input) if hasattr(tu, "items") else tu.input
-                print_tool_call(tu.name, inp)
+                    # 将工具入参转为普通 dict，便于权限检查、打印和实际执行。
+                    inp = dict(tu.input) if hasattr(tu, "items") else tu.input
+                    # 与 OpenAI 路径对称：input 非 dict（数组/字符串/null）时归一为空 dict，
+                    # 否则 print_tool_call → _get_tool_summary 调 inp.get 抛 AttributeError；
+                    # 该处位于收尾 try/finally 之外（finally 仅在取消时补占位）→ 整轮崩溃 + 悬空。
+                    if not isinstance(inp, dict):
+                        inp = {}
+                    print_tool_call(tu.name, inp)
 
-                # 如果这个工具已经在流式阶段提前开始执行，这里只需要等待它完成并收集结果。
-                early_task = early_executions.get(tu.id)
-                if early_task:
+                    # 如果这个工具已经在流式阶段提前开始执行，这里只需要等待它完成并收集结果。
+                    early_task = early_executions.get(tu.id)
+                    if early_task:
+                        try:
+                            raw = await early_task
+                        except Exception as e:
+                            raw = f"Error executing tool: {e}"
+                        raw = utf8_tool_result(raw)
+                        res = self._persist_large_result(tu.name, raw)
+                        print_tool_result(tu.name, res)
+                        self._record_tool_outcome(tu.name, not self._looks_like_tool_failure(tu.name, raw, res))
+                        tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": res})
+                        continue
+
+                    # 如果不是提前执行的工具，就在真正执行前做权限检查。
+
+                    perm = check_permission(tu.name, inp, self.permission_mode, self._plan_file_path)
+                    if perm["action"] == "deny":
+                        # 权限拒绝时，也要返回一个 tool_result，让模型知道该工具调用失败的原因。
+                        print_info(f"Denied: {perm.get('message', '')}")
+                        self._record_tool_outcome(tu.name, False)
+                        tool_results.append({"type": "tool_result", "tool_use_id": tu.id,
+                                             "content": denied_tool_result("deny", perm.get("message", ""))})
+                        continue
+
+                    if perm["action"] == "confirm" and perm.get("message") and perm["message"] not in self._confirmed_paths:
+                        # 高风险操作需要用户确认；同一个 message 确认过后会缓存，避免重复询问。
+                        confirmed = await self._confirm_dangerous(perm["message"])
+                        if not confirmed:
+                            self._record_tool_outcome(tu.name, False)
+                            tool_results.append(
+                                {"type": "tool_result", "tool_use_id": tu.id,
+                                 "content": denied_tool_result("user-denied")})
+                            continue
+                        self._confirmed_paths.add(perm["message"])
+
+                    # 权限通过后执行工具，并把大输出持久化为可回传的摘要或引用。
                     try:
-                        raw = await early_task
+                        raw = await self._execute_tool_call(tu.name, inp)
                     except Exception as e:
                         raw = f"Error executing tool: {e}"
-                    raw = _safe_utf8_text(raw)
+                    raw = utf8_tool_result(raw)
                     res = self._persist_large_result(tu.name, raw)
                     print_tool_result(tu.name, res)
                     self._record_tool_outcome(tu.name, not self._looks_like_tool_failure(tu.name, raw, res))
+
+                    if self._context_cleared:
+                        # 工具执行过程中如果清理了上下文，就把结果作为新的用户消息写入，
+                        # 并停止继续处理本轮剩余工具，避免旧上下文和新上下文混在一起。
+                        self._context_cleared = False
+                        self._anthropic_messages.append({"role": "user", "content": res})
+                        context_break = True
+                        break
+
+                    # Anthropic 要求 tool_result 使用 tool_use_id 对应到前面的 tool_use block。
                     tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": res})
-                    continue
-
-                # 如果不是提前执行的工具，就在真正执行前做权限检查。
-
-                perm = check_permission(tu.name, inp, self.permission_mode, self._plan_file_path)
-                if perm["action"] == "deny":
-                    # 权限拒绝时，也要返回一个 tool_result，让模型知道该工具调用失败的原因。
-                    print_info(f"Denied: {perm.get('message', '')}")
-                    self._record_tool_outcome(tu.name, False)
-                    tool_results.append({"type": "tool_result", "tool_use_id": tu.id,
-                                         "content": f"Action denied: {perm.get('message', '')}"})
-                    continue
-
-                if perm["action"] == "confirm" and perm.get("message") and perm["message"] not in self._confirmed_paths:
-                    # 高风险操作需要用户确认；同一个 message 确认过后会缓存，避免重复询问。
-                    confirmed = await self._confirm_dangerous(perm["message"])
-                    if not confirmed:
-                        self._record_tool_outcome(tu.name, False)
-                        tool_results.append(
-                            {"type": "tool_result", "tool_use_id": tu.id, "content": "User denied this action."})
-                        continue
-                    self._confirmed_paths.add(perm["message"])
-
-                # 权限通过后执行工具，并把大输出持久化为可回传的摘要或引用。
-                try:
-                    raw = await self._execute_tool_call(tu.name, inp)
-                except Exception as e:
-                    raw = f"Error executing tool: {e}"
-                raw = _safe_utf8_text(raw)
-                res = self._persist_large_result(tu.name, raw)
-                print_tool_result(tu.name, res)
-                self._record_tool_outcome(tu.name, not self._looks_like_tool_failure(tu.name, raw, res))
-
-                if self._context_cleared:
-                    # 工具执行过程中如果清理了上下文，就把结果作为新的用户消息写入，
-                    # 并停止继续处理本轮剩余工具，避免旧上下文和新上下文混在一起。
-                    self._context_cleared = False
-                    self._anthropic_messages.append({"role": "user", "content": res})
-                    context_break = True
-                    break
-
-                # Anthropic 要求 tool_result 使用 tool_use_id 对应到前面的 tool_use block。
-                tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": res})
-
-            if not context_break and tool_results:
-                # Anthropic 要求 assistant/tool_use 后面紧跟一条 user/tool_result 消息，
-                # 且这条消息必须包含本轮所有 tool_use 的对应结果。
-                self._anthropic_messages.append({"role": "user", "content": tool_results})
+            except asyncio.CancelledError:
+                # Ctrl+C 取消会在工具执行中抛 CancelledError（继承 BaseException，不被
+                # except Exception 兜住），绕过循环后的收尾直接冒泡出 chat()。
+                cancelled = True
+                raise
+            finally:
+                # 取消/中断（Ctrl+C）时循环会提前 break（见上方 self._aborted 判据）或异常退出，
+                # 但 assistant(tool_use) 消息已入 history；未执行的 tool_use 若无配对 tool_result
+                # 会留下悬空块 → 持久化后 --resume 下条请求 400。与预算超限路径对称：为所有未覆盖
+                # 的 tool_use 补占位 tool_result（消息列表是持久对象，配对在落盘前完成）。
+                if (self._aborted or cancelled) and not context_break:
+                    _covered = {tr.get("tool_use_id") for tr in tool_results}
+                    for tu in tool_uses:
+                        if tu.id not in _covered:
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": tu.id,
+                                "content": "Tool execution cancelled (interrupted).",
+                            })
+                if not context_break and tool_results:
+                    # Anthropic 要求 assistant/tool_use 后面紧跟一条 user/tool_result 消息，
+                    # 且这条消息必须包含本轮所有 tool_use 的对应结果。
+                    self._anthropic_messages.append({"role": "user", "content": tool_results})
 
             self._context_cleared = False
 
@@ -1646,8 +2516,8 @@ class Agent:
 
         #预取句柄 MemoryPrefetch
         memory_prefetch: MemoryPrefetch | None = None
-        if not self.is_sub_agent:
-            sq = self._build_side_query()
+        if not self.is_sub_agent and not _memory_prefetch_disabled():
+            sq = self._build_side_query(label="memory_recall")
             if sq:
                 memory_prefetch = start_memory_prefetch(
                     user_message, sq,
@@ -1699,6 +2569,7 @@ class Agent:
             message = choice.get("message", {})
 
             self._openai_messages.append(message)
+            assistant_idx = len(self._openai_messages) - 1
 
             tool_calls = message.get("tool_calls")
 
@@ -1711,25 +2582,74 @@ class Agent:
             budget = self._check_budget()
             if budget["exceeded"]:
                 print_info(f"Budget exceeded: {budget['reason']}")
+                # 预算强制收段落点（改造二评审 #7，与 Anthropic 路径对称）：
+                # chat() 收尾 _finalize_staged_chat 执行确定性收段。
+                if self._loop_stages_active:
+                    self._stage_close_reason = f"budget:{budget['reason']}"
+                # 与 Anthropic 路径对称：为每个未执行的 tool_call 补占位 tool 消息，
+                # 保持 assistant(tool_calls) 与 role=tool 的配对，避免悬空 tool_calls。
+                # 与主循环一致：缺 id 者就地补稳定占位 id（否则原样存回、悬空持久化）。
+                for _idx, tc in enumerate(tool_calls):
+                    if not tc.get("id"):
+                        tc["id"] = f"call_autogen_{self.current_turns}_{_idx}"
+                    self._openai_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": f"Tool execution skipped: {budget['reason']}",
+                    })
                 break
 
             oai_checked: list[dict] = []
-            for tc in tool_calls:
+            for _idx, tc in enumerate(tool_calls):
                 if self._aborted:
                     break
 
-                if tc.get("type") != "function":
+                # 缺 id 的 tool_call（type/function.name 均合法）会穿过畸形防御被正常
+                # 执行，随后 ct["tc"]["id"] 下标取 id 触发 KeyError 崩溃整轮。就地补
+                # 稳定占位 id（tc 与已存档的 assistant 消息为同一对象，无需另写回），
+                # 保证不崩溃、且 assistant(tool_calls) 与 role=tool 始终成对。
+                if not tc.get("id"):
+                    tc["id"] = f"call_autogen_{self.current_turns}_{_idx}"
+
+                # 畸形 tool_call 防御：非 function / 缺 function / 缺 name 时不得
+                # continue 后留下悬空 tool_call_id（也避免 KeyError 使整轮崩溃），
+                # 统一补一条 role=tool 占位消息，保持 assistant(tool_calls) 配对。
+                _fn = tc.get("function") if isinstance(tc.get("function"), dict) else None
+                if tc.get("type") != "function" or not _fn or not _fn.get("name"):
+                    if tc.get("id"):
+                        self._openai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": "Tool call skipped: malformed tool_call "
+                                       "(missing function/name).",
+                        })
                     continue
 
-                fn_name = tc["function"]["name"]
+                fn_name = _fn["name"]
                 try:
-                    inp = json.loads(tc["function"]["arguments"])
+                    inp = json.loads(_fn.get("arguments") or "{}")
                 except Exception:
                     inp = {}
+                # arguments 解析结果非 dict（数组/字符串/null）时归一为空 dict：否则
+                # print_tool_call → _get_tool_summary 调 inp.get 抛 AttributeError。该处位于
+                # 本轮收尾 try/finally 之外、无兜底 → 整轮崩溃，且已入 history 的
+                # assistant(tool_calls) 留下悬空（0 条 role=tool，--resume 下条请求 400）。
+                if not isinstance(inp, dict):
+                    inp = {}
 
-                print_tool_call(fn_name, inp)
-
-                perm = check_permission(fn_name, inp, self.permission_mode, self._plan_file_path)
+                # 展示/权限检查同样位于收尾 try/finally 之外，异常冒泡会使整轮崩溃并悬空。
+                # 兜底：异常时为该 tool_call 补占位 tool 消息后跳过，保持配对、不悬空。
+                try:
+                    print_tool_call(fn_name, inp)
+                    perm = check_permission(fn_name, inp, self.permission_mode, self._plan_file_path)
+                except Exception:
+                    self._openai_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": "Tool call skipped: tool call display / permission "
+                                   "check failed.",
+                    })
+                    continue
 
                 if perm["action"] == "deny":
                     print_info(f"Denied: {perm.get('message', '')}")
@@ -1747,32 +2667,44 @@ class Agent:
                     self._confirmed_paths.add(perm["message"])
                 oai_checked.append({"tc": tc, "fn": fn_name, "inp": inp, "allowed": True})
 
-                oai_batches: list[dict] = []
-                for ct in oai_checked:
-                    safe = ct["allowed"] and ct["fn"] in CONCURRENCY_SAFE_TOOLS
-                    if safe and oai_batches and oai_batches[-1]["concurrent"]:
-                        oai_batches[-1]["items"].append(ct)
-                    else:
-                        oai_batches.append({"concurrent": safe, "items": [ct]})
+            # 权限检查循环结束后（本轮全部 tool_call 已收集），再统一构建并发批次并执行一次。
+            # 原实现把该块缩进在 for tc 内部，导致同一轮并发安全工具被重复执行、并写入重复
+            # tool_call_id 的 role=tool 消息（与 Anthropic 路径对称：仅在 for 之外执行一次）。
+            oai_batches: list[dict] = []
+            for ct in oai_checked:
+                safe = ct["allowed"] and ct["fn"] in CONCURRENCY_SAFE_TOOLS
+                if safe and oai_batches and oai_batches[-1]["concurrent"]:
+                    oai_batches[-1]["items"].append(ct)
+                else:
+                    oai_batches.append({"concurrent": safe, "items": [ct]})
 
-                oai_context_break = False
+            oai_context_break = False
+            cancelled = False
+            try:
                 for batch in oai_batches:
                     if oai_context_break or self._aborted:
                         break
 
                     if batch["concurrent"]:
-                        async def _run_oai_safe(ct_item: dict) -> tuple[dict, str]:
-                            raw = await self._execute_tool_call(ct_item["fn"], ct_item["inp"])
-                            raw = _safe_utf8_text(raw)
+                        async def _run_oai_safe(ct_item: dict) -> tuple[dict, str, str]:
+                            # 与 Anthropic 路径对称：工具抛异常不得中断整轮，否则已入 history 的
+                            # assistant(tool_calls) 缺配对的 role=tool → 悬空持久化（下次 400），
+                            # 且异常冒泡出 chat() 使 _turn_output_buffer 残留（main.py 误判仍在处理）。
+                            try:
+                                raw = await self._execute_tool_call(ct_item["fn"], ct_item["inp"])
+                            except Exception as e:
+                                raw = f"Error executing tool: {e}"
+                            raw = utf8_tool_result(raw)
                             res = self._persist_large_result(ct_item["fn"], raw)
                             print_tool_result(ct_item["fn"], res)
-                            return ct_item, res
+                            return ct_item, raw, res
 
                         results = await asyncio.gather(*[_run_oai_safe(ct) for ct in batch["items"]])
-                        for ct_item, res in results:
+                        for ct_item, raw, res in results:
+                            # 与下方非并发批对称：传原始 raw，避免仅凭截断预览误判失败。
                             self._record_tool_outcome(
                                 ct_item["fn"],
-                                not self._looks_like_tool_failure(ct_item["fn"], "", res),
+                                not self._looks_like_tool_failure(ct_item["fn"], raw, res),
                             )
                             self._openai_messages.append(
                                 {"role": "tool", "tool_call_id": ct_item["tc"]["id"], "content": res})
@@ -1783,8 +2715,15 @@ class Agent:
                                     {"role": "tool", "tool_call_id": ct["tc"]["id"], "content": ct["result"]})
                                 continue
 
-                            raw = await self._execute_tool_call(ct["fn"], ct["inp"])
-                            raw = _safe_utf8_text(raw)
+                            # 与 Anthropic 路径对称：工具抛异常时写占位 tool 消息（保持
+                            # assistant(tool_calls)/role=tool 配对，避免悬空持久化下次 400），
+                            # 不让异常冒泡出 chat()（否则 _turn_output_buffer 残留，
+                            # main.py 的 _agent_is_processing 误判仍在处理）。
+                            try:
+                                raw = await self._execute_tool_call(ct["fn"], ct["inp"])
+                            except Exception as e:
+                                raw = f"Error executing tool: {e}"
+                            raw = utf8_tool_result(raw)
                             res = self._persist_large_result(ct["fn"], raw)
                             print_tool_result(ct["fn"], res)
                             self._record_tool_outcome(
@@ -1800,6 +2739,31 @@ class Agent:
 
                             self._openai_messages.append(
                                 {"role": "tool", "tool_call_id": ct["tc"]["id"], "content": res})
+            except asyncio.CancelledError:
+                # Ctrl+C 取消会在工具执行中抛 CancelledError（继承 BaseException，不被
+                # except Exception 兜住），绕过收尾直接冒泡出 chat()。
+                cancelled = True
+                raise
+            finally:
+                # 取消/中断（Ctrl+C）时批量执行循环提前 break（见上方 self._aborted 判据）或异常
+                # 退出，但 assistant(tool_calls) 消息已入 history；未执行的 tool_call 若缺 role=tool
+                # 会悬空持久化（--resume 下条请求 400）。与预算超限路径对称：为所有未配对
+                # tool_call 补占位 tool 消息（列表是持久对象，配对在落盘前完成）。
+                if (self._aborted or cancelled) and not oai_context_break:
+                    _covered_ids = {
+                        m.get("tool_call_id")
+                        for m in self._openai_messages[assistant_idx + 1:]
+                        if m.get("role") == "tool"
+                    }
+                    for _idx, tc in enumerate(tool_calls):
+                        if not tc.get("id"):
+                            tc["id"] = f"call_autogen_{self.current_turns}_{_idx}"
+                        if tc["id"] not in _covered_ids:
+                            self._openai_messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": "Tool execution cancelled (interrupted).",
+                            })
 
             self._context_cleared = False
             self._refresh_runtime_system_prompt()
