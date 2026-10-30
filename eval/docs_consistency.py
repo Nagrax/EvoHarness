@@ -113,7 +113,9 @@ def main() -> int:
     # ④ HANDOFF 的门禁数
     ho_claim = last_claim(ho, r"(\d{3,4})\s*(?:tests|测试)")
     if ho_claim is not None and fact.get("gateTests"):
-        if ho_claim != fact["gateTests"]:
+        # 只拦"小于最近一次成功 gate"（真过时）；允许更大——HANDOFF 声明的是当前全量，
+        # 可能刚加了测试还没成功跑过一次。
+        if ho_claim < fact["gateTests"]:
             issues.append({"kind": "gate-tests", "doc": "HANDOFF",
                            "claimed": ho_claim, "actual": fact["gateTests"]})
 

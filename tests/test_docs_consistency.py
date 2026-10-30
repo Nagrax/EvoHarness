@@ -61,5 +61,9 @@ def test_handoff_has_no_stale_gate_count():
     import re
 
     found = {int(m) for m in re.findall(r"(\d{3,4})\s*tests\s*/", text)}
-    stale = {n for n in found if n != tests}
-    assert not stale, f"HANDOFF 残留旧门禁数 {stale}，当前应为 {tests}"
+    # 只拦"小于最近一次成功 gate"的数（那才是真过时）；
+    # 允许更大——HANDOFF 声明的是"当前全量"，可能刚加了测试还没成功跑过。
+    stale = {n for n in found if n < tests}
+    assert not stale, (
+        f"HANDOFF 残留旧门禁数 {stale}（最近一次成功 gate 为 {tests}）；"
+        "若确实刚加了测试、当前全量更大，请把 HANDOFF 改成更大的值")
