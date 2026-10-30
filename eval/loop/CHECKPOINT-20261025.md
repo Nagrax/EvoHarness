@@ -4568,3 +4568,54 @@ CI 日志、`| Select-Object`、`> file` 都会受益。
 
 **门禁 1133 tests / 1131 passed / 0 failed / 2 skipped**（双编码一致）。
 **git**：已 push（`HEAD == origin/main`）。
+
+## 137. 第一百二十轮（2026-10-30）：dogfooding **核实**出一个口径修正
+
+**做法**：给足轮次（20 轮）重跑真实任务，成功完成（`turn complete`，非 Turn limit）。
+输出：
+> eval 下 79 个 `.py`（78 实际脚本），**51 个无同名测试**，
+> **其中 31 个在 tests/ 中完全零引用**。
+
+**我上轮的错误更正**：我说"模型反复测工具、8 轮耗尽"——那是**修复 spinner 之前**
+那次的输出。修复后的输出显示模型行为正常（`list_files eval/**/*.py` 等）。
+真实原因是**任务重 + 8 轮不够**。**结论写错要认。**
+
+**核实**（不轻信模型的话）：对模型点名的 31 个逐一在 tests/ 里搜索 →
+**30 个确实零引用**（只有 `curve_summary` 被 `test_batch_isolation.py` 提及）。
+
+**这暴露了我自己一个口径问题**：
+我一直报告「module-without-tests **24→0**」，但那个规则只检查**被 import 的库**
+（`module_scan.coverage_gaps(..., referenced=)`），**不覆盖独立脚本**。
+所以：
+| 口径 | 结论 |
+| --- | --- |
+| 被 import 的库 | **24 → 0**（仍成立） |
+| 独立脚本（eval/*.py） | **30 个零测试引用**（新发现） |
+
+**两者不矛盾，但"24→0"容易被理解成"所有模块都有测试"**——这是表述不严谨。
+本轮起对外口径改为：**"库级测试覆盖 0 缺口；脚本级有 30 个无引用，属已知缺口"**。
+
+**已补的测试（安全关键优先）**：`tests/test_git_preflight.py` **20 条**
+- 11 条敏感路径正例（`.env*` / `*.key` / `LIVE_BUDGET` / `eval/runs/` / `node_modules/` / `browser-profile`）
+- 5 条普通路径反例（防过紧）
+- **凭据模式正例** + **不得误报普通文本**（`disk-like` / `klassisk-musik` / `"API` + `KEY="` 字面量）
+- 当前仓库 preflight 必须通过 / 报告结构
+
+**一个自指趣事**：测试文件里写了 `-----BEGIN RSA ***PRIVATE KEY***-----` 字面量，
+**被 preflight 自己扫到了** → 说明它真的在工作。改用字符串拼接构造。
+
+**剩余 29 个零测试脚本（如实列出，不假装已覆盖）**：
+`assess_long_functions` / `extract_flaky_pool` / `final_check` / `final_verification` /
+`harness2_analyze` / `harness2_summary` / `hook_correct` / `list_small_partitions` /
+`loop_context` / `loop_distribution` / `make_difficulty_ladder` / `make_longdoc_task` /
+`make_reflection_tasks` / `make_trap_tasks` / `migrate_backlog` / `probe_readfile_usage` /
+`reflection_effect_ab` / `reflection_learn_ab` / `s7_dimensions` / `silent_triage` /
+`ui_inventory` / `verify_hook` / `verify_s6` / `verify_threshold` / `check_boundary` /
+`check_max_dim` / `check_self_conjugate` / `compute_irreps` / `dimension_stats`
+
+其中多数是**一次性验证/生成工具**（`verify_*`、`check_*`、`make_*`），
+按"不该为一次性脚本硬造测试"的原则**接受无测试**；
+但有生产价值的（`loop_context` / `loop_distribution` / `silent_triage` / `ui_inventory`
+/ `assess_long_functions`）应当补——**列为后续项，不声称已完成**。
+
+**门禁**：见本轮收尾。**git**：待推送。
