@@ -10,7 +10,12 @@ REPO = Path(r"D:/claudecode/EvoHarness")
 
 
 def main() -> int:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    # stdout 可能是 StringIO / 包装器（被测试或 CI 捕获时），没有 reconfigure。
+    # 编码设置失败不应让整个排查工具失效——退化为按现状输出即可。
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     state = json.loads((REPO / "eval" / "loop" / "BACKLOG.json").read_text(encoding="utf-8"))
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 20
     rule = sys.argv[2] if len(sys.argv) > 2 else ""

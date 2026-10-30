@@ -4619,3 +4619,52 @@ CI 日志、`| Select-Object`、`> file` 都会受益。
 / `assess_long_functions`）应当补——**列为后续项，不声称已完成**。
 
 **门禁**：见本轮收尾。**git**：待推送。
+
+## 138. 第一百二十一轮（2026-10-30）：dogfooding #3 —— **它真的会写代码**
+
+**任务**（不是分析，是开发）：
+> 阅读 `eval/loop_context.py`，为它写一个 pytest 测试文件，≥4 个用例，
+> 自包含（tmp_path/monkeypatch），写完运行确认通过，报告通过数量。
+
+**结果（客观验证，不看它自己怎么说）**：
+| 项 | 结果 |
+| --- | --- |
+| 文件创建 | `tests/test_loop_context.py` **4952 bytes** |
+| pytest | **7 passed**（exit 0） |
+| 任务状态 | `turn complete`（非 Turn limit） |
+| 成本 | 306K input + 5.3K output ≈ **$1.0** |
+
+**它写的测试质量（我读过）**：
+- 用 `monkeypatch` 重定向模块级 `REPO` 到 `tmp_path`，不读真实 `BACKLOG.json`
+- 用 `TextIOWrapper` 包 `BytesIO` 承接 `reconfigure`（说明它**读懂了实现细节**）
+- 覆盖：rule 过滤 / 无匹配静默 / 缺文件跳过 / 220 字符截断 / line_number 下界钳制
+
+**更重要的：它顺手报告了两个真实缺陷**（不是我要求的）：
+1. `loop_context.py:13` 的 `sys.stdout.reconfigure` 在 stdout 非 `TextIOWrapper`
+   时抛 `AttributeError` → **合理防御缺失**
+2. `line_number` 无上界保护 → 超界时窗口退化为尾部若干行 → **只少打印，不影响正确性**
+
+**两条都核实属实**：
+- 缺陷 1 **已修**（包 try/except；这个排查工具最可能被 `> ctx.txt` 或 CI 捕获，
+  崩在第一行会什么都看不到）
+- 缺陷 2 **接受不修**（Python 切片自动截断，只是少显示，不崩溃）——如实标注
+
+**补了一条它没覆盖的测试**：它自己用 `TextIOWrapper` 绕过了 reconfigure 问题，
+所以原 7 个用例测不到这个防御。我加了第 8 条 `test_main_survives_stdout_without_reconfigure`
+（用只有 write/flush 的假 stdout）。
+
+**这轮为什么重要（对目标 1/2 的直接意义）**：
+前面很多轮我在"证明指标"，这轮是在**验证它能不能真的帮人干活**。
+结果是能——完成度 100%、产出可用、还主动发现了实现级缺陷。
+
+**三次 dogfooding 的对照**：
+| # | 任务 | 轮次 | 结果 |
+| --- | --- | --- | --- |
+| 1 | 统计 eval 脚本（spinner 修复前） | 8 | **Turn limit**，输出被 spinner 淹没 |
+| 2 | 同上（修复后） | 20 | **成功**，79 脚本 / 30 零测试 |
+| 3 | 写测试文件（本次） | 25 | **成功**，7 passed + **2 个真实缺陷报告** |
+
+→ 同一个任务从"8 轮耗尽"到"20 轮完成"，**唯一变量是轮次与输出干净度**；
+而任务类型从"读"到"写"后，它表现出的是**理解 + 产出 + 主动质疑**。
+
+**门禁**：见本轮收尾（新增 8 条测试）。
