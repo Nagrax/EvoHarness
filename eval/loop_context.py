@@ -21,17 +21,32 @@ def main() -> int:
     rule = sys.argv[2] if len(sys.argv) > 2 else ""
     shown = 0
     for item in state["items"]:
-        detail = item["detail"]
-        if rule and detail.get("rule") != rule:
+        detail = item.get("detail") or {}
+        raw_rule = detail.get("rule")
+        # rule 可能是 str、None 或 list（历史条目未统一），统一成可比较的字符串
+        if isinstance(raw_rule, (list, tuple)):
+            rule_text = " | ".join(str(x) for x in raw_rule)
+        elif isinstance(raw_rule, str):
+            rule_text = raw_rule
+        else:
+            rule_text = ""
+        if rule and raw_rule != rule and rule not in rule_text:
             continue
-        path = REPO / detail["file"]
+        file_rel = detail.get("file")
+        if not isinstance(file_rel, str) or not file_rel:
+            continue
+        path = REPO / file_rel
         if not path.is_file():
             continue
         lines = path.read_text(encoding="utf-8").splitlines()
-        line_no = detail["line"]
+        line_no = detail.get("line")
+        # line 可能是 None（聚合条目）或超出文件长度
+        if not isinstance(line_no, int) or line_no < 0:
+            continue
+        line_no = min(line_no, len(lines))
         start = max(0, line_no - 4)
         ctx = " | ".join(l.strip() for l in lines[start:line_no + 2])
-        print(f"{item['id']} {detail['rule']} {detail['file']}:{line_no}")
+        print(f"{item['id']} {rule_text} {file_rel}:{line_no}")
         print(f"    {ctx[:220]}")
         shown += 1
         if shown >= limit:

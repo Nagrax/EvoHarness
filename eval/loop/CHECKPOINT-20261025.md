@@ -4668,3 +4668,54 @@ CI 日志、`| Select-Object`、`> file` 都会受益。
 而任务类型从"读"到"写"后，它表现出的是**理解 + 产出 + 主动质疑**。
 
 **门禁**：见本轮收尾（新增 8 条测试）。
+
+## 139. 第一百二十二轮（2026-10-30）：dogfooding #4 **失败**，但挖出数据契约问题
+
+**任务**：给 `eval/silent_triage.py` 写测试（5 个用例）。
+
+**结果：失败**——测试文件未创建，`exit code 1`。原因：
+```
+Error: raccoon: 模型 sn-deepseek-v4-1-flash-1017
+所有账号均不可用（您的模型请求频率超限，请稍后重试）
+```
+**这是基础设施限制（限流），不是能力问题。** 如实记录，不归因于模型。
+
+**但它在中断前做了一件有价值的事**——打出了这条探针输出：
+```
+L0022 rule= ['对照实验的 claimed delta 必须显著大于同配置重复运行的极差', ...]
+line= None
+keys: ['ok', 'designs', 'unstableSameScale', 'maxObservedRangePts', ...]
+```
+
+**顺着这条线索查，发现真实问题**：BACKLOG 34 个 item 里 **11 个不符合隐式契约**：
+
+| 形态 | 数量 | 例子 |
+| --- | --- | --- |
+| `rule=None, line=None` | 9 | harness2 / variance / lifecycle / benchmarkFailures（信息型） |
+| **`rule` 是数组** | 1 | L0022（三条判据写成了 list） |
+| `rule=str, line=None` | 1 | L9029（module 聚合条目，多文件多行） |
+
+而消费者 `loop_context.py` 依赖 `detail["line"]` 是 int、`detail["rule"]` 是 str。
+**当前没崩是运气**——坏条目恰好都被 `path.is_file()` 或 rule 过滤挡住了。
+任何一个坏条目带上有效 `file` 就会崩。
+
+**修复（源头 + 消费者两侧）**：
+1. **消费者侧**：`loop_context.py` 加 schema 防御
+   - `rule` 统一成可比较字符串（str / list / None 三种都接）
+   - `line` 非 int 则跳过；`line` 超界则钳制到文件行数（顺带修掉 §138 报告的缺陷 2）
+   - `file` 非 str 则跳过
+2. **源头侧**：`tests/test_backlog_schema.py` **5 条契约回归**
+   - `detail` 必须是对象
+   - `rule ∈ {str, list, None}`、`line ∈ {int, None}`、`file` 若存在必须 str
+   - **有 file 的条目必须有 int line**
+   - 存量 11 个录入 `KNOWN_EXCEPTIONS`（强行补字段是造假，但**新条目不得再违反**）
+   - 例外清单不得含已不存在的 id（防清单腐化）
+   - 消费者必须能处理全部条目（不崩）
+
+**这轮的方法论**：
+> 一次失败的任务，仍然可以产出真实价值——**它在中断前打出的那行调试输出，
+> 比它原本要写的测试更值钱**。
+> 前提是：**去看它留下的痕迹，而不是只看"成功/失败"那个结论**。
+
+**门禁 1166 tests / 1164 passed / 0 failed / 2 skipped**（双编码一致）。
+**git**：已 push。
