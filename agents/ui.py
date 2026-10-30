@@ -239,9 +239,23 @@ _spinner_thread: threading.Thread | None = None
 _spinner_stop = threading.Event()
 
 
+def _spinner_enabled() -> bool:
+    """只有真正的终端才显示 spinner。
+
+    非 TTY（管道 / 重定向 / CI）下帧动画只会污染日志，
+    并且会淹没真正的结果——实测 stdout 里 16KB 有 99% 是 spinner 帧。
+    """
+    try:
+        return bool(sys.stdout.isatty())
+    except (AttributeError, ValueError):
+        return False
+
+
 def start_spinner(label: str = "Thinking") -> None:
     global _spinner_thread
     if _spinner_thread is not None:
+        return
+    if not _spinner_enabled():
         return
     _spinner_stop.clear()
 

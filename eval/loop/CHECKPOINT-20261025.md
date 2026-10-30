@@ -4532,3 +4532,39 @@ HANDOFF 声明的是「**当前全量**用例数」，`latest_gate()` 是「最�
 - 提交前 preflight：敏感 0 / 凭据 0 / 超大 0
 
 **本轮未烧 token**（只改测试与脚本），累计 **77,565,936** / 剩余按解除后的无限授权继续。
+
+## 136. 第一百一十九轮（2026-10-30）：**dogfooding** 发现 spinner 污染输出
+
+**做法**：不继续烧统计实验，而是**用 EvoHarness 跑真实任务**看摩擦点。
+命令：`python -m agents.main --yolo --max-turns 10 "统计 eval 下 .py 脚本及其无测试项"`
+
+**发现的真问题（已修）**：
+| 现象 | 根因 | 修法 |
+| --- | --- | --- |
+| 重定向到文件时 stdout **16038 字符，99% 是 `⠼ Thinking...`** | `start_spinner()` 无条件启动，每 80ms 写一帧，**没有 `isatty()` 判断** | 加 `_spinner_enabled()`，非 TTY 直接 return |
+
+修后同样命令：**16038 → 9912 字符**，且能看到完整工具调用链。
+CI 日志、`| Select-Object`、`> file` 都会受益。
+
+**我的两次误判（必须记）**：
+1. 先读 `result.output` → 得到 `None`，以为 shell 捕获坏了
+2. 再读 `getattr(result,'output')` → 还是 `None`
+3. **真相**：`ToolResult` 是 **`str` 子类**，不是 dataclass；`str(result)` 就是输出
+   - `echo hello` → `'hello'`
+   - `python -c "print(1+1)"` → `'2'`
+   - **shell 一直是好的**
+
+同一天第九次"用错接口假设"。教训一致：**先看类型/签名，再下结论**。
+
+**还发现一个未修的行为问题（如实记录）**：
+模型在该任务里**反复测试工具**（`python -c "print(1+1)"` 三次），8 轮耗尽 →
+`Budget exceeded: Turn limit reached (8 >= 8)`，**任务未完成**。
+它不是"工具坏了"，而是**不确定工具可用**。这是一个真实的可用性缺口，
+但属于 prompt/行为层，本轮未动（避免在没有对照的情况下改提示词）。
+
+**回归 5 条**（tests/test_ui_spinner_tty.py）：非 TTY 不写任何内容 /
+`_spinner_enabled` 反映 isatty / 缺 isatty 时保守当非 TTY / `stop_spinner` 幂等 /
+**TTY 下仍要工作**（不能把功能修没了）。
+
+**门禁 1133 tests / 1131 passed / 0 failed / 2 skipped**（双编码一致）。
+**git**：已 push（`HEAD == origin/main`）。
