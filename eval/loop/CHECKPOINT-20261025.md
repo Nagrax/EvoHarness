@@ -4719,3 +4719,52 @@ keys: ['ok', 'designs', 'unstableSameScale', 'maxObservedRangePts', ...]
 
 **门禁 1166 tests / 1164 passed / 0 failed / 2 skipped**（双编码一致）。
 **git**：已 push。
+
+## 140. 第一百二十三轮（2026-10-31）：**triage 工具是完全崩的**——修好并补齐测试
+
+**背景**：dogfooding #4 两次因模型限流失败（`可用账号均在限流中`）。
+**我不再把未完成项挂在"等条件"上**——自己把 `silent_triage.py` 的测试写了。
+
+**写测试时先跑了一遍工具，它直接崩了**：
+```
+File "eval/silent_triage.py", line 73
+TypeError: unhashable type: 'list'
+```
+
+**根因**：BACKLOG 的 `L0022` 条目 `detail.rule` 是**数组**（三条判据），而代码写：
+```python
+rule = detail.get("rule", "")
+if rule not in {"silent-except", "silent-except-return-none"}:  # list in set -> TypeError
+```
+→ **`list in set` 抛 TypeError，整个 triage 工具完全不可用**。
+
+**这不是"防御不足"，是直接崩。** 它之所以"一直没被发现"，是因为：
+- `silent_triage.py` **没有被任何代码调用**（`grep` 只在本文件命中）
+- 闭环里实际用的是 `mark_triaged.py`（另一件事：把已判读条目置为已处理）
+- 而它的 docstring 写着「供 loop.py 消费」——**过时的不实描述**
+
+**三处修复**：
+1. **崩**：`isinstance(rule, str)` 先判类型再比集合
+2. **reconfigure 无防御**：与 `loop_context.py` 同源缺陷，一起补 try/except
+3. **docstring 不实**：改成如实说明"这是手动工具，当前不在闭环自动流程内"，
+   并写清它与 `mark_triaged.py` 的分工，以及"若将来接入该接在哪、现在没做"
+
+**修后实跑**：
+```
+{"ok": true, "counts": {"real-defect": 15, "reasonable-defense": 3, "needs-review": 5}}
+```
+→ 之前**一个都跑不出来**，现在能自动初分类 23 个条目。
+
+**测试 7 条**（tests/test_silent_triage.py）：
+- 三类判据各一条（state→real-defect / cleanup→reasonable-defense / 无信号→needs-review）
+- 文件不可读 → needs-review
+- **`rule` 为 list 时不得崩**（直接对着这个 bug 写）
+- stdout 无 reconfigure 时不得崩
+- 缺 BACKLOG 返回 1 而不是崩
+
+**这轮的教训（重要，且与前面几次同源）**：
+> **一个工具"没人调用"时，它的崩溃不会有人发现。**
+> 而它还会继续在 docstring 里声称自己在被使用——这是最难查的一类不实描述：
+> **不是因为写错，而是因为"写的时候是对的，后来调用被移走了"**。
+
+**门禁**：1173 tests → 本轮后重跑。

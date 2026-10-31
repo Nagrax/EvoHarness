@@ -7,7 +7,17 @@
   需人工判读 —— 其余。
 
 只用静态上下文（异常处理块前后若干行），不做语义模型判断；分类结果写入
-eval/runs/silent-triage.json，供 loop.py 消费与人工复核。
+eval/runs/silent-triage.json。
+
+**定位（2026-10-31 核实后修正）**：这是**手动排查工具**，当前**不在闭环自动流程内**。
+闭环里用的是 `eval/mark_triaged.py`（把人工/半自动判读过的条目置为已处理）。
+两者分工：
+- `silent_triage.py`：给定 BACKLOG，**自动初分类**（real-defect / reasonable-defense /
+  needs-review），帮助人判断"哪些值得先看"；
+- `mark_triaged.py`：把你确认过的结论**写回**条目，让闭环不再重复报同一处。
+
+若将来要接进闭环，应在 `loop.py` 的 `_collect_module` 之后调用，并把
+`needs-review` 之外的两类自动落到对应处置——**但目前没有做，不要按"已接入"理解**。
 
 用法：python eval/silent_triage.py [--json]
 """
@@ -56,7 +66,11 @@ def classify(path: Path, line: int) -> tuple[str, str]:
 
 
 def main() -> int:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    # 与 loop_context 同源缺陷：stdout 可能是 StringIO / 包装器（测试或 CI 捕获时）。
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     backlog_path = REPO / "eval" / "loop" / "BACKLOG.json"
     if not backlog_path.is_file():
         print(json.dumps({"ok": False, "reason": "backlog-missing"}, ensure_ascii=False))
@@ -66,7 +80,10 @@ def main() -> int:
     for item in state["items"]:
         detail = item.get("detail") or {}
         rule = detail.get("rule", "")
-        if rule not in {"silent-except", "silent-except-return-none"}:
+        # rule 可能是 list（历史条目 L0022 把三条判据写成了数组）。
+        # 直接 `list in set` 会抛 TypeError: unhashable type —— 整个工具不可用。
+        if not isinstance(rule, str) or rule not in {
+                "silent-except", "silent-except-return-none"}:
             continue
         path = REPO / detail.get("file", "")
         category, reason = classify(path, int(detail.get("line") or 0))
