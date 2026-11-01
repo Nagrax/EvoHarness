@@ -1,0 +1,880 @@
+#!/usr/bin/env python3
+"""EvoHarness 迭代闭环编排器：评测 → 差异 → 迭代设计 → 实现 → 复测 → 回归门禁。
+
+设计要点（对应「用户不用发表观点」的要求）：
+- 三个输入信号源：后端契约、前端逐按钮、模块扫描、以及全量测试门禁；
+- 每个 finding 进 backlog，按 severity × 影响面排序，状态机 pending→in_progress→done/blocked；
+- 闭环判定靠**可复测的事实**：同一 finding 复测后不再出现才算 done；
+- 每轮落盘快照（含 sourceDigest），跨轮可对比，禁止用「看起来更好」代替复测；
+- 未达 done 的 item 保持 pending/blocked，绝不批量闭合。
+
+用法：
+  python eval/loop.py status            # 看当前 backlog 与最近两轮差异
+  python eval/loop.py collect           # 跑三个评测，合并 findings 进 backlog
+  python eval/loop.py next              # 取最高优先级可执行项
+  python eval/loop.py start <id>        # 认领（带租约）
+  python eval/loop.py done <id> --note "复测证据"   # 复测通过后闭合
+  python eval/loop.py block <id> --reason "..."     # 外部条件阻塞
+  python eval/loop.py report            # 生成 LOOP-REPORT.md
+退出码：0 正常；1 参数/状态错误。
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+HOME = REPO / "eval" / "loop"
+BACKLOG = HOME / "BACKLOG.json"
+RUNS = REPO / "eval" / "runs"
+LEASE_SECONDS = 45 * 60
+
+SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2, "info": 3}
+
+
+def now_iso() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def load() -> dict:
+    if not BACKLOG.is_file():
+        return {"version": 1, "createdAt": now_iso(), "rounds": [], "items": [], "events": []}
+    return json.loads(BACKLOG.read_text(encoding="utf-8"))
+
+
+def save(state: dict) -> None:
+    HOME.mkdir(parents=True, exist_ok=True)
+    # 状态一致性：带终态 closedReason 的项必须是 done。
+    # 它们没有"待处理位置"，停在 pending 只会反复占用排期（2026-10-29 实测：
+    # known-limitation / informational 项被每轮 collect 翻回 pending，冲掉 triage 结论）。
+    _TERMINAL = {"known-limitation", "informational", "reasonable-defense"}
+    for item in state.get("items") or []:
+        # informational 项没有 closedReason（由稳定性闸门自动标记），也要规范化
+        terminal = (item.get("closedReason") in _TERMINAL
+                    or item.get("informational") is True)
+        if terminal and item.get("status") != "done":
+            item["status"] = "done"
+            item["normalized"] = True
+    state["updatedAt"] = now_iso()
+    tmp = BACKLOG.with_name(f".{BACKLOG.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, BACKLOG)
+
+
+def event(state: dict, kind: str, item_id: str = "", **fields) -> None:
+    state["events"].append({"at": now_iso(), "kind": kind, "id": item_id, **fields})
+    state["events"] = state["events"][-2000:]
+
+
+def source_digest() -> str:
+    try:
+        out = subprocess.run(
+            [sys.executable, str(REPO / "eval" / ".." / ".zcode-snapshot-unused.py")],
+            capture_output=True, check=False,
+        )
+        _ = out
+    except Exception:
+        pass
+    # 直接复用工作流门禁的快照脚本（同一套 digest 口径）
+    gate = Path(r"D:/claudecode/.zcode/workflows/evoharness-optimize-audit/gate.py")
+    if gate.is_file():
+        try:
+            probe = subprocess.run(
+                [sys.executable, str(gate), "snapshot", "--repo", str(REPO)],
+                capture_output=True, timeout=120, check=False,
+            )
+            if probe.returncode == 0:
+                return str(json.loads(probe.stdout.decode("utf-8", "replace")).get("sourceDigest") or "")
+        except Exception:
+            pass
+    return ""
+
+
+def run_cmd(args: list[str], timeout: int = 1800) -> dict:
+    started = time.time()
+    proc = subprocess.run(args, capture_output=True, cwd=str(REPO), timeout=timeout, check=False)
+    return {
+        "cmd": " ".join(args),
+        "exitCode": proc.returncode,
+        "durationSeconds": round(time.time() - started, 1),
+        "stdoutTail": proc.stdout.decode("utf-8", "replace")[-4000:],
+        "stderrTail": proc.stderr.decode("utf-8", "replace")[-2000:],
+    }
+
+
+def _collect_module_scan(findings: list[dict], runs: dict) -> None:
+    """③ 模块扫描信号（eval/module_scan.py）。
+
+    high 每处一条；medium 按规则聚合成一条——否则 long-function /
+    module-without-tests 这类可优化项要么淹没排期、要么被完全丢弃。
+    """
+    scan_out = RUNS / "module-scan.json"
+    runs["moduleScan"] = run_cmd([sys.executable, "eval/module_scan.py",
+                                  "--out", str(scan_out)])
+    if not scan_out.is_file():
+        return
+    report = json.loads(scan_out.read_text(encoding="utf-8"))
+    medium_by_rule: dict[str, list[dict]] = {}
+    for item in report.get("findings") or []:
+        severity = item.get("severity")
+        if severity == "high":
+            findings.append({
+                "source": "module",
+                # key 用「文件 + 规则」而不是行号：修一处代码会让后续行号整体漂移，
+                # 用行号做 key 会把同一个信号每轮都当成"新发现"，backlog 只增不减。
+                "key": f"module:{item['rule']}:{item['file']}",
+                "severity": "high",
+                "title": f"模块信号 {item['rule']} @ {item['file']}",
+                "detail": item,
+            })
+        elif severity == "medium":
+            # medium 不再丢弃（那会让 long-function / module-without-tests 等
+            # 可优化项永不进入闭环）；按规则聚合成一项，避免逐条淹没排期。
+            medium_by_rule.setdefault(str(item.get("rule") or "?"), []).append(item)
+
+    for rule, items in medium_by_rule.items():
+        if rule.startswith("silent-except"):
+            # 静默异常类已按 high 单独跟踪，medium 分级下不重复计数
+            continue
+        files = sorted({str(i.get("file") or "") for i in items})
+        findings.append({
+            "source": "module",
+            "key": f"module-medium:{rule}",
+            "severity": "medium",
+            "title": f"模块可优化项 {rule}（{len(items)} 处 / {len(files)} 文件）",
+            "detail": {
+                "rule": rule,
+                "count": len(items),
+                "files": files,
+                "locations": [
+                    {"file": i.get("file"), "line": i.get("line")}
+                    for i in items[:40]
+                ],
+            },
+        })
+
+
+def _collect_backend(findings: list[dict], runs: dict) -> None:
+    """① 后端契约信号（eval/backend_contract.py）。"""
+    backend_out = RUNS / "backend-contract.json"
+    runs["backend"] = run_cmd([sys.executable, "eval/backend_contract.py",
+                               "--out", str(backend_out)])
+    if not backend_out.is_file():
+        return
+    report = json.loads(backend_out.read_text(encoding="utf-8"))
+    for item in report.get("findings") or []:
+        findings.append({
+            "source": "backend",
+            "key": f"backend:{item['endpoint']}:{item['case'] if 'case' in item else item['id']}",
+            "severity": "high",
+            "title": f"后端契约失败 {item.get('endpoint')} / {item.get('id')}",
+            "detail": item,
+        })
+
+
+def _collect_frontend(findings: list[dict], runs: dict) -> None:
+    """② 前端逐按钮信号（需要先起服务；由调用方保证 base 可用）。"""
+    ui_out = RUNS / "ui"
+    ui_report = ui_out / "ui-current.json"
+    base = os.environ.get("EVO_EVAL_BASE", "http://127.0.0.1:8899")
+    node = os.environ.get("EVO_NODE", "node")
+    # 路径可用 EVO_UI_SCRIPT 覆盖（测试注入 / 换机器时不改代码）
+    script = Path(os.environ.get(
+        "EVO_UI_SCRIPT", r"D:/claudecode/scratch/btest/evo_ui_buttons.mjs"))
+    if not script.is_file():
+        return
+    runs["ui"] = run_cmd(
+        [node, str(script), "--base", base, "--tag", "ui-current", "--out", str(ui_out)],
+        timeout=1800,
+    )
+    if not ui_report.is_file():
+        return
+    report = json.loads(ui_report.read_text(encoding="utf-8"))
+    for item in report.get("findings") or []:
+        findings.append({
+            "source": "frontend",
+            "key": item["id"],
+            "severity": "high" if item["kind"] == "dead-button" else "medium",
+            "title": f"前端控件失效 {item['id']}",
+            "detail": item,
+        })
+
+
+def collect(round_label: str = "") -> dict:
+    state = load()
+    round_id = round_label or _dt.datetime.now(_dt.timezone.utc).strftime("r%Y%m%dT%H%M%SZ")
+    runs: dict = {}
+    findings: list[dict] = []
+
+    # ① 后端契约
+    _collect_backend(findings, runs)
+
+    # ② 前端逐按钮
+    _collect_frontend(findings, runs)
+
+    # ③ 模块扫描
+    _collect_module_scan(findings, runs)
+
+    # ④ 记忆体系逐机制评测（设计文档里的每条约束都变成可复跑断言）
+    memory_out = RUNS / "memory-eval.json"
+    runs["memory"] = run_cmd([sys.executable, "eval/memory_eval.py", "--out", str(memory_out)])
+    if memory_out.is_file():
+        report = json.loads(memory_out.read_text(encoding="utf-8"))
+        for item in report.get("results") or []:
+            if item.get("ok"):
+                continue
+            findings.append({
+                "source": "memory",
+                "key": f"memory:{item['case']}",
+                "severity": "high",
+                "title": f"记忆机制失败 {item['case']}",
+                "detail": item,
+            })
+
+    # ⑤ Harness² 配置对照（有真实 run 时才分析；无 run 不算失败）
+    for axis_run in sorted((RUNS / "harness2").glob("run-*.json")):
+        axis = axis_run.stem.replace("run-", "")
+        analysis = run_cmd([sys.executable, "eval/harness2_analyze.py", "--axis", axis], timeout=120)
+        runs[f"harness2:{axis}"] = analysis
+        report_path = RUNS / "harness2" / f"analysis-{axis}.json"
+        if not report_path.is_file():
+            continue
+        data = json.loads(report_path.read_text(encoding="utf-8"))
+        scale_n = data.get("nPerVariant")
+        for row in data.get("comparisons") or []:
+            verdict = str(row.get("verdict") or "")
+            # 只有"明确负收益"才进 backlog：正向结论受 n 限制不可宣称，不该当待修项
+            if not verdict.startswith("negative"):
+                continue
+            findings.append({
+                "source": "harness2",
+                # key 绑定轴与变体但**不绑定规模**：同一变体放大样本后结论可能翻转
+                # （实测 tool_policy/tight 从"省 13.3% token"变成"同成本掉质量"），
+                # 规模只作为 detail 里的最新证据，避免旧的 1 题结论被当成现状。
+                "key": f"harness2:{axis}:{row.get('variant')}",
+                "severity": "medium",
+                "title": f"配置变体负收益 {axis}/{row.get('variant')}",
+                "detail": {**row, "nPerVariant": scale_n,
+                           "scaleNote": "结论随规模变化；本条只反映最近一次 run 的证据"},
+            })
+
+    # ⑥ holdout 难度校准：对照实验若全 0/全 1，说明题池无区分度，不该继续烧 token
+    calib_out = RUNS / "holdout-calibration.json"
+    runs["holdoutCalibration"] = run_cmd(
+        [sys.executable, "eval/holdout_calibrate.py", "--tags", "gaia,gaia-fold03"], timeout=120)
+    if calib_out.is_file():
+        calib = json.loads(calib_out.read_text(encoding="utf-8"))
+        runs["holdoutCalibrationDetail"] = {
+            "verdict": calib.get("verdict"),
+            "discriminatingRate": calib.get("discriminatingRate"),
+            "alwaysFail": calib.get("alwaysFail"),
+            "alwaysPass": calib.get("alwaysPass"),
+            "discriminating": calib.get("discriminating"),
+        }
+        if calib.get("verdict", "").startswith("no-signal"):
+            findings.append({
+                "source": "calibration",
+                "key": "calibration:holdout-no-signal",
+                "severity": "high",
+                "title": "holdout 无区分度：所有配置结果相同",
+                "detail": calib,
+            })
+
+    # ⑦ 运行间方差：同配置重复的极差若 >= 观察到的差异，则差异不可信
+    variance_out = RUNS / "arch" / "variance.json"
+    runs["variance"] = run_cmd([sys.executable, "eval/variance_check.py"], timeout=120)
+    if variance_out.is_file():
+        variance = json.loads(variance_out.read_text(encoding="utf-8"))
+        if variance.get("ok"):
+            runs["varianceDetail"] = {
+                "maxObservedRangePts": variance.get("maxObservedRangePts"),
+                "unstableSameScale": variance.get("unstableSameScale"),
+            }
+            worst = float(variance.get("maxObservedRangePts") or 0)
+            if worst > 0:
+                findings.append({
+                    "source": "variance",
+                    "key": "variance:config-noise-exceeds-delta",
+                    "severity": "high",
+                    "title": f"配置噪声 {worst:.1f}pp：小于该值的差异不可宣称",
+                    "detail": variance,
+                })
+
+    # ⑧ Skill 组合重放：互斥指令阻断 + 重复 Skill 四路决策追溯
+    combo_out = RUNS / "skill-combo-replay.json"
+    runs["skillCombo"] = run_cmd([sys.executable, "eval/skill_combo_replay.py",
+                                  "--out", str(combo_out)], timeout=120)
+    if combo_out.is_file():
+        combo = json.loads(combo_out.read_text(encoding="utf-8"))
+        runs["skillComboDetail"] = combo.get("assertions")
+        if not combo.get("ok"):
+            findings.append({
+                "source": "skillCombo",
+                "key": "skillCombo:assertions-failed",
+                "severity": "high",
+                "title": "Skill 组合重放断言失败",
+                "detail": {"assertions": combo.get("assertions"),
+                           "hardFailures": (combo.get("conflictPair") or {}).get("hardFailures")},
+            })
+
+    # ⑨ Judge 反偏差探针：位置/长度/注入/schema + kappa 来源标注
+    bias_out = RUNS / "judge-bias-probe.json"
+    runs["judgeBias"] = run_cmd([sys.executable, "eval/judge_bias_probe.py",
+                                 "--out", str(bias_out)], timeout=300)
+    if bias_out.is_file():
+        bias = json.loads(bias_out.read_text(encoding="utf-8"))
+        runs["judgeBiasDetail"] = {
+            "position": (bias.get("position") or {}).get("verdict"),
+            "length": (bias.get("length") or {}).get("verdict"),
+            "injection": (bias.get("injection") or {}).get("verdict"),
+            "schema": (bias.get("schema") or {}).get("verdict"),
+            "discriminationCheck": (bias.get("discriminationCheck") or {}).get("lengthBiasedJudgeCaught"),
+        }
+        if not bias.get("ok"):
+            findings.append({
+                "source": "judgeBias",
+                "key": "judgeBias:probe-failed",
+                "severity": "high",
+                "title": "Judge 反偏差探针失败（存在可被捕获的偏差或探针失去判别力）",
+                "detail": runs["judgeBiasDetail"],
+            })
+
+    # ⑩ 生命周期跨批次噪声门：单批次"看起来有效"的结论必须被跨批次复核拦住
+    # 真实教训：soft 臂单批次召回 1.000 看似胜出，跨批次后方向反号（+3.3/−6.7pp）；
+    # 污染维度则极差 0 稳定复现。整包宣称会被这条信号源拦下。
+    ab_batches = sorted(RUNS.glob("memory-lifecycle-ab-*.json"))
+    if len(ab_batches) >= 2:
+        noise_out = RUNS / "lifecycle-noise-gate.json"
+        runs["lifecycleNoiseGate"] = run_cmd(
+            [sys.executable, "eval/lifecycle_noise_gate.py",
+             *[str(p) for p in ab_batches[-2:]], "--out", str(noise_out)], timeout=120)
+        if noise_out.is_file():
+            gate = json.loads(noise_out.read_text(encoding="utf-8"))
+            claimable = int(gate.get("claimableCount") or 0)
+            total = int(gate.get("totalComparisons") or 0)
+            runs["lifecycleNoiseDetail"] = {
+                "batches": gate.get("batches"),
+                "claimable": claimable,
+                "total": total,
+                "notClaimable": {
+                    key: item.get("verdict")
+                    for key, item in (gate.get("perMetric") or {}).items()
+                    if not item.get("claimable")
+                },
+            }
+            if total and claimable < total:
+                findings.append({
+                    "source": "lifecycleNoiseGate",
+                    "key": "lifecycleNoiseGate:some-metrics-not-claimable",
+                    "severity": "medium",
+                    "title": (f"生命周期对照 {claimable}/{total} 指标可宣称，"
+                              f"其余须按 not-claimable 口径表述"),
+                    "detail": runs["lifecycleNoiseDetail"],
+                })
+    else:
+        runs["lifecycleNoiseGate"] = {"ok": True, "skipped": "need>=2-batches",
+                                      "found": len(ab_batches)}
+
+    # ⑪ 失败稳定性闸门：偶发失败不得变成待修工单
+    # 真实教训：W18 报的 no-final-marker 失败里约 2/3 重跑不复现——若直接进 backlog，
+    # 就会去"修"一个不存在的缺陷（拟合噪声）。本信号源只放行 stable 类失败。
+    # 读最新的稳定性产物（按名字排序取最后一份；旧批次保留供跨批次对照）
+    _stability_files = sorted(RUNS.glob("failure-stability-*.json"))
+    stability_path = _stability_files[-1] if _stability_files else RUNS / "failure-stability-1.json"
+    if stability_path.is_file():
+        stability = json.loads(stability_path.read_text(encoding="utf-8"))
+        counts = stability.get("statusCounts") or {}
+        stable = int(counts.get("stable") or 0)
+        flaky = int(counts.get("flaky") or 0)
+        disappeared = int(counts.get("disappeared") or 0)
+        runs["failureStabilityDetail"] = {
+            "artifact": stability_path.name,
+            "source": stability.get("source"),
+            "tasks": stability.get("tasks"),
+            "repeats": stability.get("repeats"),
+            "statusCounts": counts,
+            "stableTasks": [t.get("taskId") for t in (stability.get("perTask") or [])
+                            if t.get("status") == "stable"],
+        }
+        if flaky or disappeared:
+            findings.append({
+                "source": "failureStability",
+                "key": "failureStability:intermittent-failures-present",
+                "severity": "medium" if stable else "low",
+                "title": (f"失败稳定性：{stable} 稳定 / {flaky} 偶发 / {disappeared} 未复现"
+                          "——只有 stable 类可进入修复或反思流程"),
+                "detail": runs["failureStabilityDetail"],
+            })
+        runs["failureStability"] = {"ok": True, **runs["failureStabilityDetail"]}
+    else:
+        runs["failureStability"] = {"ok": True, "skipped": "no-stability-run"}
+
+    # ⑫ benchmark 失败 → 稳定性过滤 → 工单（把闸门真正接上"失败→工单"路径）
+    # 这是闭环此前缺的一环：失败观测从不自动变成工单，稳定性闸门也就无处生效。
+    # 规则：稳定的失败才建 pending 工单；偶发/未复现一律 informational（自动闭合）。
+    stability_index = {}
+    if stability_path.is_file():
+        for task in (json.loads(stability_path.read_text(encoding="utf-8")).get("perTask") or []):
+            stability_index[str(task.get("taskId"))] = {
+                "status": task.get("status"),
+                "failRate": task.get("failRate"),
+                "confidence": task.get("confidence"),
+            }
+    failure_pool: dict[str, list[dict]] = {}
+    for tag in ("gaia", "hle"):
+        summary_path = RUNS / tag / "summary.json"
+        pred_path = RUNS / tag / "predictions.jsonl"
+        if not (summary_path.is_file() and pred_path.is_file()):
+            continue
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        planned = int(summary.get("planned") or 0)
+        failed = max(0, planned - int(summary.get("correct") or 0))
+        if failed <= 0:
+            continue
+        rows = [json.loads(line) for line in
+                pred_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        stable_ids, unstable_ids = [], []
+        no_marker = wrong = timed = 0
+        for row in rows:
+            task_id = str(row.get("task_id") or "")
+            if row.get("timed_out"):
+                timed += 1
+            elif not row.get("has_final_marker"):
+                no_marker += 1
+            else:
+                wrong += 1
+            verdict = stability_index.get(task_id) or {}
+            (stable_ids if verdict.get("status") == "stable" else unstable_ids).append(task_id)
+        # 只有经稳定性检验且判为 stable 的部分才建待修工单
+        if stable_ids:
+            failure_pool[f"{tag}:stable-failures"] = {
+                "tag": tag, "failed": failed, "stableCount": len(stable_ids),
+                "unstableCount": len(unstable_ids), "noMarker": no_marker,
+                "wrongAnswer": wrong, "timedOut": timed,
+                "sampleTaskIds": stable_ids[:5],
+            }
+        if unstable_ids:
+            failure_pool[f"{tag}:unstable-failures-filtered"] = {
+                "tag": tag, "unstableCount": len(unstable_ids),
+                "note": "未经稳定性检验或判为偶发/未复现——不得据此建待修工单",
+            }
+    for key, info in failure_pool.items():
+        is_stable = key.endswith(":stable-failures")
+        findings.append({
+            "source": "benchmarkFailures",
+            "key": f"benchmarkFailures:{key}",
+            "severity": "medium" if is_stable else "low",
+            "informational": not is_stable,
+            "title": (f"{info['tag'].upper()} 稳定失败 {info.get('stableCount')} 题"
+                      f"（共失败 {info.get('failed')} 题，其中未检验/偶发 "
+                      f"{info.get('unstableCount')} 题已过滤）"
+                      if is_stable else
+                      f"{info['tag'].upper()} 失败 {info.get('unstableCount')} 题均未通过稳定性检验"
+                      "——仅记录，不建工单"),
+            "detail": info,
+        })
+    if failure_pool:
+        runs["benchmarkFailures"] = {"ok": True, "groups": sorted(failure_pool)}
+    else:
+        runs["benchmarkFailures"] = {"ok": True, "skipped": "no-benchmark-summary"}
+
+    digest = source_digest()
+    round_record = {
+        "roundId": round_id,
+        "at": now_iso(),
+        "sourceDigest": digest,
+        "runs": runs,
+        "findingCount": len(findings),
+        "bySource": {k: sum(1 for f in findings if f["source"] == k)
+                     for k in ("backend", "frontend", "module", "memory", "harness2",
+                               "calibration", "variance", "skillCombo", "judgeBias",
+                               "lifecycleNoiseGate", "failureStability",
+                               "benchmarkFailures")},
+    }
+    state.setdefault("rounds", []).append(round_record)
+
+    # 合并进 backlog：同 key 未闭合的更新，新的建项
+    index = {item["key"]: item for item in state["items"]}
+    added = 0
+    # 同 key 多条信号（同一文件同一规则多处）合并成一条聚合项，位置收进 occurrences
+    merged: dict[str, dict] = {}
+    for finding in findings:
+        slot = merged.get(finding["key"])
+        if slot is None:
+            merged[finding["key"]] = {**finding, "occurrences": [finding.get("detail") or {}]}
+            continue
+        slot["occurrences"].append(finding.get("detail") or {})
+        if SEVERITY_ORDER.get(finding["severity"], 9) < SEVERITY_ORDER.get(slot["severity"], 9):
+            slot["severity"] = finding["severity"]
+    findings = list(merged.values())
+    for finding in findings:
+        existing = index.get(finding["key"])
+        if existing is None:
+            item = {
+                # ID 必须永不复用：用 len+1 会在 items 减少时重号（真实事故：出现两个 L0028，
+                # 导致处置被标到错误对象上）。改用"现有最大号 + 1"。
+                "id": f"L{_next_item_number(state):04d}",
+                "key": finding["key"],
+                "source": finding["source"],
+                "severity": finding["severity"],
+                "title": finding["title"],
+                "detail": finding["detail"],
+                "occurrences": finding.get("occurrences") or [],
+                # informational 标记必须带到 backlog 项上，triage 才能自动闭合；
+                # 否则"未通过稳定性检验"的 finding 会变成永远 pending 的假工单。
+                "informational": bool(finding.get("informational")),
+                "status": "pending",
+                "firstSeenRound": round_id,
+                "lastSeenRound": round_id,
+                "seenCount": 1,
+                "attempts": 0,
+            }
+            state["items"].append(item)
+            index[finding["key"]] = item
+            added += 1
+        else:
+            existing["lastSeenRound"] = round_id
+            existing["seenCount"] = int(existing.get("seenCount") or 0) + 1
+            existing["detail"] = finding["detail"]
+            # title 也刷新：数据变了标题里的计数（如"1 稳定 / 2 偶发"）必须跟着变，
+            # 否则已闭合项会一直显示旧结论（真实踩过：扩样本后 title 仍是 3 题那批的数）。
+            existing["title"] = finding["title"]
+            existing["severity"] = finding["severity"]
+            existing["occurrences"] = finding.get("occurrences") or []
+            existing["informational"] = bool(finding.get("informational"))
+            # 注意：这里**不**因为"本轮又出现"就把 done 重开。
+            # 一个文件级聚合项里通常还有别的未修位置，那个信号本来就会每轮都出现；
+            # 真正判 done 的依据是 openOccurrences 是否清空（见 loop.py triage 与 done 命令）。
+            # 只有"位置已消解"这一类可以因信号重现而重开；其余是终态，不能被自动翻回。
+    _REOPENABLE = {None, "", "no-open-occurrence"}
+    _reopenable = existing.get("closedReason") in _REOPENABLE
+    if (_reopenable and existing.get("status") == "done"
+            and not (existing.get("openOccurrences") or [])):
+                # 已彻底闭合却又出现新位置 = 真回归，才重开
+                existing["status"] = "pending"
+                existing["reopened"] = int(existing.get("reopened") or 0) + 1
+                event(state, "reopened", existing["id"], key=existing["key"])
+
+    # 本轮没出现的 pending 项：保留（可能因环境差异），但记录 lastVerifiedRound
+    seen_keys = {f["key"] for f in findings}
+    for item in state["items"]:
+        if item["key"] not in seen_keys and item["status"] == "pending":
+            item["absentInRound"] = round_id
+
+    event(state, "collected", round=round_id, findings=len(findings), added=added, digest=digest)
+    save(state)
+    print(json.dumps({
+        "ok": True, "round": round_id, "findings": len(findings), "added": added,
+        "bySource": round_record["bySource"], "sourceDigest": digest,
+        "rounds": len(state["rounds"]), "backlog": len(state["items"]),
+    }, ensure_ascii=False, indent=2))
+    return round_record
+
+
+def pick_next(state: dict) -> dict | None:
+    candidates = [i for i in state["items"] if i["status"] in {"pending", "failed", "partial"}]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda i: (SEVERITY_ORDER.get(i.get("severity"), 9),
+                                   int(i.get("seenCount") or 0) * -1,
+                                   i.get("firstSeenRound") or "", i["id"]))
+    return candidates[0]
+
+
+def cmd_status() -> int:
+    state = load()
+    counts: dict[str, int] = {}
+    for item in state["items"]:
+        counts[item["status"]] = counts.get(item["status"], 0) + 1
+    rounds = state.get("rounds") or []
+    payload = {
+        "ok": True,
+        "backlog": len(state["items"]),
+        "counts": counts,
+        "rounds": len(rounds),
+        "lastRound": rounds[-1] if rounds else None,
+        "next": (lambda i: {"id": i["id"], "title": i["title"], "severity": i["severity"],
+                            "seenCount": i["seenCount"]})(pick_next(state)) if pick_next(state) else None,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_claim(item_id: str, owner: str) -> int:
+    state = load()
+    item = next((i for i in state["items"] if i["id"] == item_id), None)
+    if item is None:
+        print(json.dumps({"ok": False, "reason": "unknown-id"}, ensure_ascii=False))
+        return 1
+    busy = [i for i in state["items"] if i["status"] == "in_progress"
+            and i.get("leaseUntil") and i["leaseUntil"] > now_iso()]
+    if busy:
+        print(json.dumps({"ok": False, "reason": "busy", "activeId": busy[0]["id"]}, ensure_ascii=False))
+        return 1
+    item["status"] = "in_progress"
+    item["owner"] = owner
+    item["attempts"] = int(item.get("attempts") or 0) + 1
+    item["leaseUntil"] = (_dt.datetime.now(_dt.timezone.utc)
+                          + _dt.timedelta(seconds=LEASE_SECONDS)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    event(state, "claimed", item_id, owner=owner, attempt=item["attempts"])
+    save(state)
+    print(json.dumps({"ok": True, "item": item}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_close(item_id: str, status: str, note: str) -> int:
+    state = load()
+    item = next((i for i in state["items"] if i["id"] == item_id), None)
+    if item is None:
+        print(json.dumps({"ok": False, "reason": "unknown-id"}, ensure_ascii=False))
+        return 1
+    item["note"] = note
+    if status == "done" and (item.get("openOccurrences") or []):
+        # 部分修复不能标整组 done：聚合项里还有未处理位置时保持 pending，
+        # 只把已修位置记进 resolvedOccurrences，供报告区分"修了几处/还剩几处"。
+        item.setdefault("resolvedOccurrences", []).extend(item["openOccurrences"])
+        item["openOccurrences"] = []
+        item["status"] = "pending"
+        item["partialCloses"] = int(item.get("partialCloses") or 0) + 1
+        event(state, "partial-close", item_id, note=note,
+              resolved=len(item["resolvedOccurrences"]))
+        save(state)
+        print(json.dumps({
+            "ok": True, "id": item_id, "status": "pending",
+            "reason": "partial-close: 仍有未处理位置，不能整组 done",
+            "resolved": len(item["resolvedOccurrences"]),
+        }, ensure_ascii=False, indent=2))
+        return 0
+    item["status"] = status
+    item["closedAt"] = now_iso()
+    item.pop("owner", None)
+    item.pop("leaseUntil", None)
+    event(state, status, item_id, note=note)
+    save(state)
+    print(json.dumps({"ok": True, "id": item_id, "status": status}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_limitation(item_id: str, reason: str, evidence: str = "") -> int:
+    """把工单确认为**能力/工具边界**并移出排期（第四类处置）。
+
+    为什么需要它：triage 原有三类（real-defect / reasonable-defense /
+    informational）都不覆盖"这不是缺陷，是我们做不到"。真实案例：
+    GAIA level 2/3 的 8 道稳定失败全是多跳网络检索/图片理解，改代码修不了——
+    留在 pending 只会永久污染排期。
+    纪律：必须给 reason；有证据更好（不写"暂时不管"就当边界）。
+    """
+    if not str(reason or "").strip():
+        print(json.dumps({"ok": False, "reason": "limitation-requires-reason"},
+                         ensure_ascii=False))
+        return 1
+    state = load()
+    item = next((i for i in state["items"] if i["id"] == item_id), None)
+    if item is None:
+        print(json.dumps({"ok": False, "reason": "unknown-id"}, ensure_ascii=False))
+        return 1
+    item["status"] = "done"
+    item["closedAt"] = now_iso()
+    item["closedReason"] = "known-limitation"
+    item["limitationReason"] = str(reason).strip()
+    if evidence:
+        item["limitationEvidence"] = evidence
+    item["note"] = (item.get("note") or "") or "能力/工具边界：非工程缺陷，已移出排期"
+    item["openOccurrences"] = []
+    item.pop("owner", None)
+    item.pop("leaseUntil", None)
+    event(state, "limitation", item_id, reason=item["limitationReason"])
+    save(state)
+    print(json.dumps({"ok": True, "id": item_id, "status": "done",
+                      "closedReason": "known-limitation",
+                      "limitationReason": item["limitationReason"]},
+                     ensure_ascii=False, indent=2))
+    return 0
+
+
+def _next_item_number(state: dict) -> int:
+    """下一个可用工单编号：现有最大号 + 1（绝不复用已用过的号）。"""
+    numbers = []
+    for item in state.get("items") or []:
+        match = re.match(r"^L(\d+)$", str(item.get("id") or ""))
+        if match:
+            numbers.append(int(match.group(1)))
+    return (max(numbers) + 1) if numbers else 1
+
+
+def cmd_triage(apply: bool) -> int:
+    """批量判读静默吞错聚合项：合理防御/降级型自动闭合，只留真缺陷给人改。
+
+    apply=True 时把非真缺陷的子项从 openOccurrences 移出；若整组都被判为非缺陷，
+    组本身标 done 并写明判据。
+    """
+    state = load()
+    closed_items = 0
+    closed_occurrences = 0
+    details = []
+    for item in state["items"]:
+        if item["status"] == "done":
+            continue
+        rule = (item.get("detail") or {}).get("rule", "")
+        if not isinstance(rule, str):
+            rule = ""
+        is_silent = rule in {"silent-except", "silent-except-return-none"}
+        # 非 silent-except 项（harness2 负收益、variance 噪声等）没有 openOccurrences 概念：
+        # 它们是"信息型"finding，不能当待修工单永远挂 pending；记录进 findings 的最新证据
+        # 已在 collect 时刷新。这里按"位置是否清空"判定：位置空 = 该处理/已知悉，闭合。
+        if not is_silent and not (item.get("openOccurrences") or []):
+            if item.get("informational") or \
+               item.get("detail", {}).get("kind") == "config-noise-exceeds-delta" or \
+               item.get("source") in {"harness2", "variance", "calibration",
+                                      "lifecycleNoiseGate", "failureStability"}:
+                item["status"] = "done"
+                item["note"] = item.get("note") or (
+                    "信息型 finding：证据已在 detail，非待修工单；复测由对应评测器负责")
+                item["closedAt"] = now_iso()
+                closed_items += 1
+                details.append({"id": item["id"], "closed": 0, "remaining": 0,
+                                "reason": "informational-finding"})
+            continue
+        if not is_silent:
+            continue
+        remaining = []
+        removed = []
+        for occurrence in item.get("openOccurrences") or []:
+            rel = occurrence.get("file") or ""
+            line = int(occurrence.get("line") or 0)
+            category, reason = _triage_classify(REPO / rel, line)
+            if category in {"reasonable-defense", "degradation-only"}:
+                removed.append({"fromId": occurrence.get("fromId"), "file": rel, "line": line,
+                                "category": category, "reason": reason})
+            else:
+                remaining.append({**occurrence, "triage": category, "triageReason": reason})
+        if removed:
+            closed_occurrences += len(removed)
+            item["openOccurrences"] = remaining
+            item.setdefault("triageClosed", []).extend(removed)
+            details.append({"id": item["id"], "closed": len(removed), "remaining": len(remaining)})
+        # 收尾条件：**不再有未处理位置**就必须闭合，不管本轮是否新闭合了东西。
+        # 旧实现只在"本轮有 removed"时才检查，于是"上一轮已清空但漏标"的组会永远 pending
+        # （实测 L0063：occ=1、open=0、status=pending 的僵死状态）。
+        if not remaining:
+            already = item.get("triageClosed") or item.get("resolvedOccurrences") or []
+            if item["status"] != "done" and (already or not (item.get("occurrences") or [])):
+                item["status"] = "done"
+                note_parts = []
+                if item.get("triageClosed"):
+                    note_parts.append(f"判读为合理防御/降级型（{len(item['triageClosed'])} 处）")
+                if item.get("resolvedOccurrences"):
+                    note_parts.append(f"已修复（{len(item['resolvedOccurrences'])} 处）")
+                item["note"] = "；".join(note_parts) or "无未处理位置"
+                item["closedAt"] = now_iso()
+                closed_items += 1
+                details.append({"id": item["id"], "closed": 0, "remaining": 0,
+                                "reason": "no-open-occurrences"})
+    if apply:
+        event(state, "triage", closed=closed_occurrences, items=closed_items)
+        save(state)
+    print(json.dumps({
+        "ok": True, "applied": apply, "closedOccurrences": closed_occurrences,
+        "closedItems": closed_items, "groups": details,
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _triage_classify(path: Path, line: int) -> tuple[str, str]:
+    """复用 eval/triage_file.py 的判据（同一套词表，避免两处口径漂移）。"""
+    try:
+        sys.path.insert(0, str(REPO / "eval"))
+        import triage_file  # type: ignore
+
+        return triage_file.classify(path, line)
+    except Exception:
+        return "needs-review", "triage-unavailable"
+
+
+def cmd_report() -> int:
+    state = load()
+    counts: dict[str, int] = {}
+    for item in state["items"]:
+        counts[item["status"]] = counts.get(item["status"], 0) + 1
+    rounds = state.get("rounds") or []
+    lines = ["# EvoHarness 迭代闭环报告", "",
+             f"生成时间：{now_iso()}",
+             f"累计轮次：{len(rounds)}",
+             f"待办总数：{len(state['items'])}",
+             f"状态分布：{json.dumps(counts, ensure_ascii=False)}", ""]
+    if rounds:
+        lines += ["## 最近三轮", "", "| 轮次 | 时间 | findings | 后端 | 前端 | 模块 | sourceDigest |",
+                  "| --- | --- | ---: | ---: | ---: | ---: | --- |"]
+        for record in rounds[-3:]:
+            b = record.get("bySource") or {}
+            lines.append(
+                f"| {record['roundId']} | {record['at']} | {record['findingCount']} | "
+                f"{b.get('backend', 0)} | {b.get('frontend', 0)} | {b.get('module', 0)} | "
+                f"{(record.get('sourceDigest') or '')[:16]} |")
+        lines.append("")
+    lines += ["## 未闭合项（按优先级）", ""]
+    open_items = [i for i in state["items"] if i["status"] != "done"]
+    open_items.sort(key=lambda i: (SEVERITY_ORDER.get(i.get("severity"), 9), i["id"]))
+    if not open_items:
+        lines.append("无。")
+    for item in open_items[:60]:
+        lines.append(f"- **{item['id']}** [{item.get('severity')}] {item['title']}")
+        lines.append(f"  - 状态：{item['status']}；出现 {item.get('seenCount')} 次；首见 {item.get('firstSeenRound')}")
+        if item.get("note"):
+            lines.append(f"  - 说明：{item['note']}")
+    lines.append("")
+    lines += ["## 已闭合项（最近 20）", ""]
+    done_items = [i for i in state["items"] if i["status"] == "done"][-20:]
+    if not done_items:
+        lines.append("无。")
+    for item in done_items:
+        lines.append(f"- **{item['id']}** {item['title']} — {item.get('note') or ''}")
+    text = "\n".join(lines) + "\n"
+    out = HOME / "LOOP-REPORT.md"
+    HOME.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+    print(json.dumps({"ok": True, "path": str(out), "counts": counts, "rounds": len(rounds)},
+                     ensure_ascii=False, indent=2))
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="EvoHarness 迭代闭环编排器")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("status"); p.set_defaults(func=lambda a: cmd_status())
+    p = sub.add_parser("collect"); p.add_argument("--round", default="")
+    p.set_defaults(func=lambda a: (collect(a.round), 0)[1])
+    p = sub.add_parser("next")
+    p.set_defaults(func=lambda a: (print(json.dumps(pick_next(load()) or {"ok": False, "reason": "empty"},
+                                                    ensure_ascii=False, indent=2)), 0)[1])
+    p = sub.add_parser("start"); p.add_argument("id"); p.add_argument("--owner", default=f"loop-{os.getpid()}")
+    p.set_defaults(func=lambda a: cmd_claim(a.id, a.owner))
+    p = sub.add_parser("done"); p.add_argument("id"); p.add_argument("--note", default="")
+    p.set_defaults(func=lambda a: cmd_close(a.id, "done", a.note))
+    p = sub.add_parser("block"); p.add_argument("id"); p.add_argument("--reason", default="")
+    p.set_defaults(func=lambda a: cmd_close(a.id, "blocked", a.reason))
+    p = sub.add_parser("limitation"); p.add_argument("id")
+    p.add_argument("--reason", required=True)
+    p.add_argument("--evidence", default="")
+    p.set_defaults(func=lambda a: cmd_limitation(a.id, a.reason, a.evidence))
+    p = sub.add_parser("report"); p.set_defaults(func=lambda a: cmd_report())
+    p = sub.add_parser("triage"); p.add_argument("--apply", action="store_true")
+    p.set_defaults(func=lambda a: cmd_triage(a.apply))
+    args = parser.parse_args()
+    return int(args.func(args) or 0)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

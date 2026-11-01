@@ -1,0 +1,27 @@
+{
+  "version": "funnel.v1",
+  "description": "分层漏斗 rubric：CTX/BOUND/EXEC/CNT 串行短路，RED 并行独立。",
+  "serial_layers": ["CTX", "BOUND", "EXEC", "CNT"],
+  "parallel_layers": ["RED"],
+  "layers": [
+    {"code": "CTX", "group": "serial", "sub_items": ["nonempty"]},
+    {"code": "BOUND", "group": "serial", "sub_items": ["unfounded_claims", "uncertainty"]},
+    {"code": "EXEC", "group": "serial", "sub_items": ["instruction_alignment", "decision_rule"]},
+    {"code": "CNT", "group": "serial", "sub_items": ["source", "json", "table", "paragraph", "lead", "generic"]},
+    {"code": "RED", "group": "parallel", "sub_items": ["safety"]}
+  ],
+  "sub_items": [
+    "nonempty",
+    "unfounded_claims",
+    "uncertainty",
+    "instruction_alignment",
+    "decision_rule",
+    "source",
+    "json",
+    "table",
+    "paragraph",
+    "lead",
+    "generic",
+    "safety"
+  ]
+}

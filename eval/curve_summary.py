@@ -9,7 +9,14 @@ from pathlib import Path
 REPO = Path(r"D:/claudecode/EvoHarness")
 
 
+def _usage() -> str:
+    return "用法: python eval/curve_summary.py <曲线 JSON 路径>"
+
+
 def main() -> int:
+    if any(a in {"-h", "--help"} for a in sys.argv[1:]):
+        print(_usage())
+        return 0
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "eval" / "runs" / "evolution" / "curve.json"
     data = json.loads(path.read_text(encoding="utf-8"))

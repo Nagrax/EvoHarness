@@ -47,7 +47,16 @@ def check_script(paths: list[str]) -> tuple[bool, str]:
     return True, "ok"
 
 
+def _usage() -> str:
+    return ("用法: python eval/loop_source_health.py\n"
+            "  检查闭环各信号源：脚本可跑 + 产物新鲜度\n"
+            "  注意：会实际执行各源脚本，耗时约 1-2 分钟")
+
+
 def main() -> int:
+    if any(a in {"-h", "--help"} for a in sys.argv[1:]):
+        print(_usage())
+        return 0
     data = json.loads(BACKLOG.read_text(encoding="utf-8"))
     rounds = data.get("rounds") or []
     produced = Counter()

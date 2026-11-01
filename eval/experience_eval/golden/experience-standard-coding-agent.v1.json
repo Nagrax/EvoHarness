@@ -1,0 +1,72 @@
+{
+  "schema_version": "experience-standard/v1",
+  "source": {
+    "raw_text": "修完以后先跑最小范围的单测定位失败，再用 git diff 复查一遍改动。测试失败优先怀疑最近一次改动，而不是测试环境。拿不准的需求不要猜，先列成清单问清楚再动手。",
+    "language": "zh-CN",
+    "source_type": "human_explicit"
+  },
+  "identity": {
+    "title": "修复后的最小验证与改动复查流程",
+    "summary": "改动完成后先用最小范围的单元测试定位失败，再用 git diff 复查改动；失败优先归因最近改动，不明确的需求先列清单确认。",
+    "primary_type": "heuristic",
+    "secondary_types": ["procedure", "decision_rule"]
+  },
+  "situation": {
+    "goal": [{"text": "在不引入回归的前提下完成修复", "basis": "inferred", "confidence": 0.8}],
+    "triggers": [{"text": "用户报告缺陷或要求修改代码", "basis": "inferred", "confidence": 0.8}],
+    "context": [{"text": "coding agent 的本地开发会话", "basis": "inferred", "confidence": 0.7}],
+    "entities": [
+      {"text": "单元测试", "basis": "explicit", "confidence": 0.98},
+      {"text": "git diff", "basis": "explicit", "confidence": 0.98},
+      {"text": "最近一次改动", "basis": "explicit", "confidence": 0.95}
+    ]
+  },
+  "guidance": {
+    "principles": [
+      {"text": "验证范围最小化：先跑与改动直接相关的最小单测集合", "basis": "explicit", "confidence": 0.9},
+      {"text": "改动必须经 diff 复查后才算完成", "basis": "explicit", "confidence": 0.9}
+    ],
+    "decision_rules": [],
+    "steps": [
+      {"text": "运行与改动相关的最小范围测试", "basis": "explicit", "confidence": 0.95},
+      {"text": "阅读 git diff 逐块复查改动", "basis": "explicit", "confidence": 0.9},
+      {"text": "把拿不准的需求整理成问题清单向用户确认", "basis": "explicit", "confidence": 0.9}
+    ],
+    "avoid": [
+      {"text": "测试失败时首先归因于测试环境而不检查最近改动", "basis": "explicit", "confidence": 0.9},
+      {"text": "需求未确认时凭猜测直接实现", "basis": "explicit", "confidence": 0.9}
+    ]
+  },
+  "applicability": {
+    "conditions": [{"text": "存在可运行的单元测试", "basis": "inferred", "confidence": 0.75}],
+    "prerequisites": [{"text": "改动可以通过 git diff 观察", "basis": "inferred", "confidence": 0.8}],
+    "exceptions": [],
+    "boundaries": [{"text": "原文没有指定测试框架与具体运行命令", "basis": "inferred", "confidence": 0.9}]
+  },
+  "outcome": {
+    "expected": [{"text": "缺陷修复且相关测试通过", "basis": "inferred", "confidence": 0.85}],
+    "success_signals": [{"text": "最小范围单测全部通过且 diff 复查无遗漏", "basis": "inferred", "confidence": 0.8}],
+    "failure_signals": [{"text": "测试仍失败且无法定位到最近改动", "basis": "inferred", "confidence": 0.7}]
+  },
+  "evidence": {
+    "observations": [
+      {"text": "用户明确要求先跑最小范围单测再用 git diff 复查", "basis": "explicit", "confidence": 0.98},
+      {"text": "用户明确表示失败优先怀疑最近一次改动而不是测试环境", "basis": "explicit", "confidence": 0.95},
+      {"text": "用户明确表示拿不准的需求先列清单确认再动手", "basis": "explicit", "confidence": 0.95}
+    ],
+    "counterexamples": [],
+    "validation_methods": [],
+    "confidence": 0.92
+  },
+  "indexing": {
+    "domains": ["软件开发", "测试"],
+    "tasks": ["缺陷修复", "回归验证"],
+    "tags": ["单元测试", "git-diff", "最小验证", "改动复查", "调试优先级"],
+    "aliases": ["修复后验证流程"],
+    "cross_domain_links": ["持续集成"]
+  },
+  "knowledge_gaps": [
+    {"question": "项目使用的测试框架与运行命令是什么？", "why_needed": "把最小范围单测落成可执行命令"},
+    {"question": "最小范围如何界定（按目录、按受影响模块还是按测试名）？", "why_needed": "决定选测策略"}
+  ]
+}

@@ -57,7 +57,14 @@ def classify(path: Path, line: int) -> tuple[str, str]:
     return "needs-review", "no-signal"
 
 
+def _usage() -> str:
+    return "用法: python eval/triage_file.py <L-id> [--json]"
+
+
 def main() -> int:
+    if any(a in {"-h", "--help"} for a in sys.argv[1:]):
+        print(_usage())
+        return 0
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if len(sys.argv) < 2:
         print("usage: python eval/triage_file.py <L-id> [--json]")

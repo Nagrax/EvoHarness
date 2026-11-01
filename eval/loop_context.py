@@ -9,7 +9,16 @@ from pathlib import Path
 REPO = Path(r"D:/claudecode/EvoHarness")
 
 
+def _usage() -> str:
+    return ("用法: python eval/loop_context.py [limit] [rule]\n"
+            "  limit  最多显示多少条（默认 20）\n"
+            "  rule   只显示该 rule 的条目（如 silent-except）")
+
+
 def main() -> int:
+    if any(a in {"-h", "--help"} for a in sys.argv[1:]):
+        print(_usage())
+        return 0
     # stdout 可能是 StringIO / 包装器（被测试或 CI 捕获时），没有 reconfigure。
     # 编码设置失败不应让整个排查工具失效——退化为按现状输出即可。
     try:

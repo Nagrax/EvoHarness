@@ -4768,3 +4768,47 @@ if rule not in {"silent-except", "silent-except-return-none"}:  # list in set ->
 > **不是因为写错，而是因为"写的时候是对的，后来调用被移走了"**。
 
 **门禁**：1173 tests → 本轮后重跑。
+
+## 141. 第一百二十四轮（2026-11-01）：工具可达性审计 + 三个 CLI 修复 + 一次**方法复盘**
+
+**新增 `eval/tool_reachability.py`**：对 `eval/*.py` 79 个脚本逐个
+① 查是否被 tests/ 或其他脚本引用 ② 用 `--help` 探活（安全，不产生副作用）。
+
+**首轮结果**：healthy 48 / unused-but-runs 25 / **broken 6**
+
+**逐个处置**：
+
+| 脚本 | 问题 | 处置 |
+| --- | --- | --- |
+| `loop_context.py` | `int("--help")` 崩 | 加 `-h/--help` |
+| `curve_summary.py` | `--help` 被当文件名 | 加 `-h/--help` |
+| `triage_file.py` | `--help` 被当 L-id | 加 `-h/--help` |
+| `loop_source_health.py` | `--help` 触发全部子进程（>30s） | 加快速返回 |
+| `final_check.py` 等 8 个 | **数学研究残留**（分拆/Young diagram/钩长） | 单独归类，**不删**（用户资产） |
+| （自身） | **自递归**：审计自己 → `--help` → 再审计 | 显式跳过自身 |
+
+**修后**：healthy **59** / broken **0** / non-eval-broken 1 / encoding-limited 0（UTF-8）。
+
+**编码环境**：GBK 下有 5 个脚本因输出非 GBK 字符抛 `UnicodeEncodeError`。
+**这不是工具坏了**，所以审计里单独归为 `encoding-limited`——
+混进 `broken` 会让人去修本来没坏的东西。
+
+**一次必须记下的方法复盘**：
+改 `assess_long_functions.py` 让它输出完整结构（含 `deferred` / `standard_v2`），
+我**连续失败 10 次**——每次都试图改多行 dict 常量，反复破坏语法。
+最后 `git checkout` 恢复，换策略：
+1. 让生成器**默认不覆盖**已有产物（`--force` 才重算）
+2. 手工一次性写好 JSON
+
+**根因判断**：`long-function-assessment.json` 是**人工判读结论**（18 处逐个读代码），
+**不是可重算产物**。用生成器覆盖它，本身就是错误设计——
+这与我此前查出的"产物被覆盖后无法恢复（eval/runs 无版本控制）"是同一件事。
+
+> **当连续几次修复都在同一个文件上失败时，问题往往不在手法，而在"这条路本身是错的"。**
+> 我第 3 次失败时就该停下来问"为什么要让生成器输出这个"，而不是第 10 次才问。
+
+**门禁状态（如实）**：
+- 测试全过：**1178 tests / 1176 passed / 0 failed / 2 skipped**（双编码一致）
+- 但 gate 报 `ok: false`，原因 `sourceDigest 在门禁期间变化`
+- **已验证测试不修改受控目录**（pytest 前后 `git status` 均为 562 项、0 变化）
+- → digest 变化的来源在 gate 侧，**尚未定位**，不把这次算作"门禁通过"

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 REPO = Path(r"D:/claudecode/EvoHarness")
@@ -80,6 +81,42 @@ ASSESSMENT = {
 }
 
 
+
+def _build_assessment() -> dict:
+    """组装评估结论：过滤掉已归 deferred 的项，并补判据文本。
+
+    `_cmd_run` 同时出现在常量 should_split 与 deferred 里（历史演进导致重复）。
+    在**输出时**去重，比改常量更安全——常量是多行 dict，手工改容易破坏语法。
+    """
+    deferred_names = {str(e.get("func") or "") for e in ASSESSMENT.get("deferred") or []}
+    out: dict = {}
+    for key, value in ASSESSMENT.items():
+        if not isinstance(value, list):
+            continue
+        out[key] = [e for e in value
+                    if str(e.get("func") or "") not in deferred_names] \
+            if key == "should_split" else value
+    # `_cmd_run` 是判据第 4 条（有测试保护）不满足时的处置对象：
+    # 循环体需真实模型验证，余额中止 / holdout 只读校验 / 批次隔离等
+    # 评测正确性核心都在里面，无安全网时硬拆风险过高 → 推迟。
+    out["deferred"] = ASSESSMENT.get("deferred") or [{
+        "func": "eval/evolution_experiment.py:_cmd_run",
+        "length": 193,
+        "branches": 22,
+        "reassessed": "推迟拆分：**无测试保护**（无安全网），"
+                      "循环体需真实模型才能验证，硬拆等于在没有安全网时动评测核心；"
+                      "处置是先补可测性再拆",
+    }]
+    out["standard_v2"] = (
+        "该拆 <=> 有可独立命名的子步骤 AND 有复用意愿 AND 分支密度高 AND 有测试保护。"
+        "第一条必须读代码确认；若第 4 条不满足（无测试保护），**先补可测性再拆**——"
+        "否则无法验证拆完与否等价")
+    out["standard_v4"] = (
+        "该拆 <=> 有可独立命名的子步骤 AND 有复用意愿 AND 分支密度高 AND 有测试保护；"
+        "且子步骤要占函数主要部分")
+    return out
+
+
 def main() -> int:
     result = {
         "kind": "long-function-assessment",
@@ -87,13 +124,22 @@ def main() -> int:
                     "不该拆 ⇔ 长源于数据字段多/线性写盘/规则链顺序语义",
         "total": sum(len(v) for v in ASSESSMENT.values()),
         "counts": {k: len(v) for k, v in ASSESSMENT.items()},
-        "assessment": ASSESSMENT,
+        "assessment": _build_assessment(),
         "decision": "本轮只做评估，不批量拆分——18 处里 4 处（should_not_split）"
                     "拆分反而有害；6 处（should_split）风险 medium/high，需单独排期；"
                     "8 处（optional）收益低。**『长』本身不是缺陷，是信号**",
     }
     out = REPO / "eval" / "runs" / "long-function-assessment.json"
     out.parent.mkdir(parents=True, exist_ok=True)
+    # 该产物是**人工判读结论**（18 处逐个读代码后的分类），不是可重算数据。
+    # 默认不覆盖，避免又一次把 deferred / standard_v2 冲掉；
+    # 需要重算时显式加 --force。
+    force = "--force" in sys.argv
+    if out.is_file() and not force:
+        print(json.dumps({"ok": True, "skipped": "artifact-exists (use --force)",
+                          "total": result["total"], "out": str(out)},
+                         ensure_ascii=False, indent=2))
+        return 0
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n",
                    encoding="utf-8")
     print(json.dumps({"ok": True, "total": result["total"],

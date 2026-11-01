@@ -1,0 +1,3033 @@
+{
+  "version": 1,
+  "createdAt": "2026-10-25T15:07:33.030Z",
+  "rounds": [
+    {
+      "roundId": "r1",
+      "at": "2026-10-25T15:09:59.902Z",
+      "sourceDigest": "663a2f9f31f04e52179271f6c7d43d1c9802fc34702a77af4776af6c238acf38",
+      "runs": {
+        "backend": {
+          "cmd": "D:\\Python\\Python313\\python.exe eval/backend_contract.py --out D:\\claudecode\\EvoHarness\\eval\\runs\\backend-contract.json",
+          "exitCode": 0,
+          "durationSeconds": 7.7,
+          "stdoutTail": "backend-contract: 18/18 passed, 0 failed -> D:\\claudecode\\EvoHarness\\eval\\runs\\backend-contract.json\r\n",
+          "stderrTail": ""
+        },
+        "ui": {
+          "cmd": "node D:\\claudecode\\scratch\\btest\\evo_ui_buttons.mjs --base http://127.0.0.1:8899 --tag ui-current --out D:\\claudecode\\EvoHarness\\eval\\runs\\ui",
+          "exitCode": 0,
+          "durationSeconds": 136.8,
+          "stdoutTail": "LIVE  视图-聊天  muts=1 net=0 hit=top-is-self visible=true enabled=true \nLIVE  视图-Skills  muts=22 net=2 hit=top-is-self visible=true enabled=true \nLIVE  视图-评测  muts=15 net=2 hit=top-is-self visible=true enabled=true \nLIVE  新会话  muts=4 net=0 hit=top-is-self visible=true enabled=true \nLIVE  模式-acceptEdits  muts=4 net=0 hit=top-is-self visible=true enabled=true \nLIVE  模式-plan  muts=4 net=0 hit=top-is-self visible=true enabled=true \nLIVE  模式-bypass  muts=4 net=0 hit=top-is-self visible=true enabled=true \nLIVE  发送  muts=0 net=0 hit=top-is-self visible=true enabled=true \nLIVE  Skills刷新  muts=29 net=1 hit=top-is-self visible=true enabled=true \nDEAD  Skills-加载错误修复入口  muts=0 net=0 hit= visible=false enabled=false element-not-found\nLIVE  设置-输入-API地址  muts=1 net=0 hit=covered-by:DIV.hero-sub visible=true enabled=true \nLIVE  设置-输入-Key  muts=3 net=0 hit=covered-by:SPAN. visible=true enabled=true \nLIVE  设置-输入-模型  muts=3 net=0 hit=covered-by:BUTTON.starter visible=true enabled=true \nLIVE  设置-关闭  muts=1 net=0 hit=covered-by:DIV.hero visible=true enabled=true \nLIVE  设置-清空  muts=1 net=0 hit=covered-by:DIV.hero visible=true enabled=true \nLIVE  设置-保存  muts=1 net=0 hit=covered-by:DIV.hero visible=true enabled=true \nLIVE  抽屉-关闭  muts=26 net=0 hit=top-is-self visible=true enabled=true \n\n16/17 live, 0 dead -> D:\\claudecode\\EvoHarness\\eval\\runs\\ui\\ui-current.json\n",
+          "stderrTail": ""
+        },
+        "moduleScan": {
+          "cmd": "D:\\Python\\Python313\\python.exe eval/module_scan.py --out D:\\claudecode\\EvoHarness\\eval\\runs\\module-scan.json",
+          "exitCode": 0,
+          "durationSeconds": 1.5,
+          "stdoutTail": "module-scan: 53 files, 100 findings -> D:\\claudecode\\EvoHarness\\eval\\runs\\module-scan.json\r\nseverity: {\"medium\": 30, \"high\": 63, \"low\": 7}\r\nrules: {\"long-function\": 15, \"silent-except-return-none\": 5, \"silent-except\": 58, \"injection-without-truncate\": 5, \"magic-threshold\": 2, \"module-without-tests\": 15}\r\n  [high] silent-except agents/agent.py:735 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1039 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1049 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1158 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1539 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1642 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1665 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1875 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:2156 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:2465 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:84 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:90 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:275 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:284 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:474 except 分支只有 pass：故障对上层不可见\r\n",
+          "stderrTail": ""
+        }
+      },
+      "findingCount": 63,
+      "bySource": {
+        "backend": 0,
+        "frontend": 0,
+        "module": 63
+      }
+    },
+    {
+      "roundId": "r2",
+      "at": "2026-10-25T15:16:55.132Z",
+      "sourceDigest": "f6b364a2f945c8aba86fe611b4de4ad41da6064b2ec9700cd7e7fb5f5e2f1d2a",
+      "runs": {
+        "backend": {
+          "cmd": "D:\\Python\\Python313\\python.exe eval/backend_contract.py --out D:\\claudecode\\EvoHarness\\eval\\runs\\backend-contract.json",
+          "exitCode": 0,
+          "durationSeconds": 5.4,
+          "stdoutTail": "backend-contract: 18/18 passed, 0 failed -> D:\\claudecode\\EvoHarness\\eval\\runs\\backend-contract.json\r\n",
+          "stderrTail": ""
+        },
+        "ui": {
+          "cmd": "node D:\\claudecode\\scratch\\btest\\evo_ui_buttons.mjs --base http://127.0.0.1:8899 --tag ui-current --out D:\\claudecode\\EvoHarness\\eval\\runs\\ui",
+          "exitCode": 2,
+          "durationSeconds": 73.2,
+          "stdoutTail": "",
+          "stderrTail": "FATAL Error: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:8899/\n    at navigate (file:///D:/claudecode/scratch/btest/node_modules/puppeteer-core/lib/puppeteer/cdp/Frame.js:187:27)\n    at async Deferred.race (file:///D:/claudecode/scratch/btest/node_modules/puppeteer-core/lib/puppeteer/util/Deferred.js:33:20)\n    at async CdpFrame.goto (file:///D:/claudecode/scratch/btest/node_modules/puppeteer-core/lib/puppeteer/cdp/Frame.js:153:25)\n    at async CdpPage.goto (file:///D:/claudecode/scratch/btest/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:582:20)\n    at async freshPage (file:///D:/claudecode/scratch/btest/evo_ui_buttons.mjs:114:3)\n    at async clickOne (file:///D:/claudecode/scratch/btest/evo_ui_buttons.mjs:138:25)\n    at async main (file:///D:/claudecode/scratch/btest/evo_ui_buttons.mjs:241:19)\n"
+        },
+        "moduleScan": {
+          "cmd": "D:\\Python\\Python313\\python.exe eval/module_scan.py --out D:\\claudecode\\EvoHarness\\eval\\runs\\module-scan.json",
+          "exitCode": 0,
+          "durationSeconds": 0.8,
+          "stdoutTail": "module-scan: 54 files, 101 findings -> D:\\claudecode\\EvoHarness\\eval\\runs\\module-scan.json\r\nseverity: {\"medium\": 31, \"high\": 63, \"low\": 7}\r\nrules: {\"long-function\": 15, \"silent-except-return-none\": 5, \"silent-except\": 58, \"injection-without-truncate\": 5, \"magic-threshold\": 2, \"module-without-tests\": 16}\r\n  [high] silent-except agents/agent.py:738 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1042 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1052 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1161 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1551 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1655 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1678 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1888 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:2169 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:2478 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:84 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:90 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:275 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:284 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:474 except 分支只有 pass：故障对上层不可见\r\n",
+          "stderrTail": ""
+        }
+      },
+      "findingCount": 63,
+      "bySource": {
+        "backend": 0,
+        "frontend": 0,
+        "module": 63
+      }
+    },
+    {
+      "roundId": "r3",
+      "at": "2026-10-25T15:36:14.179Z",
+      "sourceDigest": "31ad7a728d82822fac809a5114ffc72b170cc264292c3dd42164a9f6828449ed",
+      "runs": {
+        "backend": {
+          "cmd": "D:\\Python\\Python313\\python.exe eval/backend_contract.py --out D:\\claudecode\\EvoHarness\\eval\\runs\\backend-contract.json",
+          "exitCode": 0,
+          "durationSeconds": 6.9,
+          "stdoutTail": "backend-contract: 18/18 passed, 0 failed -> D:\\claudecode\\EvoHarness\\eval\\runs\\backend-contract.json\r\n",
+          "stderrTail": ""
+        },
+        "ui": {
+          "cmd": "node D:\\claudecode\\scratch\\btest\\evo_ui_buttons.mjs --base http://127.0.0.1:8899 --tag ui-current --out D:\\claudecode\\EvoHarness\\eval\\runs\\ui",
+          "exitCode": 0,
+          "durationSeconds": 42.5,
+          "stdoutTail": "LIVE  视图-聊天  muts=1 net=0 hit=top-is-self visible=true enabled=true \nLIVE  视图-Skills  muts=22 net=2 hit=top-is-self visible=true enabled=true \nLIVE  视图-评测  muts=15 net=2 hit=top-is-self visible=true enabled=true \nLIVE  新会话  muts=4 net=0 hit=top-is-self visible=true enabled=true \nLIVE  模式-acceptEdits  muts=4 net=0 hit=top-is-self visible=true enabled=true \nLIVE  模式-plan  muts=4 net=0 hit=top-is-self visible=true enabled=true \nLIVE  模式-bypass  muts=4 net=0 hit=top-is-self visible=true enabled=true \nLIVE  发送  muts=0 net=0 hit=top-is-self visible=true enabled=true \nLIVE  Skills刷新  muts=29 net=1 hit=top-is-self visible=true enabled=true \nDEAD  Skills-加载错误修复入口  muts=0 net=0 hit= visible=false enabled=false element-not-found\nLIVE  设置-输入-API地址  muts=1 net=0 hit=covered-by:DIV.hero-sub visible=true enabled=true \nLIVE  设置-输入-Key  muts=3 net=0 hit=covered-by:SPAN. visible=true enabled=true \nLIVE  设置-输入-模型  muts=3 net=0 hit=covered-by:BUTTON.starter visible=true enabled=true \nLIVE  设置-关闭  muts=1 net=0 hit=covered-by:DIV.hero visible=true enabled=true \nLIVE  设置-清空  muts=1 net=0 hit=covered-by:DIV.hero visible=true enabled=true \nLIVE  设置-保存  muts=1 net=0 hit=covered-by:DIV.hero visible=true enabled=true \nLIVE  抽屉-关闭  muts=26 net=0 hit=top-is-self visible=true enabled=true \n\n16/17 live, 0 dead -> D:\\claudecode\\EvoHarness\\eval\\runs\\ui\\ui-current.json\n",
+          "stderrTail": ""
+        },
+        "moduleScan": {
+          "cmd": "D:\\Python\\Python313\\python.exe eval/module_scan.py --out D:\\claudecode\\EvoHarness\\eval\\runs\\module-scan.json",
+          "exitCode": 0,
+          "durationSeconds": 1.3,
+          "stdoutTail": "module-scan: 55 files, 99 findings -> D:\\claudecode\\EvoHarness\\eval\\runs\\module-scan.json\r\nseverity: {\"medium\": 32, \"high\": 60, \"low\": 7}\r\nrules: {\"long-function\": 15, \"silent-except-return-none\": 5, \"silent-except\": 55, \"injection-without-truncate\": 5, \"magic-threshold\": 2, \"module-without-tests\": 17}\r\n  [high] silent-except agents/agent.py:1043 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1053 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1155 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1550 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1672 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:1892 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:2155 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/agent.py:2471 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:80 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:89 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:274 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:283 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/mcp_client.py:465 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/memory.py:126 except 分支只有 pass：故障对上层不可见\r\n  [high] silent-except agents/memory.py:213 except 分支只有 pass：故障对上层不可见\r\n",
+          "stderrTail": ""
+        }
+      },
+      "findingCount": 60,
+      "bySource": {
+        "backend": 0,
+        "frontend": 0,
+        "module": 60
+      }
+    }
+  ],
+  "items": [
+    {
+      "id": "L0001",
+      "key": "module:silent-except:agents/agent.py:735",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:735",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 735,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r2",
+      "note": "已修复：_auto_save 不再静默吞错，记 last_save_error + 诊断事件 + SSE done 帧带 saveError；回归 tests/test_auto_save_visibility.py（4 条）",
+      "closedAt": "2026-10-25T15:21:54.221Z"
+    },
+    {
+      "id": "L0002",
+      "key": "module:silent-except:agents/agent.py:1039",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1039",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1039,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r2",
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:18.803Z"
+    },
+    {
+      "id": "L0003",
+      "key": "module:silent-except:agents/agent.py:1049",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1049",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1049,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0004",
+      "key": "module:silent-except:agents/agent.py:1158",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1158",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1158,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0005",
+      "key": "module:silent-except:agents/agent.py:1539",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1539",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1539,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r2",
+      "note": "已修复：_stage_write_segment 落盘失败记 last_save_error；回归 test_stage_segment_save_failure_is_visible",
+      "closedAt": "2026-10-25T15:31:09.295Z"
+    },
+    {
+      "id": "L0006",
+      "key": "module:silent-except:agents/agent.py:1642",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1642",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1642,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r2",
+      "note": "已修复：折叠记忆落盘失败记 last_save_error；回归 test_folded_memory_save_failure_is_visible",
+      "closedAt": "2026-10-25T15:31:09.465Z"
+    },
+    {
+      "id": "L0007",
+      "key": "module:silent-except:agents/agent.py:1665",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1665",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1665,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0008",
+      "key": "module:silent-except:agents/agent.py:1875",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1875",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1875,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r2",
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:18.885Z"
+    },
+    {
+      "id": "L0009",
+      "key": "module:silent-except:agents/agent.py:2156",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:2156",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 2156,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0010",
+      "key": "module:silent-except:agents/agent.py:2465",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:2465",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 2465,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0011",
+      "key": "module:silent-except:agents/mcp_client.py:84",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:84",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 84,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:close），不改代码",
+      "closedAt": "2026-10-25T15:28:18.971Z"
+    },
+    {
+      "id": "L0012",
+      "key": "module:silent-except:agents/mcp_client.py:90",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:90",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 90,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:close），不改代码",
+      "closedAt": "2026-10-25T15:28:19.058Z"
+    },
+    {
+      "id": "L0013",
+      "key": "module:silent-except:agents/mcp_client.py:275",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:275",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 275,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:19.145Z"
+    },
+    {
+      "id": "L0014",
+      "key": "module:silent-except:agents/mcp_client.py:284",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:284",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 284,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:close），不改代码",
+      "closedAt": "2026-10-25T15:28:19.233Z"
+    },
+    {
+      "id": "L0015",
+      "key": "module:silent-except:agents/mcp_client.py:474",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:474",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 474,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0016",
+      "key": "module:silent-except:agents/memory.py:113",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/memory.py:113",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/memory.py",
+        "line": 113,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "已修复：诊断日志写失败退到 stderr 单次告警，不再静默；memory/encoding 测试 22 passed",
+      "closedAt": "2026-10-25T15:31:09.639Z"
+    },
+    {
+      "id": "L0017",
+      "key": "module:silent-except:agents/memory.py:200",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/memory.py:200",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/memory.py",
+        "line": 200,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0018",
+      "key": "module:silent-except:agents/memory.py:246",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/memory.py:246",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/memory.py",
+        "line": 246,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0019",
+      "key": "module:silent-except:agents/memory.py:399",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/memory.py:399",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/memory.py",
+        "line": 399,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0020",
+      "key": "module:silent-except:agents/online_skill_eval.py:156",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:156",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 156,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0021",
+      "key": "module:silent-except:agents/online_skill_eval.py:1242",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:1242",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 1242,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0022",
+      "key": "module:silent-except:agents/online_skill_eval.py:1977",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:1977",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 1977,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:19.323Z"
+    },
+    {
+      "id": "L0023",
+      "key": "module:silent-except:agents/online_skill_eval.py:1979",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:1979",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 1979,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:19.410Z"
+    },
+    {
+      "id": "L0024",
+      "key": "module:silent-except:agents/online_skill_eval.py:2215",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:2215",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 2215,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:19.496Z"
+    },
+    {
+      "id": "L0025",
+      "key": "module:silent-except:agents/online_skill_evolution.py:39",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_evolution.py:39",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_evolution.py",
+        "line": 39,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0026",
+      "key": "module:silent-except:agents/prompt.py:161",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/prompt.py:161",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/prompt.py",
+        "line": 161,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0027",
+      "key": "module:silent-except:agents/prompt.py:179",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/prompt.py:179",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/prompt.py",
+        "line": 179,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0028",
+      "key": "module:silent-except:agents/session.py:35",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/session.py:35",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/session.py",
+        "line": 35,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0029",
+      "key": "module:silent-except:agents/session.py:64",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/session.py:64",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/session.py",
+        "line": 64,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:close,unlink），不改代码",
+      "closedAt": "2026-10-25T15:28:19.581Z"
+    },
+    {
+      "id": "L0030",
+      "key": "module:silent-except:agents/session.py:99",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/session.py:99",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/session.py",
+        "line": 99,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:close,unlink），不改代码",
+      "closedAt": "2026-10-25T15:28:19.668Z"
+    },
+    {
+      "id": "L0031",
+      "key": "module:silent-except:agents/session.py:258",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/session.py:258",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/session.py",
+        "line": 258,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "已修复：list_sessions 把坏文件记入 last_list_errors；回归 2 条",
+      "closedAt": "2026-10-25T15:31:09.936Z"
+    },
+    {
+      "id": "L0032",
+      "key": "module:silent-except:agents/skill_evolution.py:400",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_evolution.py:400",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_evolution.py",
+        "line": 400,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0033",
+      "key": "module:silent-except:agents/skill_evolution.py:512",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_evolution.py:512",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_evolution.py",
+        "line": 512,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0034",
+      "key": "module:silent-except:agents/skill_repair.py:162",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_repair.py:162",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_repair.py",
+        "line": 162,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:19.754Z"
+    },
+    {
+      "id": "L0035",
+      "key": "module:silent-except:agents/skill_tiers.py:131",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_tiers.py:131",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_tiers.py",
+        "line": 131,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:19.840Z"
+    },
+    {
+      "id": "L0036",
+      "key": "module:silent-except:agents/skill_tiers.py:207",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_tiers.py:207",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_tiers.py",
+        "line": 207,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0037",
+      "key": "module:silent-except:agents/skill_tiers.py:438",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_tiers.py:438",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_tiers.py",
+        "line": 438,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0038",
+      "key": "module:silent-except:agents/subagent.py:127",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/subagent.py:127",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/subagent.py",
+        "line": 127,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0039",
+      "key": "module:silent-except:agents/tools.py:574",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:574",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 574,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0040",
+      "key": "module:silent-except:agents/tools.py:577",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:577",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 577,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0041",
+      "key": "module:silent-except:agents/tools.py:704",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:704",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 704,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0042",
+      "key": "module:silent-except:agents/tools.py:745",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:745",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 745,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0043",
+      "key": "module:silent-except:agents/tools.py:892",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:892",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 892,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:19.927Z"
+    },
+    {
+      "id": "L0044",
+      "key": "module:silent-except:agents/tools.py:1076",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:1076",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 1076,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0045",
+      "key": "module:silent-except:agents/tools.py:1344",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:1344",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 1344,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0046",
+      "key": "module:silent-except:agents/tools.py:1446",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:1446",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 1446,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0047",
+      "key": "module:silent-except:eval/evolution_experiment.py:43",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/evolution_experiment.py:43",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/evolution_experiment.py",
+        "line": 43,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0048",
+      "key": "module:silent-except:eval/evolution_experiment.py:252",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/evolution_experiment.py:252",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/evolution_experiment.py",
+        "line": 252,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0049",
+      "key": "module:silent-except:eval/evolution_experiment.py:811",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/evolution_experiment.py:811",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/evolution_experiment.py",
+        "line": 811,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:close），不改代码",
+      "closedAt": "2026-10-25T15:28:20.011Z"
+    },
+    {
+      "id": "L0050",
+      "key": "module:silent-except:eval/evolution_experiment.py:1013",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/evolution_experiment.py:1013",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/evolution_experiment.py",
+        "line": 1013,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0051",
+      "key": "module:silent-except:eval/experience_eval/hallucination_probe.py:181",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/experience_eval/hallucination_probe.py:181",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/experience_eval/hallucination_probe.py",
+        "line": 181,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0052",
+      "key": "module:silent-except:eval/loop.py:76",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/loop.py:76",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/loop.py",
+        "line": 76,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0053",
+      "key": "module:silent-except:eval/loop.py:88",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/loop.py:88",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/loop.py",
+        "line": 88,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0054",
+      "key": "module:silent-except:eval/run_benchmark.py:183",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/run_benchmark.py:183",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/run_benchmark.py",
+        "line": 183,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:close），不改代码",
+      "closedAt": "2026-10-25T15:28:20.099Z"
+    },
+    {
+      "id": "L0055",
+      "key": "module:silent-except:eval/run_benchmark.py:523",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/run_benchmark.py:523",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/run_benchmark.py",
+        "line": 523,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0056",
+      "key": "module:silent-except:server/app.py:451",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ server/app.py:451",
+      "detail": {
+        "rule": "silent-except",
+        "file": "server/app.py",
+        "line": 451,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0057",
+      "key": "module:silent-except:server/app.py:453",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ server/app.py:453",
+      "detail": {
+        "rule": "silent-except",
+        "file": "server/app.py",
+        "line": 453,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0058",
+      "key": "module:silent-except:server/app.py:707",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ server/app.py:707",
+      "detail": {
+        "rule": "silent-except",
+        "file": "server/app.py",
+        "line": 707,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:20.187Z"
+    },
+    {
+      "id": "L0059",
+      "key": "module:silent-except-return-none:agents/agent.py:492",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py:492",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 492,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0060",
+      "key": "module:silent-except-return-none:agents/agent.py:1109",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py:1109",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 1109,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0061",
+      "key": "module:silent-except-return-none:agents/agent.py:1160",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py:1160",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 1160,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r1",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0062",
+      "key": "module:silent-except-return-none:agents/session.py:31",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/session.py:31",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/session.py",
+        "line": 31,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0063",
+      "key": "module:silent-except-return-none:agents/tools.py:727",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/tools.py:727",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/tools.py",
+        "line": 727,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r1",
+      "lastSeenRound": "r2",
+      "seenCount": 2,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0064",
+      "key": "module:silent-except:agents/agent.py:738",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:738",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 738,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0065",
+      "key": "module:silent-except:agents/agent.py:1042",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1042",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1042,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "done",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:close,kill），不改代码",
+      "closedAt": "2026-10-25T15:28:20.270Z"
+    },
+    {
+      "id": "L0066",
+      "key": "module:silent-except:agents/agent.py:1052",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1052",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1052,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0067",
+      "key": "module:silent-except:agents/agent.py:1161",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1161",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1161,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0068",
+      "key": "module:silent-except:agents/agent.py:1551",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1551",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1551,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0069",
+      "key": "module:silent-except:agents/agent.py:1655",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1655",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1655,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0070",
+      "key": "module:silent-except:agents/agent.py:1678",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1678",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1678,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0071",
+      "key": "module:silent-except:agents/agent.py:1888",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1888",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1888,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0072",
+      "key": "module:silent-except:agents/agent.py:2169",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:2169",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 2169,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0073",
+      "key": "module:silent-except:agents/agent.py:2478",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:2478",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 2478,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0074",
+      "key": "module:silent-except-return-none:agents/agent.py:495",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py:495",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 495,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0075",
+      "key": "module:silent-except-return-none:agents/agent.py:1112",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py:1112",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 1112,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "done",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "note": "判定合理防御（cleanup:kill），不改代码",
+      "closedAt": "2026-10-25T15:28:20.351Z"
+    },
+    {
+      "id": "L0076",
+      "key": "module:silent-except-return-none:agents/agent.py:1163",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py:1163",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 1163,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r2",
+      "lastSeenRound": "r2",
+      "seenCount": 1,
+      "attempts": 0,
+      "absentInRound": "r3"
+    },
+    {
+      "id": "L0077",
+      "key": "module:silent-except:agents/agent.py:1043",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1043",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1043,
+        "exceptLine": 1044,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0078",
+      "key": "module:silent-except:agents/agent.py:1053",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1053",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1053,
+        "exceptLine": 1054,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0079",
+      "key": "module:silent-except:agents/agent.py:1155",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1155",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1155,
+        "exceptLine": 1163,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0080",
+      "key": "module:silent-except:agents/agent.py:1550",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1550",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1550,
+        "exceptLine": 1553,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0081",
+      "key": "module:silent-except:agents/agent.py:1672",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1672",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1672,
+        "exceptLine": 1685,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0082",
+      "key": "module:silent-except:agents/agent.py:1892",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:1892",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1892,
+        "exceptLine": 1895,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0083",
+      "key": "module:silent-except:agents/agent.py:2155",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:2155",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 2155,
+        "exceptLine": 2176,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0084",
+      "key": "module:silent-except:agents/agent.py:2471",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py:2471",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 2471,
+        "exceptLine": 2485,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0085",
+      "key": "module:silent-except:agents/mcp_client.py:80",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:80",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 80,
+        "exceptLine": 84,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0086",
+      "key": "module:silent-except:agents/mcp_client.py:89",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:89",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 89,
+        "exceptLine": 90,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0087",
+      "key": "module:silent-except:agents/mcp_client.py:274",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:274",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 274,
+        "exceptLine": 275,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0088",
+      "key": "module:silent-except:agents/mcp_client.py:283",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:283",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 283,
+        "exceptLine": 284,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0089",
+      "key": "module:silent-except:agents/mcp_client.py:465",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py:465",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 465,
+        "exceptLine": 474,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0090",
+      "key": "module:silent-except:agents/memory.py:126",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/memory.py:126",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/memory.py",
+        "line": 126,
+        "exceptLine": 127,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0091",
+      "key": "module:silent-except:agents/memory.py:213",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/memory.py:213",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/memory.py",
+        "line": 213,
+        "exceptLine": 215,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0092",
+      "key": "module:silent-except:agents/memory.py:247",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/memory.py:247",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/memory.py",
+        "line": 247,
+        "exceptLine": 261,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0093",
+      "key": "module:silent-except:agents/memory.py:400",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/memory.py:400",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/memory.py",
+        "line": 400,
+        "exceptLine": 414,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0094",
+      "key": "module:silent-except:agents/online_skill_eval.py:154",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:154",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 154,
+        "exceptLine": 156,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0095",
+      "key": "module:silent-except:agents/online_skill_eval.py:1228",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:1228",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 1228,
+        "exceptLine": 1242,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0096",
+      "key": "module:silent-except:agents/online_skill_eval.py:1971",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:1971",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 1971,
+        "exceptLine": 1979,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0097",
+      "key": "module:silent-except:agents/online_skill_eval.py:1974",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:1974",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 1974,
+        "exceptLine": 1977,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0098",
+      "key": "module:silent-except:agents/online_skill_eval.py:2212",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py:2212",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 2212,
+        "exceptLine": 2215,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0099",
+      "key": "module:silent-except:agents/online_skill_evolution.py:38",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_evolution.py:38",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_evolution.py",
+        "line": 38,
+        "exceptLine": 39,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0100",
+      "key": "module:silent-except:agents/prompt.py:158",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/prompt.py:158",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/prompt.py",
+        "line": 158,
+        "exceptLine": 161,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0101",
+      "key": "module:silent-except:agents/prompt.py:176",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/prompt.py:176",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/prompt.py",
+        "line": 176,
+        "exceptLine": 179,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0102",
+      "key": "module:silent-except:agents/session.py:34",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/session.py:34",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/session.py",
+        "line": 34,
+        "exceptLine": 35,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0103",
+      "key": "module:silent-except:agents/session.py:63",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/session.py:63",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/session.py",
+        "line": 63,
+        "exceptLine": 64,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0104",
+      "key": "module:silent-except:agents/session.py:98",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/session.py:98",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/session.py",
+        "line": 98,
+        "exceptLine": 99,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0105",
+      "key": "module:silent-except:agents/skill_evolution.py:393",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_evolution.py:393",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_evolution.py",
+        "line": 393,
+        "exceptLine": 400,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0106",
+      "key": "module:silent-except:agents/skill_evolution.py:505",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_evolution.py:505",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_evolution.py",
+        "line": 505,
+        "exceptLine": 512,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0107",
+      "key": "module:silent-except:agents/skill_repair.py:151",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_repair.py:151",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_repair.py",
+        "line": 151,
+        "exceptLine": 162,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0108",
+      "key": "module:silent-except:agents/skill_tiers.py:116",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_tiers.py:116",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_tiers.py",
+        "line": 116,
+        "exceptLine": 131,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0109",
+      "key": "module:silent-except:agents/skill_tiers.py:203",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_tiers.py:203",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_tiers.py",
+        "line": 203,
+        "exceptLine": 207,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0110",
+      "key": "module:silent-except:agents/skill_tiers.py:436",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_tiers.py:436",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_tiers.py",
+        "line": 436,
+        "exceptLine": 438,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0111",
+      "key": "module:silent-except:agents/subagent.py:113",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/subagent.py:113",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/subagent.py",
+        "line": 113,
+        "exceptLine": 127,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0112",
+      "key": "module:silent-except:agents/tools.py:553",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:553",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 553,
+        "exceptLine": 577,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0113",
+      "key": "module:silent-except:agents/tools.py:561",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:561",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 561,
+        "exceptLine": 574,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0114",
+      "key": "module:silent-except:agents/tools.py:682",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:682",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 682,
+        "exceptLine": 704,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0115",
+      "key": "module:silent-except:agents/tools.py:739",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:739",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 739,
+        "exceptLine": 745,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0116",
+      "key": "module:silent-except:agents/tools.py:882",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:882",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 882,
+        "exceptLine": 892,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0117",
+      "key": "module:silent-except:agents/tools.py:1075",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:1075",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 1075,
+        "exceptLine": 1076,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0118",
+      "key": "module:silent-except:agents/tools.py:1343",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:1343",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 1343,
+        "exceptLine": 1344,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0119",
+      "key": "module:silent-except:agents/tools.py:1445",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py:1445",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 1445,
+        "exceptLine": 1446,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0120",
+      "key": "module:silent-except:eval/evolution_experiment.py:40",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/evolution_experiment.py:40",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/evolution_experiment.py",
+        "line": 40,
+        "exceptLine": 43,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0121",
+      "key": "module:silent-except:eval/evolution_experiment.py:249",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/evolution_experiment.py:249",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/evolution_experiment.py",
+        "line": 249,
+        "exceptLine": 252,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0122",
+      "key": "module:silent-except:eval/evolution_experiment.py:810",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/evolution_experiment.py:810",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/evolution_experiment.py",
+        "line": 810,
+        "exceptLine": 811,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0123",
+      "key": "module:silent-except:eval/evolution_experiment.py:1012",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/evolution_experiment.py:1012",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/evolution_experiment.py",
+        "line": 1012,
+        "exceptLine": 1013,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0124",
+      "key": "module:silent-except:eval/experience_eval/hallucination_probe.py:172",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/experience_eval/hallucination_probe.py:172",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/experience_eval/hallucination_probe.py",
+        "line": 172,
+        "exceptLine": 181,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0125",
+      "key": "module:silent-except:eval/loop.py:71",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/loop.py:71",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/loop.py",
+        "line": 71,
+        "exceptLine": 76,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0126",
+      "key": "module:silent-except:eval/loop.py:82",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/loop.py:82",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/loop.py",
+        "line": 82,
+        "exceptLine": 88,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0127",
+      "key": "module:silent-except:eval/run_benchmark.py:182",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/run_benchmark.py:182",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/run_benchmark.py",
+        "line": 182,
+        "exceptLine": 183,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0128",
+      "key": "module:silent-except:eval/run_benchmark.py:522",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/run_benchmark.py:522",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/run_benchmark.py",
+        "line": 522,
+        "exceptLine": 523,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0129",
+      "key": "module:silent-except:server/app.py:446",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ server/app.py:446",
+      "detail": {
+        "rule": "silent-except",
+        "file": "server/app.py",
+        "line": 446,
+        "exceptLine": 453,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0130",
+      "key": "module:silent-except:server/app.py:450",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ server/app.py:450",
+      "detail": {
+        "rule": "silent-except",
+        "file": "server/app.py",
+        "line": 450,
+        "exceptLine": 451,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0131",
+      "key": "module:silent-except:server/app.py:704",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ server/app.py:704",
+      "detail": {
+        "rule": "silent-except",
+        "file": "server/app.py",
+        "line": 704,
+        "exceptLine": 707,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0132",
+      "key": "module:silent-except-return-none:agents/agent.py:493",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py:493",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 493,
+        "exceptLine": 495,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0133",
+      "key": "module:silent-except-return-none:agents/agent.py:1113",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py:1113",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 1113,
+        "exceptLine": 1114,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0134",
+      "key": "module:silent-except-return-none:agents/agent.py:1140",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py:1140",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 1140,
+        "exceptLine": 1165,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0135",
+      "key": "module:silent-except-return-none:agents/session.py:30",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/session.py:30",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/session.py",
+        "line": 30,
+        "exceptLine": 31,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    },
+    {
+      "id": "L0136",
+      "key": "module:silent-except-return-none:agents/tools.py:726",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/tools.py:726",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/tools.py",
+        "line": 726,
+        "exceptLine": 727,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "status": "pending",
+      "firstSeenRound": "r3",
+      "lastSeenRound": "r3",
+      "seenCount": 1,
+      "attempts": 0
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-10-25T15:09:59.902Z",
+      "kind": "collected",
+      "id": "",
+      "round": "r1",
+      "findings": 63,
+      "added": 63,
+      "digest": "663a2f9f31f04e52179271f6c7d43d1c9802fc34702a77af4776af6c238acf38"
+    },
+    {
+      "at": "2026-10-25T15:16:55.133Z",
+      "kind": "collected",
+      "id": "",
+      "round": "r2",
+      "findings": 63,
+      "added": 13,
+      "digest": "f6b364a2f945c8aba86fe611b4de4ad41da6064b2ec9700cd7e7fb5f5e2f1d2a"
+    },
+    {
+      "at": "2026-10-25T15:21:54.221Z",
+      "kind": "done",
+      "id": "L0001",
+      "note": "已修复：_auto_save 不再静默吞错，记 last_save_error + 诊断事件 + SSE done 帧带 saveError；回归 tests/test_auto_save_visibility.py（4 条）"
+    },
+    {
+      "at": "2026-10-25T15:28:18.803Z",
+      "kind": "done",
+      "id": "L0002",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:18.885Z",
+      "kind": "done",
+      "id": "L0008",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:18.971Z",
+      "kind": "done",
+      "id": "L0011",
+      "note": "判定合理防御（cleanup:close），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.058Z",
+      "kind": "done",
+      "id": "L0012",
+      "note": "判定合理防御（cleanup:close），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.145Z",
+      "kind": "done",
+      "id": "L0013",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.233Z",
+      "kind": "done",
+      "id": "L0014",
+      "note": "判定合理防御（cleanup:close），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.324Z",
+      "kind": "done",
+      "id": "L0022",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.410Z",
+      "kind": "done",
+      "id": "L0023",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.496Z",
+      "kind": "done",
+      "id": "L0024",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.581Z",
+      "kind": "done",
+      "id": "L0029",
+      "note": "判定合理防御（cleanup:close,unlink），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.668Z",
+      "kind": "done",
+      "id": "L0030",
+      "note": "判定合理防御（cleanup:close,unlink），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.754Z",
+      "kind": "done",
+      "id": "L0034",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.840Z",
+      "kind": "done",
+      "id": "L0035",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:19.927Z",
+      "kind": "done",
+      "id": "L0043",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:20.011Z",
+      "kind": "done",
+      "id": "L0049",
+      "note": "判定合理防御（cleanup:close），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:20.099Z",
+      "kind": "done",
+      "id": "L0054",
+      "note": "判定合理防御（cleanup:close），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:20.187Z",
+      "kind": "done",
+      "id": "L0058",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:20.271Z",
+      "kind": "done",
+      "id": "L0065",
+      "note": "判定合理防御（cleanup:close,kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:28:20.351Z",
+      "kind": "done",
+      "id": "L0075",
+      "note": "判定合理防御（cleanup:kill），不改代码"
+    },
+    {
+      "at": "2026-10-25T15:31:09.295Z",
+      "kind": "done",
+      "id": "L0005",
+      "note": "已修复：_stage_write_segment 落盘失败记 last_save_error；回归 test_stage_segment_save_failure_is_visible"
+    },
+    {
+      "at": "2026-10-25T15:31:09.465Z",
+      "kind": "done",
+      "id": "L0006",
+      "note": "已修复：折叠记忆落盘失败记 last_save_error；回归 test_folded_memory_save_failure_is_visible"
+    },
+    {
+      "at": "2026-10-25T15:31:09.639Z",
+      "kind": "done",
+      "id": "L0016",
+      "note": "已修复：诊断日志写失败退到 stderr 单次告警，不再静默；memory/encoding 测试 22 passed"
+    },
+    {
+      "at": "2026-10-25T15:31:09.936Z",
+      "kind": "done",
+      "id": "L0031",
+      "note": "已修复：list_sessions 把坏文件记入 last_list_errors；回归 2 条"
+    },
+    {
+      "at": "2026-10-25T15:36:14.180Z",
+      "kind": "collected",
+      "id": "",
+      "round": "r3",
+      "findings": 60,
+      "added": 60,
+      "digest": "31ad7a728d82822fac809a5114ffc72b170cc264292c3dd42164a9f6828449ed"
+    }
+  ],
+  "updatedAt": "2026-10-25T15:36:14.181Z"
+}

@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "kind": "frozen-experiment-protocol",
+  "frozenAt": "2026-10-26T13:00:00Z",
+  "frozenBy": "W12 (user-authorized session, protocol only; no claims about results)",
+  "governingDocs": [
+    "eval/loop/CHECKPOINT-20261025.md",
+    "eval/loop/HARNESS2-PROTOCOL.md",
+    "eval/loop/RSI-TRADEOFF.md",
+    ".zcode/workflows/evoharness-optimize-audit/CALIBRATION.md"
+  ],
+
+  "question": "自进化（skill/harness 配置）的收益能否对冲它消耗的 token？",
+  "primaryMetric": {
+    "name": "pass_at_1",
+    "denominator": "correct / (planned - platform_unavailable)；超时/执行错误/无最终答案计为失败",
+    "source": "eval/run_benchmark.py score()（冻结口径，禁止改判据）"
+  },
+  "costMetrics": {
+    "tokensPerCorrect": "总tokens / 正确题数",
+    "roiPerMillionTokens": "Δcorrect / ΔtokensM（配对，仅 Δtokens>0 时有定义）",
+    "sideQueryTokensM": "进化自身开销单列，禁止摊进主线后宣称'进化免费'"
+  },
+
+  "arms": {
+    "threeArm": ["no_evolution", "ungated_evolution", "gated_evolution"],
+    "armManifest": "eval/evolution_experiment.py::_arm_manifest（名称不冒充门控）",
+    "contextStrategies": ["no_fold", "current_fold", "fold_tail_keep_recent", "stage_handover"],
+    "note": "E-05 四策略为质量/成本对照，非劣效界见 qualityConstraints"
+  },
+
+  "sampleSizes": {
+    "pilot": {"rounds": "3-5", "tasksPerRound": 2, "holdout": 2, "status": "已执行（2.52M tokens，见 CHECKPOINT §8）"},
+    "formal": {"rounds": 12, "tasksPerRound": 3, "holdoutPerArm": 30, "repeats": 3,
+               "effectiveN": 90,
+               "rationale": "n*repeats>=30 才允许 verdict 不带 not-claimable；本轮实测同配置极差 50pp 是直接依据"},
+    "forbidden": "任何'样本不够先看一眼'的中途放行；中途 peek 属协议违规"
+  },
+
+  "taskPoolPolicy": {
+    "stratification": ["always-fail(无区分度)", "always-pass(测成本)", "discriminating(测质量)"],
+    "calibrationTool": "eval/holdout_calibrate.py",
+    "realMeasuredGaia": {"alwaysFail": 68, "alwaysPass": 48, "discriminating": 49, "rate": "29.7%"},
+    "rules": [
+      "质量比较只在 discriminating 子集内下结论",
+      "成本比较可用 always-pass 子集（不依赖难度）",
+      "全 0/全 1 批次判 uninformative:both-zero-baseline，不得宣称配置差异"
+    ]
+  },
+
+  "statistics": {
+    "pairing": "同题/同模型/同预算配对；bootstrap CI 4000 次；CI 跨 0 = inconclusive",
+    "varianceGate": {"source": "eval/variance_check.py + arch_run noiseGate",
+                     "rule": "|ΔpassMean| <= max(批内极差, 跨批次极差) 时不可宣称"},
+    "claimRule": ["n*repeats<30 → not-claimable",
+                  "Δcorrect<0 时省 token 不算收益",
+                  "负结果照报，不得用'样本效率提升'话术掩盖"],
+    "tools": ["eval/roi.py", "eval/harness2_analyze.py", "eval/judge_bias_probe.py"]
+  },
+
+  "budget": {
+    "totalTokens": 300000000,
+    "spentToDate": "见 eval/runs/live-w13/LIVE_BUDGET.json（spend 逐笔）",
+    "reservations": {
+      "rule": "并行预留不得超过总限；发起批次前检查 remainingTokens",
+      "underZeroBehavior": "blocked（请求前拒绝），不记账 0 成本"
+    },
+    "accounting": [
+      "主模型 + 抽取(side_query) + judge + 重试 + 子代理全部计入",
+      "usage 缺失记 unknown（live_budget_guard.py spend 省略 --total），绝不记 0",
+      "超时/取消批次按实际 usage 记账"
+    ],
+    "ledger": "eval/runs/live-w13/LIVE_BUDGET.json（关联授权/消费/剩余）"
+  },
+
+  "qualityConstraints": {
+    "e05NonInferiority": "候选相对冻结现任的配对差值 95% 下界 >= -2pp",
+    "hardFailures": "互斥/红线失败不得被均分覆盖；RED 恒评（前层短路仍执行）",
+    "judgeBiasGates": {
+      "position": "unbiased", "length": "unbiased",
+      "injection": "robust", "schema": "robust",
+      "tool": "eval/judge_bias_probe.py（任一 verdict 不达标即 judge 不可用）"
+    },
+    "skillComboGate": "eval/skill_combo_replay.py 四断言全真",
+    "noAutoCover": "评测不自动覆盖线上 SKILL.md；champion 人工晋级"
+  },
+
+  "optionalAblations": {
+    "status": "optional（原路线可选项，未执行不算失败）",
+    "items": ["折叠时机网格", "检索权重网格", "孵化期天数校准"]
+  },
+
+  "scopeReductions": {
+    "honestList": [
+      "W13 正式三臂曲线未跑（本协议冻结后才允许）",
+      "E-05 四策略真机对照未跑",
+      "W17 真实人标未获得（缺来源将 blocked）",
+      "GAIA/HLE 原基准重跑（W18）未执行"
+    ],
+    "rule": "缩范围必须保留未执行清单；不得用 pilot 结论代替正式曲线"
+  },
+
+  "changeControl": {
+    "amendment": "任何修改需新 version + 理由 + 影响的验收项；当前失败不得改阈值补过",
+    "thresholdChangesApplyTo": "仅后续新实验；保留旧版与变更理由"
+  }
+}

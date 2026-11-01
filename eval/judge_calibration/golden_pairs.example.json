@@ -1,0 +1,16 @@
+{
+  "schema_version": "judge-golden-pairs/v1",
+  "kind": "golden_pairs",
+  "_note": "golden / 程序化近似，非人标（NOT human labels）：label_a 与 label_b 均由确定性规则或合成程序产出，仅用于把「可注入判定对」喂给 cohen_kappa 做 judge 校准。此处不提供、也不隐含任何人工 ground truth。",
+  "_provenance": "label_a 视为参考基线（rule-baseline），label_b 视为待校准 judge 的确定性近似输出。",
+  "_usage": "cohen_kappa([(p['label_a'], p['label_b']) for p in pairs])",
+  "labels": ["pass", "fail"],
+  "pairs": [
+    {"sample_id": "syn-001", "label_a": "pass", "label_b": "pass", "provenance": "rule-baseline"},
+    {"sample_id": "syn-002", "label_a": "pass", "label_b": "pass", "provenance": "rule-baseline"},
+    {"sample_id": "syn-003", "label_a": "pass", "label_b": "pass", "provenance": "rule-baseline"},
+    {"sample_id": "syn-004", "label_a": "fail", "label_b": "fail", "provenance": "rule-baseline"},
+    {"sample_id": "syn-005", "label_a": "fail", "label_b": "fail", "provenance": "rule-baseline"},
+    {"sample_id": "syn-006", "label_a": "fail", "label_b": "fail", "provenance": "rule-baseline"}
+  ]
+}

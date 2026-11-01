@@ -1,0 +1,72 @@
+{
+  "schema_version": "experience-standard/v1",
+  "source": {
+    "raw_text": "仿真中本构的选择要根据材料、损伤预期来决定，断裂和拉伸用的本构是不一样的。",
+    "language": "zh-CN",
+    "source_type": "human_explicit"
+  },
+  "identity": {
+    "title": "依据材料与损伤预期选择仿真本构",
+    "summary": "本构选择需要匹配材料和预期损伤模式，断裂与拉伸场景不能默认使用同一套本构描述。",
+    "primary_type": "decision_rule",
+    "secondary_types": ["principle", "constraint"]
+  },
+  "situation": {
+    "goal": [{"text": "为仿真场景选择合适的本构", "basis": "explicit", "confidence": 0.95}],
+    "triggers": [{"text": "需要建立材料模型", "basis": "inferred", "confidence": 0.75}],
+    "context": [{"text": "工程仿真", "basis": "explicit", "confidence": 0.98}],
+    "entities": [
+      {"text": "材料", "basis": "explicit", "confidence": 0.99},
+      {"text": "损伤预期", "basis": "explicit", "confidence": 0.99},
+      {"text": "本构", "basis": "explicit", "confidence": 0.99}
+    ]
+  },
+  "guidance": {
+    "principles": [
+      {"text": "本构选择需要同时考虑材料与损伤预期", "basis": "explicit", "confidence": 0.99}
+    ],
+    "decision_rules": [
+      {
+        "when": [{"text": "预期主要关注断裂行为", "basis": "explicit", "confidence": 0.9}],
+        "then": [{"text": "选择或校核适用于断裂场景的本构", "basis": "inferred", "confidence": 0.8}],
+        "because": [{"text": "断裂与拉伸使用的本构不同", "basis": "explicit", "confidence": 0.98}]
+      }
+    ],
+    "steps": [
+      {"text": "确认材料类型", "basis": "inferred", "confidence": 0.8},
+      {"text": "确认预期损伤模式", "basis": "inferred", "confidence": 0.8},
+      {"text": "据此选择并校核本构", "basis": "inferred", "confidence": 0.8}
+    ],
+    "avoid": [
+      {"text": "不区分断裂与拉伸场景直接复用同一本构", "basis": "inferred", "confidence": 0.82}
+    ]
+  },
+  "applicability": {
+    "conditions": [{"text": "正在进行涉及材料响应的仿真", "basis": "inferred", "confidence": 0.75}],
+    "prerequisites": [{"text": "材料和预期损伤模式能够被识别", "basis": "inferred", "confidence": 0.72}],
+    "exceptions": [],
+    "boundaries": [{"text": "原文没有给出具体本构名称或参数", "basis": "inferred", "confidence": 0.95}]
+  },
+  "outcome": {
+    "expected": [{"text": "本构与材料和损伤预期相匹配", "basis": "inferred", "confidence": 0.82}],
+    "success_signals": [],
+    "failure_signals": [{"text": "模型无法合理描述目标损伤模式", "basis": "inferred", "confidence": 0.65}]
+  },
+  "evidence": {
+    "observations": [{"text": "人类明确指出断裂与拉伸所用本构不同", "basis": "explicit", "confidence": 0.99}],
+    "counterexamples": [],
+    "validation_methods": [],
+    "confidence": 0.94
+  },
+  "indexing": {
+    "domains": ["工程仿真", "材料力学"],
+    "tasks": ["本构选择", "材料建模"],
+    "tags": ["本构模型", "材料", "损伤", "断裂", "拉伸"],
+    "aliases": ["材料模型选择"],
+    "cross_domain_links": ["有限元分析", "失效分析"]
+  },
+  "knowledge_gaps": [
+    {"question": "具体材料、载荷条件和目标损伤模式是什么？", "why_needed": "用于进一步确定可选本构及其参数标定方法"},
+    {"question": "如何验证所选本构能够描述目标响应？", "why_needed": "原文没有提供验证标准"}
+  ]
+}
