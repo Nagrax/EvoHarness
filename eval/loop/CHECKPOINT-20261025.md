@@ -4812,3 +4812,53 @@ if rule not in {"silent-except", "silent-except-return-none"}:  # list in set ->
 - 但 gate 报 `ok: false`，原因 `sourceDigest 在门禁期间变化`
 - **已验证测试不修改受控目录**（pytest 前后 `git status` 均为 562 项、0 变化）
 - → digest 变化的来源在 gate 侧，**尚未定位**，不把这次算作"门禁通过"
+
+## 142. 第一百二十五轮（2026-11-01）：`sourceDigest` 变化的**根因已定位**
+
+**现象**（上轮遗留）：gate 报 `ok: false`，原因 `sourceDigest 在门禁期间变化`，
+但测试全过（1178 / 1176 passed / 0 failed）。
+
+**定位过程（手动复算 digest）**：
+```
+controlled files: 678
+pytest exit: 0
+changed: 2
+  M eval/loop/BACKLOG.json
+  M eval/loop/BACKLOG.json.bak-before-triage-mark
+```
+
+**根因**：`CONTROLLED_DIRS` 含 `eval/`（只排除 `eval/runs` 与 `eval/data`），
+而 `eval/loop/BACKLOG.json` 在受控范围内。测试运行时它被追加了一条事件：
+```
+content equal: False
+  key events: list 181 -> 182
+  status-changed items: 0    ← items 状态零变化
+  added items: 0
+```
+
+**→ 变化是「追加 1 条审计事件」，对台账语义无害**（0 个状态变化、0 个新增条目）。
+
+**为什么之前 `git status` 看不到**：`.bak-before-triage-mark` 被 gitignore；
+`BACKLOG.json` 的差异只有一行事件，而我当时用的是 `git status --porcelain`
+看"是否有改动"，被既有的大量 `M`/`??` 淹没了。
+
+**定位过程中的三次误判（记下来）**：
+1. 以为是 `test_collect_*` 调了 `loop.py collect` → 实际它们只做 **AST 分析**，不执行
+2. 以为是 `test_backlog_schema` 之类直接写台账 → 单独跑 10 个候选，**digest 全不变**
+3. 以为是 `test_triage_file.py:79` 的 `record.save()` → 那是**测试样本源码的文本**
+   （写在 `tmp_path` 的文件里，作为"待分类样本"），不是真的调用
+
+**为什么难查**：这是**顺序依赖**——单独跑任何测试都不触发，只有全量跑才出现。
+
+**当前状态（如实）**：
+- **测试全过**（1178 / 1176 passed / 0 failed，双编码一致）
+- gate 仍报 `ok: false`（digest 变了）
+- 变化已确认**无害**（只追加事件），但**没有修**：
+  正确修法应该是让 gate 的 `excluded()` 排除运行时台账（`eval/loop/BACKLOG.json`），
+  或让那个追加事件的地方在测试环境下不落盘——**两者都需要动台账工具或逐个测试隔离，
+  本轮未做**。
+
+**下次接手的人该知道的**：
+- 别再用"git status 有没有变化"判断是否有写入——**用内容 hash**
+- `eval/loop/BACKLOG.json` 是**运行时状态**，不是源码；把它算进 sourceDigest
+  会让每次闭环事件都改变 digest
