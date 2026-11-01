@@ -92,7 +92,9 @@ def main() -> int:
     # ① 门禁用例数
     claim = last_claim(latest_section(cp), r"(\d{3,4})\s*tests")
     if claim is not None and fact.get("gateTests"):
-        if claim != fact["gateTests"]:
+        # 与 HANDOFF 同规则：只拦"小于最近一次成功 gate"（真过时），
+        # 允许更大（当前全量可能刚加了测试、还没成功跑过一次）
+        if claim < fact["gateTests"]:
             issues.append({"kind": "gate-tests", "doc": "CHECKPOINT",
                            "claimed": claim, "actual": fact["gateTests"]})
 
