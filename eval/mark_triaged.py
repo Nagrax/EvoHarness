@@ -14,6 +14,28 @@ import shutil
 from pathlib import Path
 
 REPO = Path(r"D:/claudecode/EvoHarness")
+def _is_under_test() -> bool:
+    """当前是否在 pytest 运行时。
+
+    pytest 会设置 `PYTEST_CURRENT_TEST`。用它比检查调用栈便宜且可靠。
+    """
+    import os
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def _is_real_ledger(path: Path) -> bool:
+    """BACKLOG 是否指向仓库内的真实台账（而非测试 patch 的 tmp_path）。"""
+    try:
+        return str(path.resolve()).startswith(str(REPO.resolve()))
+    except OSError:
+        return False
+
+
+def _write_allowed(path: Path) -> bool:
+    """测试环境 + 真实台账 → 禁止落盘（防污染生产数据）。"""
+    return not (_is_under_test() and _is_real_ledger(path))
+
+
 BACKLOG = REPO / "eval" / "loop" / "BACKLOG.json"
 
 # 文件 → 已判读的"合理保留"理由（按 2026-10-29 逐处读码结论）
@@ -114,6 +136,8 @@ def main() -> int:
             item["closedReason"] = "reasonable-defense"
             item["note"] = reason
 
+    if not _write_allowed(BACKLOG):
+        raise SystemExit(0)  # 测试环境不写生产台账
     BACKLOG.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
                        encoding="utf-8")
 

@@ -54,7 +54,31 @@ def load() -> dict:
     return json.loads(BACKLOG.read_text(encoding="utf-8"))
 
 
+def _is_under_test() -> bool:
+    """当前是否在 pytest 运行时。
+
+    pytest 会设置 `PYTEST_CURRENT_TEST`。用它比检查调用栈便宜且可靠。
+    """
+    import os
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def _is_real_ledger(path: Path) -> bool:
+    """BACKLOG 是否指向仓库内的真实台账（而非测试 patch 的 tmp_path）。"""
+    try:
+        return str(path.resolve()).startswith(str(REPO.resolve()))
+    except OSError:
+        return False
+
+
+def _write_allowed(path: Path) -> bool:
+    """测试环境 + 真实台账 → 禁止落盘（防污染生产数据）。"""
+    return not (_is_under_test() and _is_real_ledger(path))
+
+
 def save(state: dict) -> None:
+    if not _write_allowed(BACKLOG):
+        return  # 测试环境不写生产台账（否则会改 sourceDigest）
     HOME.mkdir(parents=True, exist_ok=True)
     # 状态一致性：带终态 closedReason 的项必须是 done。
     # 它们没有"待处理位置"，停在 pending 只会反复占用排期（2026-10-29 实测：
