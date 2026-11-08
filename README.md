@@ -1,4 +1,8 @@
-# EvoHarness
+<p align="center">
+  <img src="logo.png" alt="EvoHarness" width="128" height="128">
+</p>
+
+<h1 align="center">EvoHarness</h1>
 
 **模型提出意图 · 运行时决定执行 · 进化要有证据**
 
