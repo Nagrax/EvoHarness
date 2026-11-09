@@ -353,10 +353,23 @@ def phase_adjudicate() -> dict:
     return out
 
 
+def should_approve_variant(
+    draft: dict, *, approved_clusters: set[str], cluster: str, budget: int
+) -> bool:
+    """变体批准覆盖：每簇最多批准一个非影子草稿，保证批准路径可复现。"""
+    return (
+        not draft.get("shadow")
+        and draft.get("mode") != "shadow"
+        and cluster not in approved_clusters
+        and len(approved_clusters) < budget
+    )
+
+
 def phase_variants(per_cluster: int = 2, reject: int = 2) -> dict:
     """变体问题：近义不应精确抬高；抽查批准/驳回路径。"""
     out = {"phase": "variants", "sent": 0, "shadowDrafts": 0, "approved": 0, "rejected": 0}
     rejected_done = 0
+    approved_clusters: set[str] = set()
     for item in CORPUS:
         for v in item["variants"][:per_cluster]:
             receipt = owner_send(v, "sim-v")
@@ -368,11 +381,17 @@ def phase_variants(per_cluster: int = 2, reject: int = 2) -> dict:
                 continue
             if draft["mode"] in ("shadow",) or draft.get("shadow"):
                 out["shadowDrafts"] += 1
-            # 变体批准会为同簇生成新候选（版本链练习）：每个簇只批第一条变体
-            if draft["id"] % 2 == 0 and out["approved"] < len(CORPUS):
+            if should_approve_variant(
+                draft,
+                approved_clusters=approved_clusters,
+                cluster=item["cluster"],
+                budget=len(CORPUS),
+            ):
                 owner_send(f"改 #{draft['id']} {item['gold']}", "sim-va")
                 status = wait_draft_status(draft["id"], ("sent", "failed", "rejected"))
-                out["approved"] += 1 if status == "sent" else 0
+                if status == "sent":
+                    out["approved"] += 1
+                    approved_clusters.add(item["cluster"])
             elif rejected_done < reject:
                 owner_send(f"驳回 #{draft['id']}", "sim-rj")
                 status = wait_draft_status(draft["id"], ("rejected", "sent"))

@@ -109,3 +109,15 @@ def test_adjudication_requires_correction_unless_candidate():
     assert si.adjudication_needs_correction({"status": "paused"}) is True
     assert si.adjudication_needs_correction({"status": "approved_auto"}) is True
     assert si.adjudication_needs_correction({"status": "candidate"}) is False
+
+
+def test_variant_approval_is_deterministic_and_skips_shadow():
+    assert si.should_approve_variant(
+        {"shadow": 0, "mode": "draft"}, approved_clusters=set(), cluster="a", budget=6
+    )
+    assert not si.should_approve_variant(
+        {"shadow": 1, "mode": "shadow"}, approved_clusters=set(), cluster="a", budget=6
+    )
+    assert not si.should_approve_variant(
+        {"shadow": 0, "mode": "draft"}, approved_clusters={"a"}, cluster="a", budget=6
+    )

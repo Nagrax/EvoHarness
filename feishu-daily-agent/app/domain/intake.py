@@ -90,6 +90,21 @@ def record_event(
     return True
 
 
+def mark_event_processed(
+    session: Session, *, event_id: str = "", message_id: str = ""
+) -> None:
+    """标记事件已处理；崩溃后重放据此只拾取真正未完成的收件事件。"""
+    stmt = select(InboxEvent).where(InboxEvent.processed_at.is_(None))
+    if event_id:
+        stmt = stmt.where(InboxEvent.event_id == event_id)
+    elif message_id:
+        stmt = stmt.where(InboxEvent.message_id == message_id)
+    else:
+        return
+    for event in session.scalars(stmt):
+        event.processed_at = utcnow()
+
+
 def _find_message(session: Session, tenant: str, message_id: str) -> Message | None:
     return session.scalar(
         select(Message).where(Message.tenant == tenant, Message.message_id == message_id)

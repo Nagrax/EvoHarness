@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     heartbeat_path: str = Field("data/heartbeat.json", alias="FEISHU_HEARTBEAT_PATH")
     heartbeat_stale_seconds: int = Field(300, alias="FEISHU_HEARTBEAT_STALE_SECONDS")
     outbox_backlog_alert_seconds: int = Field(900, alias="FEISHU_OUTBOX_BACKLOG_ALERT_SECONDS")
+    inbox_replay_enabled: bool = Field(True, alias="FEISHU_INBOX_REPLAY_ENABLED")
+    inbox_replay_window_seconds: int = Field(21600, alias="FEISHU_INBOX_REPLAY_WINDOW_SECONDS")
+    inbox_replay_interval_seconds: int = Field(60, alias="FEISHU_INBOX_REPLAY_INTERVAL_SECONDS")
 
     # ---- 测试隔离 ----
     test_mode: bool = Field(False, alias="FEISHU_TEST_MODE")

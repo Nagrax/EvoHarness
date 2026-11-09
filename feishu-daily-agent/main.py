@@ -47,7 +47,7 @@ def run_service() -> None:
     import lark_oapi as lark
 
     from app.handlers.card_callback import handle_card_action
-    from app.handlers.events import handle_message_event
+    from app.handlers.events import handle_message_event, start_replay_worker
 
     settings = get_settings()
     event_handler = (
@@ -58,6 +58,7 @@ def run_service() -> None:
         .build()
     )
     start_scheduler()
+    start_replay_worker()
     ws_client = lark.ws.Client(
         settings.feishu_app_id,
         settings.feishu_app_secret,
