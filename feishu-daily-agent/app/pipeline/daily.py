@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.database import session_scope
 from app.domain import admission, intake, reports
 from app.domain import outbox as outbox_module
+from app.domain import review as review_module
 from app.domain import tasks as tasks_module
 from app.feishu.transport import get_transport
 from app.models import Message, Source, SystemState
@@ -196,6 +197,7 @@ def run_daily_pipeline(
     summary = {"reports": [], "outbox": [], "sync": {}}
     try:
         with session_scope() as session:
+            summary["expiredDrafts"] = review_module.expire_stale_drafts(session, now=now)
             last = _last_report_date(session, settings.tenant_id, settings.feishu_owner_open_id)
             start = (last + timedelta(days=1)) if last else report_date
             # 已生成当天日报后仍要重算最近一天，才能吸收迟到消息/回执。

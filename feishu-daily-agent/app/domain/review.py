@@ -34,6 +34,29 @@ class ReviewError(ValueError):
     pass
 
 
+def expire_stale_drafts(
+    session: Session, *, now: datetime | None = None, ttl_hours: int | None = None
+) -> int:
+    """过期待批草稿按 DRAFT_TTL_HOURS 置为 superseded，避免待批无限堆积。"""
+    settings = get_settings()
+    now = now or utcnow()
+    ttl = settings.draft_ttl_hours if ttl_hours is None else ttl_hours
+    cutoff = now - timedelta(hours=max(1, int(ttl)))
+    drafts = session.scalars(
+        select(ReplyDraft).where(
+            ReplyDraft.status == DraftStatus.PENDING,
+            ReplyDraft.created_at < cutoff,
+        )
+    ).all()
+    for draft in drafts:
+        draft.status = DraftStatus.SUPERSEDED
+        draft.reviewed_at = now
+        note = f"ttl_expired:{ttl}h"
+        draft.note = f"{draft.note}；{note}" if draft.note else note
+    session.flush()
+    return len(drafts)
+
+
 @dataclass
 class ReviewOutcome:
     action: str
