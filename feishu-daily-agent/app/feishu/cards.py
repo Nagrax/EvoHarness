@@ -7,7 +7,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import List
 
 from sqlalchemy.orm import Session
@@ -247,6 +248,14 @@ def build_report_card(session: Session, report: DailyReport) -> dict:
     """
     settings = get_settings()
     content = json.loads(report.content_json or "{}")
+    date_label = str(content.get("date") or "")
+    try:
+        simulated = date.fromisoformat(date_label) > datetime.now(
+            ZoneInfo(settings.daily_report_timezone)
+        ).date()
+    except (ValueError, TypeError):
+        simulated = False
+    title_text = f"飞书日报 · {date_label}{'（模拟）' if simulated else ''}"
     limit = max(1, int(settings.daily_card_max_items or 6))
     max_bytes = max(4000, int(settings.daily_card_max_bytes or 24000))
     attempts = [limit]
@@ -258,7 +267,7 @@ def build_report_card(session: Session, report: DailyReport) -> dict:
         card = {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": f"飞书日报 · {content.get('date', '')}"},
+                "title": {"tag": "plain_text", "content": title_text},
                 "template": "blue",
             },
             "elements": [_md(summary_line)] + elements,

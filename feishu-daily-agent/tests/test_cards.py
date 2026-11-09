@@ -117,6 +117,28 @@ def test_small_report_keeps_all_items(settings):
     assert raw.count("#1") >= 3
 
 
+def test_future_report_title_marked_simulated(settings):
+    content = _large_content(count=1)
+    content["date"] = "2099-01-01"
+    with session_scope() as session:
+        report = _report(session, content)
+        card = build_report_card(session, report)
+        raw = json.dumps(card, ensure_ascii=False)
+    assert "飞书日报 · 2099-01-01（模拟）" in raw
+
+
+def test_today_report_title_not_marked_simulated(settings):
+    from datetime import date
+
+    content = _large_content(count=1)
+    content["date"] = date.today().isoformat()
+    with session_scope() as session:
+        report = _report(session, content)
+        card = build_report_card(session, report)
+        raw = json.dumps(card, ensure_ascii=False)
+    assert "（模拟）" not in raw
+
+
 def test_shadow_draft_has_observation_note_without_buttons(settings):
     content = _large_content(count=1)
     content["pending_replies"] = [
