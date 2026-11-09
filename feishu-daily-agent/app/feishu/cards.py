@@ -229,8 +229,10 @@ def _render_report_elements(
         elements.extend(_omitted(limit, len(gaps), "缺口"))
         elements.append({"tag": "hr"})
 
+    shadow_pending = int(summary.get("shadow_pending", 0) or 0)
+    shadow_part = f"｜影子 {shadow_pending}" if shadow_pending else ""
     summary_line = (
-        f"待办 {summary.get('tasks', 0)}｜待批 {summary.get('pending', 0)}"
+        f"待办 {summary.get('tasks', 0)}｜待批 {summary.get('pending', 0)}{shadow_part}"
         f"｜已发 {summary.get('sent', 0)}｜经验 {summary.get('experience_changes', 0)}"
         f"｜缺口 {summary.get('gaps', 0)}"
     )

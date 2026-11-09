@@ -253,7 +253,8 @@ def build_content(
     }
     content["summary"] = {
         "tasks": len(content["tasks"]),
-        "pending": len(content["pending_replies"]),
+        "pending": sum(1 for item in content["pending_replies"] if not item.get("shadow")),
+        "shadow_pending": sum(1 for item in content["pending_replies"] if item.get("shadow")),
         "sent": len(content["sent_replies"]),
         "experience_changes": len(content["experience_changes"]),
         "gaps": len(content["gaps"]),

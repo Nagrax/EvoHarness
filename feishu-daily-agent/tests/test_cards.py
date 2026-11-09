@@ -141,7 +141,8 @@ def test_shadow_draft_has_observation_note_without_buttons(settings):
             "shadow": False,
         },
     ]
-    content["summary"]["pending"] = 2
+    content["summary"]["pending"] = 1
+    content["summary"]["shadow_pending"] = 1
     with session_scope() as session:
         report = _report(session, content)
 
@@ -149,6 +150,7 @@ def test_shadow_draft_has_observation_note_without_buttons(settings):
         raw = json.dumps(card, ensure_ascii=False)
 
     assert "影子草稿：仅记录决策，不生成发送。" in raw
+    assert "待批 1｜影子 1" in raw
     assert raw.count('"content": "批准"') == 1
     assert '改 #901' not in raw
     assert '改 #902' in raw
