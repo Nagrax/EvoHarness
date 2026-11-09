@@ -685,21 +685,12 @@ def phase_auto(asks_per_cluster: int = 10) -> dict:
                 break
             time.sleep(5)
         eligible = sum(1 for value in exact_decisions if value == "auto_eligible")
-        # 等对应发送落库（最多 120s；达到 eligible 条即可）
+        # 等对应发送落库（最多 120s）：必须达到 eligible 条或超时，不能因计数暂时稳定就提前退出
         send_deadline = time.time() + 120
-        stable = 0
-        last_auto = -1
-        while time.time() < send_deadline:
+        while eligible > 0 and time.time() < send_deadline:
             cur = db_query("SELECT COUNT(*) c FROM outbox WHERE auto=1 AND status='sent'")[0]["c"]
             if cur >= before + eligible:
                 break
-            if cur == last_auto:
-                stable += 1
-                if stable >= 3:
-                    break
-            else:
-                stable = 0
-                last_auto = cur
             time.sleep(5)
         after = db_query("SELECT COUNT(*) c FROM outbox WHERE auto=1 AND status='sent'")[0]["c"]
         auto_sent = after - before

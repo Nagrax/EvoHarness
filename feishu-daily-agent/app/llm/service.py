@@ -15,8 +15,11 @@ from app.core.config import get_settings
 from app.llm.prompts import CLASSIFY_TEMPLATE, EXPERIENCE_TEMPLATE, TASK_EXTRACT_TEMPLATE, prompt_version
 from app.models import Category
 
-_QUESTION_RE = re.compile(r"(\?|？|吗|怎么|如何|为什么|能否|可不可以|请问|求助|怎么办)")
-_TASK_RE = re.compile(r"(请|麻烦|记得|需要|务必|截止|提交|完成|安排|跟进|确认一下|帮我)")
+_QUESTION_RE = re.compile(
+    r"(\?|？|吗|怎么|如何|为什么|能否|可不可以|请问|求助|怎么办|谁|哪|什么|流程|步骤|"
+    r"多久|多少|是否|有无|能不能|可以吗)"
+)
+_TASK_RE = re.compile(r"(请[帮我]|麻烦|记得|需要|务必|截止|提交|完成|安排|跟进|确认一下|帮我)")
 _NOTICE_RE = re.compile(r"(通知|公告|周知|同步一下|FYI|知会)")
 _DUE_RE = re.compile(
     r"(今天|明天|后天|本周[一二三四五六日天]|周[一二三四五六日天]|星期[一二三四五六日天]|"
