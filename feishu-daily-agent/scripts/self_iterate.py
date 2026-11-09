@@ -814,8 +814,27 @@ def phase_stats() -> dict:
         stats = json.loads((r.stdout or "{}"))
     except ValueError:
         stats = {"error": (r.stderr or "")[-300:]}
+    try:
+        audit = db_query(
+            "SELECT COUNT(*) total, "
+            "SUM(CASE WHEN rd.reason_codes LIKE '%exact_pattern_match%' THEN 1 ELSE 0 END) matched "
+            "FROM outbox o LEFT JOIN reply_drafts d ON d.sent_message_id=o.receipt_message_id "
+            "LEFT JOIN reply_decisions rd ON rd.message_id=d.message_id "
+            "WHERE o.auto=1 AND o.status='sent' AND o.created_at>=?",
+            ("2026-11-08 13:01:00",),
+        )[0]
+        total = int(audit["total"] or 0)
+        matched = int(audit["matched"] or 0)
+        stats["autoAudit"] = {
+            "since": "2026-11-08 13:01:00",
+            "total": total,
+            "exact": matched,
+            "nonExact": total - matched,
+        }
+    except Exception as exc:  # noqa: BLE001
+        stats["autoAudit"] = {"error": f"{type(exc).__name__}: {exc}"[:160]}
     append_history({"phase": "stats", "stats": stats})
-    log(f"stats: verdict={stats.get('verdict')} sample={stats.get('precisionSample')}")
+    log(f"stats: verdict={stats.get('verdict')} sample={stats.get('precisionSample')} audit={stats.get('autoAudit')}")
     return stats
 
 
