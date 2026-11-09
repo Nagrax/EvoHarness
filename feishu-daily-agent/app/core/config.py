@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     inbox_replay_window_seconds: int = Field(21600, alias="FEISHU_INBOX_REPLAY_WINDOW_SECONDS")
     inbox_replay_interval_seconds: int = Field(60, alias="FEISHU_INBOX_REPLAY_INTERVAL_SECONDS")
     inbox_replay_batch: int = Field(50, alias="FEISHU_INBOX_REPLAY_BATCH")
+    inbox_backlog_alert: int = Field(1000, alias="FEISHU_INBOX_BACKLOG_ALERT")
 
     # ---- 测试隔离 ----
     test_mode: bool = Field(False, alias="FEISHU_TEST_MODE")

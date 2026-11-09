@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.clock import current_logical_date, utcnow
 from app.core.config import get_settings
-from app.models import Outbox, OutboxStatus, Source, SourceSync, SystemState
+from app.models import InboxEvent, Outbox, OutboxStatus, Source, SourceSync, SystemState
 
 
 def heartbeat(job: str, payload: dict[str, Any] | None = None) -> None:
@@ -91,6 +91,17 @@ def probe(session: Session, *, now: datetime | None = None) -> HealthReport:
     details["oldestBacklog"] = backlog.isoformat() if backlog else None
     if backlog is not None and (now - backlog).total_seconds() > settings.outbox_backlog_alert_seconds:
         issues.append("outbox_backlog")
+
+    unprocessed = session.scalar(
+        select(func.count(InboxEvent.id)).where(
+            InboxEvent.processed_at.is_(None),
+            InboxEvent.received_at >= now - timedelta(seconds=settings.inbox_replay_window_seconds),
+        )
+    )
+    inbox_unprocessed = int(unprocessed or 0)
+    details["inboxUnprocessedRecent"] = inbox_unprocessed
+    if inbox_unprocessed > max(0, settings.inbox_backlog_alert):
+        issues.append("inbox_replay_backlog")
 
     for source in session.scalars(select(Source)):
         if source.revoked_at is not None:

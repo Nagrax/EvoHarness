@@ -40,3 +40,20 @@ def test_health_detects_backlog():
         report = health.probe(session)
         assert not report.ok
         assert "outbox_backlog" in report.issues
+
+
+def test_health_detects_inbox_replay_backlog(settings, monkeypatch):
+    from app.domain import intake
+
+    health.heartbeat("worker", {"status": "ok"})
+    health.heartbeat("daily", {"status": "ok"})
+    with session_scope() as session:
+        intake.record_event(
+            session, tenant="default", event_id="evt-health",
+            event_type="im.message.receive_v1", message_id="om_health", payload="x",
+        )
+    monkeypatch.setattr(settings, "inbox_backlog_alert", 0)
+    with session_scope() as session:
+        report = health.probe(session)
+        assert "inbox_replay_backlog" in report.issues
+        assert report.details["inboxUnprocessedRecent"] >= 1

@@ -378,6 +378,7 @@ def phase_variants(per_cluster: int = 2, reject: int = 2) -> dict:
             out["sent"] += 1
             draft = wait_for_draft(receipt)
             if not draft:
+                out["missingDrafts"] = int(out.get("missingDrafts", 0)) + 1
                 continue
             if draft["mode"] in ("shadow",) or draft.get("shadow"):
                 out["shadowDrafts"] += 1
