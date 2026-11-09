@@ -134,6 +134,8 @@ def refresh_token_if_needed() -> None:
         if body.get("refresh_token"):
             data["refresh_token"] = body["refresh_token"]
         data["refreshedAt"] = "self-iterate"
+        # 续期后 access_token 的寿命重新开始；不同步 renewedAt 会让下一轮误判过期。
+        data["renewedAt"] = time.strftime("%Y-%m-%dT%H:%M:%S+0800")
         TOKEN_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
         log("token refreshed")
     else:
@@ -931,6 +933,9 @@ def _token_age_minutes() -> float | None:
 
 
 def _main_locked(args, phases) -> int:
+    # 先用 refresh_token 续期（成功后 renewedAt 重置），再做寿命检查；
+    # 只有 refresh 也救不回来时才落 TOKEN_EXPIRED 交给 IAB 续期。
+    refresh_token_if_needed()
     age = _token_age_minutes()
     if age is not None and age > 110:
         # 预防性早退：2 小时寿命余量不足一轮（20-50 分钟），先续期再跑，
@@ -942,7 +947,6 @@ def _main_locked(args, phases) -> int:
                        ensure_ascii=False), encoding="utf-8")
         log(f"token age {age:.0f}min — preflight abort, TOKEN_EXPIRED marker written")
         return 3
-    refresh_token_if_needed()
     # 引擎启动时重置 WS 连接（实机发现：连接约 1 小时后事件可能分钟级迟到）。
     # 运维已单独重启/确认服务健康时可跳过，避免启动瞬间再次杀服务。
     if os.environ.get("FEISHU_SKIP_SERVICE_RESTART") != "1":

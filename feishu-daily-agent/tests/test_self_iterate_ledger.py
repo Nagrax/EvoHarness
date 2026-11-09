@@ -122,6 +122,30 @@ def test_needs_reactivation_only_for_paused():
     assert si.needs_reactivation(None) is False
 
 
+def test_refresh_token_resets_age(tmp_path, monkeypatch):
+    token = tmp_path / "token.json"
+    token.write_text(
+        json.dumps({"access_token": "old", "refresh_token": "r1"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(si, "TOKEN_FILE", token)
+    monkeypatch.setattr(
+        si, "ENVV", {"FEISHU_APP_ID": "app", "FEISHU_APP_SECRET": "secret"}
+    )
+
+    class Response:
+        def json(self):
+            return {"data": {"access_token": "new", "refresh_token": "r2"}}
+
+    monkeypatch.setattr(si.requests, "post", lambda *args, **kwargs: Response())
+
+    si.refresh_token_if_needed()
+
+    data = json.loads(token.read_text(encoding="utf-8"))
+    assert data["access_token"] == "new"
+    assert data["refresh_token"] == "r2"
+    assert "renewedAt" in data
+
+
 def test_variant_approval_is_deterministic_and_skips_shadow():
     assert si.should_approve_variant(
         {"shadow": 0, "mode": "draft"}, approved_clusters=set(), cluster="a", budget=6
