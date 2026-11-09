@@ -407,7 +407,7 @@ def phase_variants(per_cluster: int = 2, reject: int = 2) -> dict:
                 if status == "sent":
                     out["approved"] += 1
                     approved_clusters.add(item["cluster"])
-            elif rejected_done < reject:
+            elif not draft.get("shadow") and rejected_done < reject:
                 owner_send(f"驳回 #{draft['id']}", "sim-rj")
                 status = wait_draft_status(draft["id"], ("rejected", "sent"))
                 out["rejected"] += 1 if status == "rejected" else 0
