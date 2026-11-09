@@ -158,7 +158,7 @@ def start_replay_worker() -> None:
             try:
                 replayed = replay_recent_questions(
                     window_seconds=settings.inbox_replay_window_seconds,
-                    limit=10,
+                    limit=max(1, settings.inbox_replay_batch),
                 )
                 if replayed:
                     logger.info("收件箱重放完成: %s 条", replayed)
