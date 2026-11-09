@@ -1,0 +1,7 @@
+{
+  "kind": "stale-source-proof",
+  "before": "793a20c63cabcddb97abcca1b49785338024324b59597d3a9a26761284741135",
+  "after": "18e3779b62c9d9929f59aa50dec7a37527101beca3e5f9fdc9f99cfea73e80e5",
+  "changed": true,
+  "note": "修改隔离副本 feishu-daily-agent/app/domain/policy.py 后 sourceDigest 变化；state.mjs finish 会拒绝 stale_source"
+}

@@ -1,0 +1,10 @@
+services:
+  feishu-daily-agent:
+    build: .
+    image: feishu-daily-agent:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # 持久化 SQLite 数据库，容器重建不丢经验
+      - ./data:/app/data

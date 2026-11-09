@@ -1,0 +1,12 @@
+{
+  "ok": false,
+  "blocked": "missing_credentials",
+  "required": [
+    "FEISHU_APP_ID",
+    "FEISHU_APP_SECRET",
+    "FEISHU_OWNER_OPEN_ID",
+    "应用 scope: im:message, im:message:send_as_bot, im:chat:readonly",
+    "可读测试群/机器人私聊；写探针需显式 --target"
+  ],
+  "at": "2026-11-06T16:16:38.593774"
+}

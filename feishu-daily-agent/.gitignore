@@ -1,0 +1,11 @@
+.env
+data/*.db
+data/*.db-journal
+data/agent.db.bak-*
+data/heartbeat.json
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+*.log

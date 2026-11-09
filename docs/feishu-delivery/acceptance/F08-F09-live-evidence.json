@@ -1,0 +1,281 @@
+{
+  "captured_at": "2026-11-07T17:37:40+08:00",
+  "note": "脱敏摘要；原始消息正文、凭据与日志不入仓库",
+  "messages": {
+    "count": 6,
+    "categories": [
+      {
+        "category": "question",
+        "n": 5
+      },
+      {
+        "category": "task",
+        "n": 1
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": 1,
+      "status": "done",
+      "needs_confirmation": 0
+    }
+  ],
+  "drafts": [
+    {
+      "id": 1,
+      "message_id": "om_x100b...d223",
+      "experience_id": null,
+      "score": 0.0,
+      "mode": "draft",
+      "status": "sent",
+      "shadow": 0
+    },
+    {
+      "id": 2,
+      "message_id": "om_x100b...e42e",
+      "experience_id": 1,
+      "score": 0.2900995688589387,
+      "mode": "shadow",
+      "status": "pending",
+      "shadow": 1
+    },
+    {
+      "id": 3,
+      "message_id": "om_x100b...a699",
+      "experience_id": 2,
+      "score": 0.2900995688589387,
+      "mode": "auto",
+      "status": "sent",
+      "shadow": 0
+    },
+    {
+      "id": 4,
+      "message_id": "om_x100b...3353",
+      "experience_id": 1,
+      "score": 0.2900995688589387,
+      "mode": "shadow",
+      "status": "pending",
+      "shadow": 1
+    },
+    {
+      "id": 5,
+      "message_id": "om_x100b...b4b5",
+      "experience_id": 1,
+      "score": 0.14504978442946934,
+      "mode": "shadow",
+      "status": "pending",
+      "shadow": 1
+    }
+  ],
+  "outbox": [
+    {
+      "id": 1,
+      "kind": "daily",
+      "status": "sent",
+      "auto": 0,
+      "receipt_message_id": "om_x100b...1840",
+      "attempts": 1
+    },
+    {
+      "id": 2,
+      "kind": "reply",
+      "status": "sent",
+      "auto": 0,
+      "receipt_message_id": "om_x100b...f632",
+      "attempts": 1
+    },
+    {
+      "id": 3,
+      "kind": "daily",
+      "status": "sent",
+      "auto": 0,
+      "receipt_message_id": "om_x100b...ba5e",
+      "attempts": 1
+    },
+    {
+      "id": 4,
+      "kind": "reply",
+      "status": "sent",
+      "auto": 1,
+      "receipt_message_id": "om_x100b...a7ec",
+      "attempts": 1
+    },
+    {
+      "id": 5,
+      "kind": "notice",
+      "status": "sent",
+      "auto": 0,
+      "receipt_message_id": "om_x100b...1f66",
+      "attempts": 1
+    },
+    {
+      "id": 6,
+      "kind": "notice",
+      "status": "sent",
+      "auto": 0,
+      "receipt_message_id": "om_x100b...95e6",
+      "attempts": 1
+    },
+    {
+      "id": 7,
+      "kind": "daily",
+      "status": "sent",
+      "auto": 0,
+      "receipt_message_id": "om_x100b...c679",
+      "attempts": 1
+    }
+  ],
+  "decisions": [
+    {
+      "id": 1,
+      "decision": "draft_only",
+      "reason_codes": "[\"no_active_experience\", \"no_experience\"]",
+      "experience_id": null,
+      "similarity": 0.0
+    },
+    {
+      "id": 2,
+      "decision": "needs_review",
+      "reason_codes": "[\"retrieval:evoharness-bm25\", \"below_draft_threshold\", \"private_experience_manual\", \"below_auto_threshold\", \"auto_reply_disabled\", \"mode_not_whitelist_auto\"]",
+      "experience_id": 1,
+      "similarity": 0.2900995688589387
+    },
+    {
+      "id": 3,
+      "decision": "auto_eligible",
+      "reason_codes": "[\"retrieval:evoharness-bm25\", \"all_hard_gates_passed\"]",
+      "experience_id": 2,
+      "similarity": 0.2900995688589387
+    },
+    {
+      "id": 4,
+      "decision": "needs_review",
+      "reason_codes": "[\"retrieval:evoharness-bm25\", \"below_draft_threshold\", \"private_experience_manual\", \"below_auto_threshold\", \"auto_reply_disabled\", \"mode_not_whitelist_auto\"]",
+      "experience_id": 1,
+      "similarity": 0.2900995688589387
+    },
+    {
+      "id": 5,
+      "decision": "needs_review",
+      "reason_codes": "[\"retrieval:evoharness-bm25\", \"below_draft_threshold\", \"private_experience_manual\", \"below_auto_threshold\", \"stale_trigger\", \"auto_reply_disabled\", \"mode_not_whitelist_auto\"]",
+      "experience_id": 1,
+      "similarity": 0.14504978442946934
+    }
+  ],
+  "experiences": [
+    {
+      "id": 1,
+      "version": 1,
+      "status": "superseded",
+      "visibility": "private",
+      "hit_count": 3,
+      "auto_reply_count": 0
+    },
+    {
+      "id": 2,
+      "version": 2,
+      "status": "paused",
+      "visibility": "public",
+      "hit_count": 1,
+      "auto_reply_count": 1
+    },
+    {
+      "id": 3,
+      "version": 3,
+      "status": "approved_auto",
+      "visibility": "private",
+      "hit_count": 0,
+      "auto_reply_count": 0
+    }
+  ],
+  "review_logs": [
+    {
+      "id": 1,
+      "action": "approve",
+      "target_type": "draft",
+      "target_id": "1",
+      "detail": "outbox:2"
+    },
+    {
+      "id": 2,
+      "action": "complete_task",
+      "target_type": "task",
+      "target_id": "1",
+      "detail": ""
+    },
+    {
+      "id": 3,
+      "action": "verify_experience",
+      "target_type": "experience",
+      "target_id": "1",
+      "detail": "v1"
+    }
+  ],
+  "experience_events": [
+    {
+      "id": 1,
+      "experience_id": 1,
+      "action": "candidate",
+      "detail": "owner 批准回复后沉淀候选"
+    },
+    {
+      "id": 2,
+      "experience_id": 1,
+      "action": "publish",
+      "detail": "owner 验证"
+    },
+    {
+      "id": 3,
+      "experience_id": 2,
+      "action": "candidate",
+      "detail": "受限自动回复冒烟：owner 验证后公开版本"
+    },
+    {
+      "id": 4,
+      "experience_id": 1,
+      "action": "superseded",
+      "detail": "由版本 v2 取代"
+    },
+    {
+      "id": 5,
+      "experience_id": 2,
+      "action": "publish",
+      "detail": "冒烟验证"
+    },
+    {
+      "id": 6,
+      "experience_id": 1,
+      "action": "rollback",
+      "detail": "冒烟结束回退到私聊经验"
+    },
+    {
+      "id": 7,
+      "experience_id": 3,
+      "action": "candidate",
+      "detail": "owner 指令纠正"
+    },
+    {
+      "id": 8,
+      "experience_id": 1,
+      "action": "superseded",
+      "detail": "由版本 v3 取代"
+    },
+    {
+      "id": 9,
+      "experience_id": 3,
+      "action": "publish",
+      "detail": "owner 指令"
+    }
+  ],
+  "sources": [
+    {
+      "id": 1,
+      "chat_id": "oc_d1723...94d4",
+      "owner": "ou_ce9c2...2dc8",
+      "source_type": "p2p",
+      "coverage_status": "complete",
+      "reply_allowed": 1
+    }
+  ]
+}

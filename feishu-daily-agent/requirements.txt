@@ -1,0 +1,21 @@
+# 飞书官方 SDK（含 WebSocket 长连接、事件、卡片回调、消息 API）
+lark-oapi>=1.4.0
+
+# LLM / Embedding（OpenAI 兼容协议，可接 DeepSeek、豆包、通义等国内服务）
+openai>=1.40.0
+
+# 存储与定时任务
+SQLAlchemy>=2.0.30
+APScheduler>=3.10.4
+
+# 配置
+pydantic>=2.8.0
+pydantic-settings>=2.3.0
+python-dotenv>=1.0.1
+
+# 语义匹配
+numpy>=1.26.0
+jieba>=0.42.1
+
+# 时区
+tzdata>=2024.1

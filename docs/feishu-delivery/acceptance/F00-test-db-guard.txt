@@ -1,0 +1,1 @@
+BLOCKED: 测试模式禁止连接业务数据库；请把 DATABASE_URL 指向系统临时目录或 :memory:。

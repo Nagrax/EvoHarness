@@ -1,0 +1,194 @@
+{
+  "version": 1,
+  "repo": "D:/claudecode/EvoHarness",
+  "sourceDate": "2026-11-06",
+  "originalRoadmap": "docs/FEISHU-DELIVERY-PLAYBOOK.md",
+  "tasks": [
+    {
+      "id": "F00",
+      "title": "冻结原型基线并接通飞书门禁",
+      "priority": "P0",
+      "kind": "offline",
+      "required": true,
+      "dependsOn": [],
+      "entry": ["docs/CLOSED-LOOP-TAKEOVER.md", "feishu-daily-agent/tests", "eval/loop_source_health.py", "eval/tool_reachability.py"],
+      "implementation": "隔离工作树和测试数据，登记现有差异。复核健康检查红灯和已有测试，建立带飞书源码摘要、子门禁及原双编码门禁的运行根。给 F01 准备测试身份、探针清单和脱敏记录模板。",
+      "acceptance": [
+        "冻结原型与 EvoHarness 测试节点、依赖和摘要，分别记录真实失败及跳过原因，证明测试无法连接运行中的业务库",
+        "复现 source-health 与 reachability 红灯，修复检查器真实故障或给诊断脚本补不调用外部服务的可达性探针，记录其适用条件",
+        "飞书负例可阻断聚合门禁，飞书源码变化触发 stale-source，两套节点均有新鲜可复验产物",
+        "原飞书测试缺陷保留复现与工单，先完成安全隔离。F00 验收用完整的聚合门禁，失败按阻塞原因处理"
+      ]
+    },
+    {
+      "id": "F01",
+      "title": "验证飞书读取覆盖与发送身份",
+      "priority": "P0",
+      "kind": "live",
+      "required": true,
+      "dependsOn": ["F00"],
+      "entry": ["feishu-daily-agent/FEISHU_APP_SETUP.md", "feishu-daily-agent/app/feishu/messages.py"],
+      "implementation": "使用经批准的测试账号、群、机器人及授权应用分别探测读与写，登记用户私聊会话 ID 发现方法、群话题和 OAuth 生命周期。先确认测试发送目标和身份。",
+      "acceptance": [
+        "有脱敏的来源能力矩阵和探针日志，区分机器人私聊、群聊、话题和用户授权自然人单聊的事件及历史覆盖",
+        "至少验证机器人私聊、白名单测试群与日报 owner 可达，原消息回复身份及线程位置正确",
+        "拿不到权限的范围在矩阵与最终验收中单列，能复验错误码和缺口。若连最小机器人范围都不具备则 block",
+        "记录每个发送接口的幂等契约及超时对账方案"
+      ]
+    },
+    {
+      "id": "F02",
+      "title": "持久接收、历史补采与覆盖对账",
+      "priority": "P0",
+      "kind": "offline",
+      "required": true,
+      "dependsOn": ["F00"],
+      "entry": ["feishu-daily-agent/app/handlers/events.py", "feishu-daily-agent/app/feishu/messages.py", "feishu-daily-agent/app/core/database.py"],
+      "implementation": "收敛实时与历史的准入和消息契约，实现 inbox、来源水位、会话登记、编辑撤回、显式时区与旧库迁移。先使用 fake provider，再依据 F01 接通真实适配器。",
+      "acceptance": [
+        "断进程、重扫重叠分页、事件重放、两个入口同时收到、补采晚到均可恢复且每条消息只生效一次",
+        "空名单、未知身份、错误 @、越权、撤回、分页缺失与话题有可重复用例",
+        "事件确认前数据已持久化，读权限撤销及时停止采集和向模型提供内容，覆盖状态可供日报读取",
+        "旧库副本可迁移、可备份恢复，迁移重入不会重复改变数据"
+      ]
+    },
+    {
+      "id": "F03",
+      "title": "Owner 批示、发送 outbox 与回执恢复",
+      "priority": "P0",
+      "kind": "offline",
+      "required": true,
+      "dependsOn": ["F02"],
+      "entry": ["feishu-daily-agent/app/handlers/card_callback.py", "feishu-daily-agent/app/handlers/commands.py", "feishu-daily-agent/app/services/reply_engine.py"],
+      "implementation": "把审批事件和发送意图同事务落盘，统一回复与日报投递入口。实现可信 operator、版本绑定、退避、租约、隔离、对账与控制开关。",
+      "acceptance": [
+        "伪造 operator、跨租户、旧卡、并发批准与驳回、回放和版本变化不能重复发信或变更批准内容",
+        "事务回滚无外部副作用，提交后宕机可继续，外部成功但本地崩溃时同键安全恢复或进 delivery_unknown",
+        "暂停或撤权后的待发任务执行前重新检查，429 和永久错误分开，只有真实回执可显示已发送",
+        "日报与回复使用不同稳定意图键，回执未知可操作地列出且不盲重发"
+      ]
+    },
+    {
+      "id": "F04",
+      "title": "任务生命周期与可批示日报",
+      "priority": "P0",
+      "kind": "offline",
+      "required": true,
+      "dependsOn": ["F03"],
+      "entry": ["feishu-daily-agent/app/pipeline/daily.py", "feishu-daily-agent/app/pipeline/scheduler.py", "feishu-daily-agent/app/feishu/cards.py"],
+      "implementation": "同话题归并并提取带来源的任务，跨天管理状态，生成同日可复算的日报。加入待批回复、已发回执、经验操作与采集缺口摘要。",
+      "acceptance": [
+        "任务变更、取消、跨天延续、完成和重开有来源证据，归属不明显示待确认",
+        "上海逻辑日边界、停机补跑、重复执行、迟到补记与模型失败都可回放",
+        "从测试日报完成任务并修改批准草稿，模拟飞书卡片显示送达状态。一个日窗口只产生一个主日报投递意图"
+      ]
+    },
+    {
+      "id": "F05",
+      "title": "沉淀版本化 FAQ 并连接 EvoHarness",
+      "priority": "P0",
+      "kind": "offline",
+      "required": true,
+      "dependsOn": ["F04"],
+      "entry": ["feishu-daily-agent/app/memory/experience.py", "agents/skills.py", "agents/online_skill_evolution.py", "agents/skill_tiers.py"],
+      "implementation": "从可信问答归并问题簇，做受众约束、来源、负例、证据及版本。连通核心模型/检索接口，隔离普通 Skill。接入一次回复与经验发布两个独立动作。",
+      "acceptance": [
+        "同义问题命中适用解法，近似异意图和跨群受众被拒绝，公开回答与私人内容隔离",
+        "批改一条已发回复可生成候选，历史回执保持可查，验证新版本与回退路径可重复",
+        "撤回来源、过期或停用同步影响索引与待发；生成、检索和版本状态在证据中可关联",
+        "至少一条集成测试证明实际走 EvoHarness 能力及受控数据接口"
+      ]
+    },
+    {
+      "id": "F06",
+      "title": "自动回复硬门、影子模式和急停",
+      "priority": "P0",
+      "kind": "offline",
+      "required": true,
+      "dependsOn": ["F05"],
+      "entry": ["feishu-daily-agent/app/services/reply_engine.py", "feishu-daily-agent/app/core/config.py"],
+      "implementation": "上线纯策略判定、版本冻结、许可类别与模板、时间限制、限额、急停与影子模式。模型只提供结构化证据和草稿。",
+      "acceptance": [
+        "任一许可或内容安全条件不满足均不发，对越权、prompt injection、机器人回声、过期内容和高分异意图有负例",
+        "离线通过完整日报、批准、下一次相似问题自动回复、批示修订和降级链",
+        "记录为什么发或不发以及谁放行，影子请求在传输层零业务发送"
+      ]
+    },
+    {
+      "id": "F07",
+      "title": "黄金回放、硬门与现有评测接线",
+      "priority": "P0",
+      "kind": "offline",
+      "required": true,
+      "dependsOn": ["F06"],
+      "entry": ["eval/loop.py", "eval/loop_autorun.py", "eval/loop_source_health.py", "eval/loop/README.md"],
+      "implementation": "冻结合成及已许可脱敏黄金集、评测口径和版本。接入业务评测信号与自检，比较原型、无经验、候选和已批准经验。",
+      "acceptance": [
+        "数据按会话、问题簇和时间分组隔离，case 级证据、分母、错误和收益可复算",
+        "硬安全、重启、回执、待办质量、版本与来源覆盖满足指南验收，对不足项明确失败",
+        "注入一个缺陷可产出 finding 并通过原 triage/修复/复测链关闭；缺产物、旧产物及评测崩溃能触发健康检查",
+        "原 loop 退出码、闭环产物与已有状态可用，模型评判不能改变生产权限"
+      ]
+    },
+    {
+      "id": "F08",
+      "title": "真实只读日报与逐条批准试点",
+      "priority": "P0",
+      "kind": "live",
+      "required": true,
+      "dependsOn": ["F01", "F07"],
+      "entry": ["feishu-daily-agent/FEISHU_APP_SETUP.md", "docs/FEISHU-DELIVERY-PLAYBOOK.md"],
+      "implementation": "测试租户和有限会话中跑每日同步、日报、逐条批准、纠正及影子回复。演练进程重启、备份恢复、账号撤权与升级迁移。",
+      "acceptance": [
+        "真实 owner 能收到日报、查待办来源和批示，审核回复确实到原会话并有回执",
+        "日报可解释来源缺口，健康探针能识别漏跑、积压、授权失败，恢复过程和回执对账有证据",
+        "记录至少七个实际日报周期和真实人工裁决，生产语料和凭据不进仓库"
+      ]
+    },
+    {
+      "id": "F09",
+      "title": "受限自动回复灰度、复验与交付",
+      "priority": "P0",
+      "kind": "human",
+      "required": true,
+      "dependsOn": ["F08"],
+      "entry": ["docs/FEISHU-DELIVERY-PLAYBOOK.md"],
+      "implementation": "按冻结的留出集和影子统计确认门槛，取得 owner 对自动发送的显式放行。逐步启用最小白名单，演练停发、回退与更正，出具可运行手册和验收报告。",
+      "acceptance": [
+        "候选精度、覆盖率及严重错误满足指南阈值，统计独立单位或分组方法可复核，样本不足则维持原模式",
+        "通过真实完整复验链，停用后下一次不能继续使用旧版自动发送，回滚和备份恢复演练可复查",
+        "逐来源、权限与模式列完成、失败、未覆盖和外部阻塞，保留日报、发送与评测脱敏证据",
+        "数据删除与撤权后续动作、故障告警和每日值守方式有可执行说明"
+      ]
+    },
+    {
+      "id": "EH01",
+      "title": "修复通用抽取窗口恢复缺口",
+      "priority": "P1",
+      "kind": "offline",
+      "required": false,
+      "dependsOn": ["F00"],
+      "entry": ["agents/agent.py", "agents/session.py", "agents/main.py", "server/app.py"],
+      "implementation": "独立于飞书灰度复现内存窗口丢失，最小扩展通用会话载荷和恢复契约，保留旧会话兼容。",
+      "acceptance": [
+        "CLI resume、Web 恢复和旧载荷可用，异常退出后的窗口能恢复或显示已完成",
+        "验证领取/结果去重、抽取失败与重试语义，既有分段保存和在线自进化回归全绿"
+      ]
+    },
+    {
+      "id": "EH02",
+      "title": "以证据择优复用 Effects 与抽取规则",
+      "priority": "P2",
+      "kind": "offline",
+      "required": false,
+      "dependsOn": ["F03", "EH01"],
+      "entry": ["agents/online_skill_eval.py", "agents/online_skill_evolution.py", "docs/FEISHU-DELIVERY-PLAYBOOK.md"],
+      "implementation": "量化抽取和使用记账的失败或丢失后决定持久任务复用。对比旧规则后再抽纯函数。可单独比较影子草稿预生成的收益与额外成本。",
+      "acceptance": [
+        "给出采用或保留原实现的独立证据，保持命名空间、版本语义和权限边界",
+        "若接通重试，证明同键重放、预算暂缓、崩溃恢复以及使用记账去重",
+        "若做预生成，只处理只读草稿，失效、成本上限和无增益撤销有回归"
+      ]
+    }
+  ]
+}
