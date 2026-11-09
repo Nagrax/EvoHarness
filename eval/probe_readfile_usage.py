@@ -105,5 +105,22 @@ async def main() -> int:
     return 0
 
 
+def _probe() -> int:
+    print(json.dumps({
+        "ok": True,
+        "probe": "no-network",
+        "doc": str(DOC),
+        "docExists": DOC.is_file(),
+        "note": "真实运行需要模型凭据；此探针只验证脚本可解析/文件存在，不访问模型",
+    }, ensure_ascii=False))
+    return 0
+
+
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="read_file 使用探针；--probe 不访问网络")
+    parser.add_argument("--probe", action="store_true", help="只做无网络可达性探针")
+    args = parser.parse_args()
+    if args.probe:
+        raise SystemExit(_probe())
     raise SystemExit(asyncio.run(main()))

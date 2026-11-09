@@ -1,5 +1,11 @@
 import math
+import sys
 from functools import lru_cache
+
+if any(arg in {"-h", "--help", "--probe"} for arg in sys.argv[1:]):
+    print("final_check: Young diagram hook-length sanity script; --help/--probe do not compute.")
+    raise SystemExit(0)
+
 
 @lru_cache(maxsize=None)
 def partitions_of_n_cached(n):
@@ -28,17 +34,17 @@ def hook_product(partition):
     rows = len(partition)
     prod = 1
     
-    # 预计算每列的长度
+    # 预计算每列的“下方行数”：col_heights[j] = 第 j 列的总行数
     col_heights = [0] * partition[0] if partition else []
     for i in range(rows):
         for j in range(partition[i]):
-            col_heights[j] = rows - i
+            col_heights[j] += 1
     
     for i in range(rows):
         row_len = partition[i]
         for j in range(row_len):
             arm = row_len - j - 1
-            leg = col_heights[j] - (rows - i)  # 当前列下方还有多少行
+            leg = col_heights[j] - (i + 1)  # 当前列下方还有多少行
             prod *= (arm + leg + 1)
     
     return prod

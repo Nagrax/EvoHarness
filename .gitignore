@@ -289,6 +289,7 @@ combined_pdf_text.txt
 # 运行产物（可重建，不入库）
 # ============================================================
 .evoharness/
+.zcode/
 eval/runs/
 eval/data/
 !eval/runs/.gitkeep

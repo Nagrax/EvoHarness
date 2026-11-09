@@ -8,9 +8,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
@@ -28,3 +30,12 @@ jobs:
         run: python -c "import ast, pathlib; [ast.parse(p.read_text(encoding='utf-8'), filename=str(p)) for p in pathlib.Path('agents').rglob('*.py')]; print('agents/ parsed')"
       - name: Run unit tests
         run: python -m pytest tests/ -v
+      # E-01：Windows 默认环境是本地编码（cp1252/cp936），产品层文本读写必须显式 UTF-8。
+      # 这一组刻意不设 PYTHONUTF8=1，覆盖「默认非 UTF-8 编码」路径。
+      - name: Run unit tests (Windows default non-UTF8 encoding)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue
+          Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue
+          python -m pytest tests/ -q

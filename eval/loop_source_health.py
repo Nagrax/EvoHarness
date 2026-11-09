@@ -25,6 +25,8 @@ SCRIPT_MAP = {
     "calibration": ["eval/holdout_calibrate.py"],
     "skillCombo": ["eval/skill_combo_replay.py"],
     "judgeProbe": ["eval/judge_bias_probe.py"],
+    # 飞书信号：包装脚本读取黄金回放产物，不执行真实飞书写操作
+    "feishu": ["eval/feishu_signal_check.py"],
     # failureStability 例外：loop 不调用它的脚本，只读产物（见下方新鲜度检查）
 }
 
@@ -33,11 +35,16 @@ NO_SCRIPT = {"frontend", "harness2", "variance", "lifecycleNoiseGate", "benchmar
 
 
 def check_script(paths: list[str]) -> tuple[bool, str]:
-    for rel in paths:
+    if "--" in paths:
+        split = paths.index("--")
+        scripts, args = paths[:split], paths[split + 1:]
+    else:
+        scripts, args = paths, []
+    for rel in scripts:
         if not (REPO / rel).is_file():
             return False, f"缺少脚本 {rel}"
     try:
-        proc = subprocess.run([sys.executable, *paths], cwd=str(REPO),
+        proc = subprocess.run([sys.executable, *scripts, *args], cwd=str(REPO),
                               capture_output=True, timeout=180)
     except subprocess.TimeoutExpired:
         return False, "脚本超时"
@@ -81,20 +88,51 @@ def main() -> int:
     import time as _time
 
     artifact_checks = []
-    for pattern, source in (("failure-stability-*.json", "failureStability"),):
+    for pattern, source, probe_cmd in (
+        ("failure-stability-*.json", "failureStability",
+         ["eval/failure_stability.py", "--", "--probe"]),
+    ):
+        producer_runnable, producer_detail = check_script(probe_cmd)
         files = sorted((REPO / "eval" / "runs").glob(pattern),
                        key=lambda f: f.stat().st_mtime)
         if not files:
-            artifact_checks.append({"source": source, "fresh": False,
-                                    "detail": f"无产物 {pattern}", "ageDays": None})
+            artifact_checks.append({
+                "source": source, "fresh": False, "producerRunnable": producer_runnable,
+                "producerDetail": producer_detail,
+                "detail": f"无产物 {pattern}", "ageDays": None,
+            })
             continue
         age_days = round((_time.time() - files[-1].stat().st_mtime) / 86400, 1)
-        artifact_checks.append({"source": source, "fresh": age_days <= 7,
-                                "artifact": files[-1].name, "ageDays": age_days,
-                                "detail": f"{files[-1].name} 已 {age_days} 天"})
+        artifact_valid = True
+        artifact_detail = ""
+        try:
+            artifact = json.loads(files[-1].read_text(encoding="utf-8"))
+            infra_total = int(artifact.get("infraBlocked") or 0) + sum(
+                int(task.get("infraFailures") or 0)
+                for task in (artifact.get("perTask") or [])
+            )
+            if artifact.get("ok") is False or infra_total > 0:
+                artifact_valid = False
+                artifact_detail = (
+                    f"infraFailures={infra_total}"
+                    "（provider/配额失败不能冒充模型能力失败）"
+                )
+        except (ValueError, OSError) as exc:
+            artifact_valid = False
+            artifact_detail = f"产物不可解析: {exc}"
+        artifact_checks.append({
+            "source": source, "fresh": age_days <= 7 and artifact_valid,
+            "artifactValid": artifact_valid, "artifactDetail": artifact_detail,
+            "producerRunnable": producer_runnable, "producerDetail": producer_detail,
+            "artifact": files[-1].name, "ageDays": age_days,
+            "detail": f"{files[-1].name} 已 {age_days} 天" + (f"；{artifact_detail}" if artifact_detail else ""),
+        })
 
     broken = [r["source"] for r in results if r["state"] == "broken"]
-    broken += [c["source"] for c in artifact_checks if not c["fresh"]]
+    broken += [
+        c["source"] for c in artifact_checks
+        if not c["fresh"] or not c.get("producerRunnable", True)
+    ]
     untested = sorted(set(NO_SCRIPT) - {r["source"] for r in results})
 
     report = {

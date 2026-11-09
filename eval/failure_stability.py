@@ -107,11 +107,16 @@ def run_once(item: dict, workdir: Path, tag: str) -> dict:
         except ValueError:
             record = {}
     tokens = record.get("tokens") or {}
+    token_count = (tokens.get("input", 0) or 0) + (tokens.get("output", 0) or 0)
+    error = str(record.get("error") or "")[:160]
+    # provider/配额类错误不是“模型没给出最终标记”的能力失败，不能计入 stable。
+    infra = bool(proc.returncode != 0 or (error and token_count == 0))
     return {
         "exitCode": proc.returncode,
         "hasFinalMarker": bool(record.get("has_final_marker")),
-        "tokens": (tokens.get("input", 0) or 0) + (tokens.get("output", 0) or 0),
-        "error": str(record.get("error") or "")[:160],
+        "tokens": token_count,
+        "error": error,
+        "infra": infra,
         "stderrTail": proc.stderr.decode("utf-8", "replace")[-200:] if proc.returncode else "",
     }
 
@@ -124,9 +129,29 @@ def main() -> int:
                         choices=("full", "w18subset"))
     parser.add_argument("--out", default="")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--probe", action="store_true",
+                        help="只验证输入产物可读，不调用模型、不重跑 benchmark")
+    parser.add_argument("--task-id", default="",
+                        help="只重跑指定 task_id（用于 provider 故障后的定点刷新）")
     args = parser.parse_args()
 
+    if args.probe:
+        rows = []
+        for path in (PRED_FULL, PRED):
+            if path.is_file():
+                rows.append({"path": str(path), "lines": len(path.read_text(encoding="utf-8").splitlines())})
+        print(json.dumps({"ok": bool(rows), "inputs": rows, "note": "probe-only; no model/network"}, ensure_ascii=False))
+        return 0 if rows else 2
+
     candidates = load_candidates(args.limit, args.source)
+    if args.task_id:
+        candidates = [item for item in candidates if str(item.get("task_id")) == args.task_id]
+        if not candidates:
+            # 指定 task 可能不在前 N 个失败题里：扩大候选后重取
+            candidates = [
+                item for item in load_candidates(200, args.source)
+                if str(item.get("task_id")) == args.task_id
+            ]
     if not candidates:
         print(json.dumps({"ok": False, "reason": "no-candidates"}, ensure_ascii=False))
         return 2
@@ -138,26 +163,32 @@ def main() -> int:
             runs = []
             for rep in range(args.repeats):
                 runs.append(run_once(item, workdir, f"t{index}-r{rep}"))
-            no_marker = sum(1 for r in runs if not r["hasFinalMarker"])
-            runs_n = len(runs) or 1
-            fail_rate = no_marker / runs_n
-            status = classify_failure(fail_rate)
+            valid = [r for r in runs if not r.get("infra")]
+            infra_failures = len(runs) - len(valid)
+            if valid:
+                no_marker = sum(1 for r in valid if not r["hasFinalMarker"])
+                fail_rate = no_marker / len(valid)
+                status = classify_failure(fail_rate)
+            else:
+                no_marker = 0
+                fail_rate = 0.0
+                status = "infra_blocked"
             per_task.append({
                 "taskId": item.get("task_id"),
                 "questionHead": str(item.get("Question"))[:60],
-                "repeats": len(runs),
+                "repeats": len(valid),
                 "noMarkerCount": no_marker,
                 "failRate": round(fail_rate, 3),
                 "status": status,
-                "confidence": ("high" if len(runs) >= MIN_REPEATS_FOR_CONFIDENCE else "low"),
-                "tokens": sum(r["tokens"] for r in runs),
+                "confidence": ("high" if len(valid) >= MIN_REPEATS_FOR_CONFIDENCE else "low"),
+                "tokens": sum(r["tokens"] for r in valid),
                 "errors": [r["error"] for r in runs if r["error"]],
-                "infraFailures": sum(1 for r in runs if r["exitCode"] != 0),
+                "infraFailures": infra_failures,
             })
 
-    counts = {"stable": 0, "flaky": 0, "disappeared": 0}
+    counts = {"stable": 0, "flaky": 0, "disappeared": 0, "infraBlocked": 0}
     for task in per_task:
-        counts[task["status"]] += 1
+        counts[task["status"]] = counts.get(task["status"], 0) + 1
     rates = sorted(t["failRate"] for t in per_task)
     report = {
         "kind": "failure-stability",
@@ -171,6 +202,8 @@ def main() -> int:
             "median": rates[len(rates) // 2] if rates else None,
             "max": rates[-1] if rates else None,
         },
+        "ok": counts.get("infraBlocked", 0) == 0,
+        "infraBlocked": counts.get("infraBlocked", 0),
         "confidence": ("high" if args.repeats >= MIN_REPEATS_FOR_CONFIDENCE else "low"),
         "thresholds": {"stableMinFailRate": STABLE_MIN_FAIL_RATE,
                        "minRepeatsForConfidence": MIN_REPEATS_FOR_CONFIDENCE},

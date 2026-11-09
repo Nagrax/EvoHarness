@@ -38,6 +38,7 @@ from agents.session import (
     save_session,
     save_stage_segment,
 )
+from agents import extraction_window as extraction_store
 from agents import stages as stage_fsm
 from agents.subagent import get_sub_agent_config
 from agents.tools import ToolDef, tool_definitions, execute_tool, CONCURRENCY_SAFE_TOOLS, EDIT_TOOLS, check_permission, \
@@ -355,6 +356,7 @@ class Agent:
         self._last_retrieved_skill_reference: dict[str, Any] | None = None
         self._last_retrieved_skill_hits: list[dict[str, Any]] = []
         self._pending_skill_extraction_window: dict[str, Any] | None = None
+        self.last_skill_extraction_status: dict[str, Any] | None = None
         self._background_skill_tasks: set[asyncio.Task] = set()
         self._folded_session_memories: list[dict[str, Any]] = []
         self._fold_last_time: float = 0.0
@@ -1113,17 +1115,65 @@ class Agent:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     def _pop_pending_skill_extraction_window(self, next_user_feedback: str) -> dict[str, Any] | None:
+        if os.environ.get("EVOHARNESS_HOLDOUT_READONLY", "0").strip().lower() in {"1", "true", "yes", "on"}:
+            self._pending_skill_extraction_window = None
+            return None
         pending = self._pending_skill_extraction_window
+        if not pending:
+            try:
+                record = extraction_store.recover_window(self.session_id)
+            except Exception as error:  # noqa: BLE001
+                self.last_save_error = (
+                    f"pending-window-recover-failed: {type(error).__name__}: {error}"
+                )
+                return None
+            if record and record["status"] in {"pending", "failed"}:
+                pending = record["window"]
         self._pending_skill_extraction_window = None
         if not pending:
             return None
-        messages = list(pending.get("messages") or [])
+        if not pending.get("window_id"):
+            pending["window_id"] = extraction_store.new_window_id()
+            try:
+                extraction_store.save_pending_window(self.session_id, pending)
+            except Exception as error:  # noqa: BLE001
+                self.last_save_error = f"pending-window-save-failed: {type(error).__name__}: {error}"
+                return None
         feedback = _safe_utf8_text(next_user_feedback).strip()
-        if feedback:
-            messages.append({"role": "user", "content": feedback})
-        pending["messages"] = messages[-10:]
-        pending["next_user_feedback"] = feedback
-        return pending
+        try:
+            claimed = extraction_store.claim_window(
+                self.session_id, str(pending["window_id"]), feedback=feedback
+            )
+        except Exception as error:  # noqa: BLE001
+            self.last_save_error = (
+                f"pending-window-claim-failed: {type(error).__name__}: {error}"
+            )
+            return None
+        if claimed is None:
+            try:
+                record = extraction_store.load_window(self.session_id)
+            except Exception as error:  # noqa: BLE001
+                self.last_save_error = (
+                    f"pending-window-load-failed: {type(error).__name__}: {error}"
+                )
+                return None
+            if record is None:
+                # 内存里有窗口但盘上没有（首次落盘失败/旧对象）：补写后重试一次。
+                try:
+                    extraction_store.save_pending_window(self.session_id, pending)
+                    claimed = extraction_store.claim_window(
+                        self.session_id, str(pending["window_id"]), feedback=feedback
+                    )
+                except Exception as error:  # noqa: BLE001
+                    self.last_save_error = (
+                        f"pending-window-claim-failed: {type(error).__name__}: {error}"
+                    )
+                    return None
+            if claimed is None:
+                self.last_skill_extraction_status = record
+                return None
+        self.last_skill_extraction_status = claimed
+        return dict(claimed["window"])
 
     def _set_pending_skill_extraction_window(
         self,
@@ -1136,29 +1186,68 @@ class Agent:
             return
         if not original_user_message.strip() or not assistant_text.strip():
             return
-        self._pending_skill_extraction_window = {
+        window = {
+            "window_id": extraction_store.new_window_id(),
             "messages": self._recent_dialog_messages(max_messages=8),
             "latest_user": original_user_message,
             "latest_assistant": assistant_text,
             "retrieved_reference": self._compact_retrieved_reference(retrieved_reference),
             "session_id": self.session_id,
+            "created_at": time.time(),
         }
+        self._pending_skill_extraction_window = window
+        try:
+            self.last_skill_extraction_status = extraction_store.save_pending_window(
+                self.session_id, window
+            )
+        except Exception as error:  # noqa: BLE001
+            # 窗口落盘失败必须可见：否则重启后又会退回“静默丢失”。
+            self.last_save_error = f"pending-window-save-failed: {type(error).__name__}: {error}"
+            print_error(f"Pending skill extraction window not persisted: {self.last_save_error}")
 
     def _compact_retrieved_reference(self, ref: dict[str, Any] | None) -> dict[str, Any] | None:
         if not ref:
             return None
         return {k: v for k, v in ref.items() if k != "all_hits"}
 
-    async def _run_online_skill_evolution(self, window: dict[str, Any], *, interactive_confirm: bool = False) -> None:
-        if not self._online_evolution_enabled() or self.permission_mode == "plan":
+    def _finish_extraction_window(
+        self,
+        window: dict[str, Any],
+        *,
+        ok: bool,
+        summary: str = "",
+        error: str = "",
+    ) -> None:
+        window_id = str(window.get("window_id") or "").strip()
+        if not window_id:
             return
+        try:
+            if ok:
+                record = extraction_store.mark_completed(
+                    self.session_id, window_id, summary=summary
+                )
+            else:
+                record = extraction_store.mark_failed(
+                    self.session_id, window_id, error=error or "unknown_error"
+                )
+            if record is not None:
+                self.last_skill_extraction_status = record
+        except Exception as exc:  # noqa: BLE001
+            self.last_save_error = f"extraction-window-state-failed: {type(exc).__name__}: {exc}"
+
+    async def _run_online_skill_evolution(self, window: dict[str, Any], *, interactive_confirm: bool = False) -> dict[str, Any] | None:
+        if not self._online_evolution_enabled() or self.permission_mode == "plan":
+            self._finish_extraction_window(window, ok=True, summary="skipped_disabled")
+            return None
         messages = list(window.get("messages") or [])
         if not messages:
-            return
+            self._finish_extraction_window(window, ok=True, summary="skipped_empty")
+            return None
 
         side_query = self._build_side_query(max_tokens=2200, label="evolution_extract")
         if side_query is None:
-            return
+            self._finish_extraction_window(window, ok=False, error="side_query_unavailable")
+            return None
 
         try:
             from .online_skill_evolution import online_ingest
@@ -1166,7 +1255,10 @@ class Agent:
             # 导入失败 = 整个在线进化被跳过。用户会以为进化在跑，必须可见。
             print_error(f"Online skill evolution unavailable: "
                         f"{type(error).__name__}: {error}")
-            return
+            self._finish_extraction_window(
+                window, ok=False, error=f"import_failed: {type(error).__name__}: {error}"
+            )
+            return None
 
         result = await online_ingest(
             messages=messages,
@@ -1177,11 +1269,19 @@ class Agent:
             target=os.environ.get("EVOHARNESS_AUTO_SKILL_TARGET", "project"),
         )
         if result.get("ok"):
+            self._finish_extraction_window(
+                window, ok=True, summary=str(result.get("action") or "ok")
+            )
             if result.get("action") in {"add", "merge", "revise"}:
                 self._refresh_runtime_system_prompt()
                 print_info(f"Online skill {result.get('action')}: {result.get('skill')}")
-        elif result.get("action") not in {"add_denied", "merge_denied"}:
-            print_error(f"Online skill evolution failed: {result.get('error') or result}")
+        else:
+            self._finish_extraction_window(
+                window, ok=False, error=str(result.get("error") or result.get("action") or "failed")
+            )
+            if result.get("action") not in {"add_denied", "merge_denied"}:
+                print_error(f"Online skill evolution failed: {result.get('error') or result}")
+        return result
 
     async def _run_skill_usage_tracking(self, original_user_message: str, assistant_text: str) -> None:
         if not self._online_evolution_enabled() or self.permission_mode == "plan":
@@ -1227,20 +1327,63 @@ class Agent:
     async def extract_now(self, hint: str = "") -> dict[str, Any]:
         if not self._online_evolution_enabled():
             return {"ok": False, "error": "online skill evolution disabled"}
-        pending = self._pending_skill_extraction_window
+        pending = None
+        try:
+            record = extraction_store.recover_window(self.session_id)
+        except Exception as error:  # noqa: BLE001
+            return {"ok": False, "error": f"extraction_store_unavailable: {type(error).__name__}"}
+        if record is not None:
+            self.last_skill_extraction_status = record
+            if record["status"] == "completed":
+                return {
+                    "ok": True,
+                    "status": "completed",
+                    "already_completed": True,
+                    "window_id": record["windowId"],
+                }
+            if record["status"] == "claimed":
+                return {"ok": False, "error": "extraction_in_progress"}
+            pending = record["window"]
+        if not pending:
+            # 持久副本优先；仅当盘上没有窗口时才用内存里的（例如首次落盘失败）。
+            pending = self._pending_skill_extraction_window
         if not pending:
             return {"ok": False, "error": "no pending online skill extraction window"}
-        window = dict(pending)
+        window = self._pop_pending_skill_extraction_window("")
+        if window is None:
+            try:
+                record = extraction_store.load_window(self.session_id)
+            except Exception:  # noqa: BLE001
+                record = None
+            if record is not None and record["status"] == "completed":
+                return {
+                    "ok": True,
+                    "status": "completed",
+                    "already_completed": True,
+                    "window_id": record["windowId"],
+                }
+            return {"ok": False, "error": "extraction_in_progress"}
         window["hint"] = hint
-        await self._run_online_skill_evolution(window, interactive_confirm=True)
+        result = await self._run_online_skill_evolution(window, interactive_confirm=True)
         self._pending_skill_extraction_window = None
-        return {"ok": True}
+        status = (self.last_skill_extraction_status or {}).get("status", "failed")
+        return {
+            "ok": bool(result and result.get("ok")),
+            "status": status,
+            "window_id": window.get("window_id", ""),
+            "error": "" if result and result.get("ok") else str((result or {}).get("error") or "extraction_failed"),
+        }
 
 
     def clear_history(self)->None:
         self._anthropic_messages = []
         self._openai_messages = []
         self._pending_skill_extraction_window = None
+        self.last_skill_extraction_status = None
+        try:
+            extraction_store.clear_window(self.session_id)
+        except Exception as error:  # noqa: BLE001
+            self.last_save_error = f"pending-window-clear-failed: {type(error).__name__}: {error}"
         self._last_retrieved_skill_reference = None
         self._last_retrieved_skill_hits = []
         self._fold_last_time = 0.0
@@ -1334,6 +1477,30 @@ class Agent:
                 restored_count = len(loaded_openai) if isinstance(loaded_openai, list) else 0
         if isinstance(data.get("foldedSessionMemories"), list):
             self._folded_session_memories = _sanitize_for_utf8(data["foldedSessionMemories"])
+        try:
+            if os.environ.get("EVOHARNESS_HOLDOUT_READONLY", "0").strip().lower() in {"1", "true", "yes", "on"}:
+                record = extraction_store.load_window(self.session_id)
+            else:
+                record = extraction_store.recover_window(
+                    self.session_id, reclaim_claimed=True
+                )
+        except Exception as error:  # noqa: BLE001
+            record = None
+            self.last_save_error = (
+                f"pending-window-restore-failed: {type(error).__name__}: {error}"
+            )
+            print_error(f"Pending skill extraction window not restored: {self.last_save_error}")
+        if record is not None:
+            self.last_skill_extraction_status = record
+            status = record["status"]
+            if status == "completed":
+                print_info("Last skill extraction completed; no pending window restored.")
+            elif status == "claimed":
+                print_info("Skill extraction window is still claimed; not re-queued.")
+            elif status in {"pending", "failed"}:
+                self._pending_skill_extraction_window = record["window"]
+                suffix = f" (last error: {record['lastError']})" if record.get("lastError") else ""
+                print_info(f"Pending skill extraction window restored{suffix}.")
         print_info(f"Session restored ({restored_count} messages).")
 
     def _openai_messages_to_anthropic(self, messages: list[dict]) -> list[dict]:

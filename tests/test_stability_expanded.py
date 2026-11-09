@@ -74,7 +74,10 @@ def test_title_refreshes_on_recollect():
 
 def test_backlog_title_matches_latest_batch():
     path = REPO / "eval" / "loop" / "BACKLOG.json"
-    large = _load("failure-stability-2.json")
+    # 与采集器同口径：按名字序取最新批次（_latest_stability_artifact），
+    # 硬编码旧批次名会在新批次产生后与采集器的标题刷新永久漂移（实测 fs-5）。
+    files = sorted((REPO / "eval" / "runs").glob("failure-stability-*.json"))
+    large = json.loads(files[-1].read_text(encoding="utf-8")) if files else None
     if not (path.is_file() and large):
         return
     data = json.loads(path.read_text(encoding="utf-8"))

@@ -325,6 +325,28 @@ def _latest_stability_artifact():
     return files[-1] if files else RUNS / "failure-stability-1.json"
 
 
+def _collect_feishu(findings: list[dict], runs: dict) -> None:
+    """飞书日报闭环信号：缺产物/过期/评测失败都必须可见。"""
+    try:
+        try:
+            import feishu_signal  # 以脚本方式运行时 eval/ 在 sys.path
+        except ImportError:
+            from eval import feishu_signal  # pytest / 包导入
+        result = feishu_signal.collect()
+    except Exception as exc:  # noqa: BLE001
+        runs["feishu"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        findings.append({
+            "source": "feishu",
+            "key": "feishu:collector-crashed",
+            "severity": "high",
+            "title": "飞书信号采集器崩溃，当前质量状态未知",
+            "detail": {"error": str(exc), "repro": "python eval/feishu_signal.py --json"},
+        })
+        return
+    runs["feishu"] = result["summary"]
+    findings.extend(result["findings"])
+
+
 def _collect_stability(findings: list[dict], runs: dict) -> None:
     """collect 第 11 段（自动提取，逻辑未改）。"""
     # 真实教训：W18 报的 no-final-marker 失败里约 2/3 重跑不复现——若直接进 backlog，
@@ -337,6 +359,28 @@ def _collect_stability(findings: list[dict], runs: dict) -> None:
         stable = int(counts.get("stable") or 0)
         flaky = int(counts.get("flaky") or 0)
         disappeared = int(counts.get("disappeared") or 0)
+        infra_blocked = int(stability.get("infraBlocked") or counts.get("infraBlocked") or 0)
+        infra_failures = sum(
+            int(task.get("infraFailures") or 0) for task in (stability.get("perTask") or [])
+        )
+        if stability.get("ok") is False or infra_blocked or infra_failures:
+            findings.append({
+                "source": "failureStability",
+                "key": "failureStability:infra-failures",
+                "severity": "high",
+                "title": "失败稳定性实验受 provider/配额故障污染，不能据此判定能力失败",
+                "detail": {
+                    "artifact": stability_path.name,
+                    "infraBlocked": infra_blocked,
+                    "infraFailures": infra_failures,
+                    "statusCounts": counts,
+                },
+            })
+            runs["failureStability"] = {
+                "ok": False, "artifact": stability_path.name,
+                "infraBlocked": infra_blocked, "infraFailures": infra_failures,
+            }
+            return
         runs["failureStabilityDetail"] = {
             "artifact": stability_path.name,
             "source": stability.get("source"),
@@ -454,7 +498,7 @@ def _finalize_round(findings: list[dict], runs: dict,
                      for k in ("backend", "frontend", "module", "memory", "harness2",
                                "calibration", "variance", "skillCombo", "judgeBias",
                                "lifecycleNoiseGate", "failureStability",
-                               "benchmarkFailures")},
+                               "benchmarkFailures", "feishu")},
     }
     state.setdefault("rounds", []).append(round_record)
 
@@ -677,6 +721,8 @@ def collect(round_label: str = "") -> dict:
     _collect_stability(findings, runs)
 
     # ⑫ benchmark 失败 → 稳定性过滤 → 工单（把闸门真正接上"失败→工单"路径）
+    # ⑬ 飞书日报黄金回放：产物缺失/过期/严重错答 → finding
+    _collect_feishu(findings, runs)
     return _finalize_round(findings, runs, state, round_id)
 
 def pick_next(state: dict) -> dict | None:
@@ -865,16 +911,22 @@ def cmd_triage(apply: bool) -> int:
         # 收尾条件：**不再有未处理位置**就必须闭合，不管本轮是否新闭合了东西。
         # 旧实现只在"本轮有 removed"时才检查，于是"上一轮已清空但漏标"的组会永远 pending
         # （实测 L0063：occ=1、open=0、status=pending 的僵死状态）。
+        # L9033 补充实测：代码修复后 open=0 但历史 occurrences 仍在（用于回归对照），
+        # 同样必须闭合——本轮扫描未再报警即是复测证据。
         if not remaining:
             already = item.get("triageClosed") or item.get("resolvedOccurrences") or []
-            if item["status"] != "done" and (already or not (item.get("occurrences") or [])):
+            current_clean = not (item.get("openOccurrences") or [])
+            if item["status"] != "done" and (already or not (item.get("occurrences") or []) or current_clean):
                 item["status"] = "done"
                 note_parts = []
                 if item.get("triageClosed"):
                     note_parts.append(f"判读为合理防御/降级型（{len(item['triageClosed'])} 处）")
                 if item.get("resolvedOccurrences"):
                     note_parts.append(f"已修复（{len(item['resolvedOccurrences'])} 处）")
+                if not note_parts and current_clean and (item.get("occurrences") or []):
+                    note_parts.append("已修复：历史位置本轮扫描不再报警（复测证据）")
                 item["note"] = "；".join(note_parts) or "无未处理位置"
+                item["closedReason"] = item.get("closedReason") or "no-open-occurrences"
                 item["closedAt"] = now_iso()
                 closed_items += 1
                 details.append({"id": item["id"], "closed": 0, "remaining": 0,
@@ -937,7 +989,7 @@ def cmd_report() -> int:
     if not done_items:
         lines.append("无。")
     for item in done_items:
-        lines.append(f"- **{item['id']}** {item['title']} — {item.get('note') or ''}")
+        lines.append(f"- **{item['id']}** {item['title']} — {item.get('note') or ''}".rstrip())
     text = "\n".join(lines) + "\n"
     out = HOME / "LOOP-REPORT.md"
     HOME.mkdir(parents=True, exist_ok=True)

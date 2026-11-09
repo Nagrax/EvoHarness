@@ -282,7 +282,10 @@ async def run_repl(agent: Agent) -> None:
             hint = inp[len("/extract_now") :].strip()
             result = await agent.extract_now(hint)
             if result.get("ok"):
-                print_info("Ran online skill extraction for the current pending window.")
+                if result.get("already_completed"):
+                    print_info("No pending window: last skill extraction already completed.")
+                else:
+                    print_info("Ran online skill extraction for the current pending window.")
             else:
                 print_error(str(result.get("error") or result))
             continue
@@ -364,6 +367,32 @@ async def run_repl(agent: Agent) -> None:
 async def run_one_shot(agent: Agent, prompt: str) -> None:
     await agent.chat(prompt)
     await agent.drain_background_skill_tasks()
+
+
+def _resume_latest_session(agent: Agent) -> bool:
+    """恢复最近会话；沿用原 session_id，窗口/阶段文件才能按 id 找回。"""
+    session_id = get_latest_session_id()
+    if not session_id:
+        print_info("No previous sessions found.")
+        return False
+    session = load_session(session_id)
+    if not session:
+        print_info("No session found to resume.")
+        return False
+    agent.session_id = session_id
+    metadata = session.get("metadata") or {}
+    # staged 会话（改造二）：恢复到最近阶段边界；失败/非 staged 回退原始历史。
+    restored = False
+    if metadata.get("loop_staged") and metadata.get("plan_dir_abs"):
+        restored = _resume_staged_session(agent, metadata)
+    if not restored:
+        agent.restore_session({
+            # 上次落盘协议：跨协议恢复时据其把历史迁进当前协议的列表。
+            "protocol": metadata.get("protocol"),
+            "anthropicMessages": session.get("anthropicMessages"),
+            "openaiMessages": session.get("openaiMessages"),
+        })
+    return True
 
 
 def _resume_staged_session(agent: Agent, metadata: dict) -> bool:
@@ -513,26 +542,7 @@ Examples:
     # Resume session
     # --resume 会加载最近一次会话，把历史消息恢复到新建的 Agent 中。
     if args.resume:
-        session_id = get_latest_session_id()
-        if session_id:
-            session = load_session(session_id)
-            if session:
-                metadata = session.get("metadata") or {}
-                # staged 会话（改造二）：恢复到最近阶段边界；失败/非 staged 回退原始历史。
-                restored = False
-                if metadata.get("loop_staged") and metadata.get("plan_dir_abs"):
-                    restored = _resume_staged_session(agent, metadata)
-                if not restored:
-                    agent.restore_session({
-                        # 上次落盘协议：跨协议恢复时据其把历史迁进当前协议的列表。
-                        "protocol": metadata.get("protocol"),
-                        "anthropicMessages": session.get("anthropicMessages"),
-                        "openaiMessages": session.get("openaiMessages"),
-                    })
-            else:
-                print_info("No session found to resume.")
-        else:
-            print_info("No previous sessions found.")
+        _resume_latest_session(agent)
 
     # 如果命令行后面带了普通文本参数，就拼成一次性 prompt；否则进入交互式 REPL。
     prompt = " ".join(args.prompt) if args.prompt else None

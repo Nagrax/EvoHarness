@@ -46,6 +46,7 @@ COPY .mcp.json /workspace/.mcp.json
 WORKDIR /workspace
 
 ENV HOST=0.0.0.0
+ENV PORT=7860
 EXPOSE 7860
 
 # 默认启动 Web 服务（部署形态）；CLI 形态：
