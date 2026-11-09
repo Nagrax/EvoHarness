@@ -20,7 +20,7 @@
 | --- | --- |
 | 核心运行时 | `agents/` 28 个模块、16,131 行；CLI / Web / 桌面共用同一套 Agent Loop |
 | Web 工作台 | 2026-10 工作台重设计：零构建单文件，对话 / Skills / Memory 三视图 + 侧栏会话与权限模式 + 顶栏 HUD（状态 / token / turns）+ BYOK 模型设置；Skills 六门槛抽屉与加载异常修复；Memory 对比图表 |
-| 测试与 CI | 137 个测试文件、20,667 行；本地全量 1,195 passed / 2 skipped；GitHub Actions 覆盖 Linux + Windows、Python 3.11/3.12，Windows 默认非 UTF-8 编码单独一组门禁 |
+| 测试与 CI | 137 个测试文件、20,667 行；本地全量 1,195 passed / 2 skipped；CI workflow 已配置 Linux + Windows × Python 3.11/3.12，但完整闭环用例依赖本地 `eval/runs/` 产物，clean runner 尚需适配（当前 CI 不为绿） |
 | Agent benchmark | GAIA 165 题 **49.1**（95% CI 41.2–57.0）；HLE n=75 **10.7**（4.0–17.3）；A 级冻结口径，产物可离线复算 |
 | 自迭代闭环 | `eval/loop/` 已运行 35 轮、37 条 finding，34 条按复测证据闭合；余 3 条为信息型或需付费预算复测 |
 | 飞书日报 Agent | 独立子系统 `feishu-daily-agent/`（85 个跟踪文件）：日报 / 经验库 / 卡片审批 / 四级运行模式；已进入 owner 放行的最小白名单灰度，F08 真实自然日 3/7、F09 冻结留出集 auto 候选 2 个（门槛 60），统计门槛未满足 |
@@ -38,7 +38,7 @@
 | **记忆系统**（LoCoMo 1540 问） | 1/5 检索量持平答对率（judge 50.8% vs 52.7%），token **-62%** | C（外部 harness，数据集不在本仓库，无法在此复跑） | MiniMem 向量检索基线；评测直接定位并修复了 P0 召回丢失 bug |
 | **记忆生命周期 A/B**（10 查询 × 2 批 × 3 臂，真实模型） | 软标注**消除污染**（−2 事件，两批极差 0）；硬过滤**省 ~10% tokens**但**损失 8.4pp 召回** | A | 跨批次噪声门判定 `claimable`；软标注的召回收益为 **D 级不可宣称**（方向反号） |
 | **Skills 自进化三臂**（两批 12 轮 × 3 臂） | ungated +5.6/+2.8pp；gated +5.6/+3.3pp；进化开销 6.4–7.4% | A（效应约 4pp、命中稀疏、未随技能累积增长；"未观察到增长"为 B 级） | `eval/` 可复跑；Spearman ρ=−0.213（n=24、总命中 4 次，只能称"未观察到增长"） |
-| **回归防线** | 本地全量 1,195 passed / 2 skipped + CI（Linux + Windows） | — | `tests/` 全量离线测试，push 即自动验证；Windows 默认（非 UTF-8）编码单独一组门禁 |
+| **回归防线** | 本地全量 1,195 passed / 2 skipped；CI workflow 覆盖 Linux + Windows × 3.11/3.12 | — | `tests/` 本地全量离线测试；完整闭环用例依赖 `eval/runs/` 产物，clean checkout 的 CI 适配仍是待办 |
 
 > **证据强度分级**（A 可对外声明 / B 单批次 / C 外部不可复跑或产物缺失 / D 不可宣称）逐项定义见 [`eval/RESULTS.md` §六](eval/RESULTS.md)。任何对外文档出现 D 级结论即为不合格；B/C 级必须带标注。
 
@@ -224,6 +224,7 @@ SKILL.md 写坏（GBK 编码、frontmatter 中文冒号、未闭合）过去会*
 - **champion 晋级纯人工复制**，半自动审批流程是下一步。
 - **飞书子系统仍在交付推进期**：卡片回调身份绑定、审批与 outbox 同事务、真实读写权限矩阵等按 `docs/FEISHU-DELIVERY-PLAYBOOK.md` 的 F 工单验收；F08 真实自然日 3/7、F09 冻结留出集 auto 候选 2 个（门槛 60），统计门槛未满足，默认仍以离线/影子/逐条批准为主，不宣称生产自动回复已全面放行。
 - **闭环台账余 3 条 pending**：2 条为信息型 finding，1 条需付费基准预算扩容样本；未批量改成 done。
+- **CI 可移植性是已知待办**：`tests/` 中大量闭环回归依赖本地 `eval/runs/` 产物与 `D:/claudecode/EvoHarness` 路径；本地全量通过，但 GitHub runner 的 clean checkout 仍会失败。当前 CI workflow 只代表配置覆盖，不代表 clean runner 已全绿；适配方向是路径相对化 + 依赖产物的用例分层跳过/单独 job。
 
 ## 数据路径与部署
 
@@ -285,7 +286,7 @@ python -m pytest tests/ -q          # 全量离线测试
 python -m compileall agents server  # 语法检查
 ```
 
-CI 在 push / PR 到 `main` 时运行：Linux + Windows × Python 3.11/3.12，`compileall` + `agents/` AST 解析 + 全量 pytest；Windows 额外移除 `PYTHONUTF8` / `PYTHONIOENCODING`，在默认本地编码下再跑一遍（E-01 编码契约）。前端交互可用 `eval/ui/buttons.mjs` 做逐控件点击审计并落盘截图（需本地安装 puppeteer-core）。
+CI 在 push / PR 到 `main` 时运行：Linux + Windows × Python 3.11/3.12，`compileall` + `agents/` AST 解析 + pytest；Windows 额外移除 `PYTHONUTF8` / `PYTHONIOENCODING`，在默认本地编码下再跑一遍（E-01 编码契约）。**注意**：完整闭环测试依赖本地 `eval/runs/` 产物，clean runner 上的 CI 目前仍会失败，适配见「已知边界」。前端交互可用 `eval/ui/buttons.mjs` 做逐控件点击审计并落盘截图（需本地安装 puppeteer-core）。
 
 ## License
 
