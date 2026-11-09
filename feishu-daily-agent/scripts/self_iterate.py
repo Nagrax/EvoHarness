@@ -26,7 +26,7 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -838,6 +838,57 @@ def phase_stats() -> dict:
     return stats
 
 
+def real_days_from_rows(rows: list[dict], today: date, tz: str = "Asia/Shanghai") -> dict[str, dict]:
+    """真实自然日 = 日报的创建本地日与逻辑日一致；提前生成的未来日演练不算。"""
+    days: dict[str, dict] = {}
+    for row in rows:
+        try:
+            payload = json.loads(row.get("payload_json") or "{}")
+        except ValueError:
+            continue
+        try:
+            day = date.fromisoformat(str(payload.get("date") or ""))
+        except ValueError:
+            continue
+        if day > today:
+            continue
+        try:
+            created = datetime.fromisoformat(str(row.get("created_at") or "")).replace(
+                tzinfo=ZoneInfo("UTC")
+            )
+        except ValueError:
+            continue
+        if created.astimezone(ZoneInfo(tz)).date() != day:
+            continue
+        days[day.isoformat()] = {
+            "outboxId": row.get("id"),
+            "receipt": (row.get("receipt_message_id") or "")[-6:],
+            "createdAt": row.get("created_at"),
+        }
+    return dict(sorted(days.items()))
+
+
+def update_real_days_ledger() -> dict:
+    tz = ENVV.get("DAILY_REPORT_TIMEZONE", "Asia/Shanghai")
+    today = datetime.now(ZoneInfo(tz)).date()
+    rows = db_query(
+        "SELECT id,payload_json,receipt_message_id,created_at FROM outbox "
+        "WHERE kind='daily' AND status='sent' ORDER BY id"
+    )
+    days = real_days_from_rows(rows, today, tz)
+    path = LEDGER.parent / "F08" / "real-days.json"
+    data = {
+        "target": 7,
+        "count": len(days),
+        "days": [{"date": key, **value} for key, value in days.items()],
+        "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%S+0800"),
+        "source": "outbox daily sent; payload date <= real today (Asia/Shanghai); simulated future days excluded",
+    }
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"real days ledger: {len(days)}/{data['target']}")
+    return data
+
+
 def update_cycles_ledger(sim_cycles: int, deliveries: list[dict] | None = None) -> None:
     """把本轮模拟逻辑日窗口逐条写入台账；delivery 字段内嵌真实回执尾号（台账核对员要求可追溯）。
 
@@ -1002,6 +1053,7 @@ def _run_phases(phases, args, failures) -> None:
             elif phase == "cycles":
                 out = phase_cycles(args.cycle_days)
                 update_cycles_ledger(len(out["days"]), out.get("recentDailyDeliveries"))
+                out["realDays"] = update_real_days_ledger()
             elif phase == "stats":
                 phase_stats()
             else:

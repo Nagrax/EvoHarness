@@ -146,6 +146,27 @@ def test_refresh_token_resets_age(tmp_path, monkeypatch):
     assert "renewedAt" in data
 
 
+def test_real_days_filters_future_and_dedupes():
+    from datetime import date
+
+    rows = [
+        {"id": 1, "payload_json": json.dumps({"date": "2026-11-08"}),
+         "receipt_message_id": "om_x1", "created_at": "2026-11-08 00:30:00"},
+        {"id": 2, "payload_json": json.dumps({"date": "2026-11-08"}),
+         "receipt_message_id": "om_x2", "created_at": "2026-11-08 01:00:00"},
+        {"id": 3, "payload_json": json.dumps({"date": "2099-01-01"}),
+         "receipt_message_id": "om_x3", "created_at": "2026-11-09 00:30:00"},
+        {"id": 4, "payload_json": json.dumps({"date": "2026-11-09"}),
+         "receipt_message_id": "om_x4", "created_at": "2026-11-08 03:22:00"},
+    ]
+
+    days = si.real_days_from_rows(rows, date(2026, 11, 9))
+
+    assert list(days) == ["2026-11-08"]
+    assert days["2026-11-08"]["outboxId"] == 2
+    assert days["2026-11-08"]["receipt"] == "om_x2"
+
+
 def test_variant_approval_is_deterministic_and_skips_shadow():
     assert si.should_approve_variant(
         {"shadow": 0, "mode": "draft"}, approved_clusters=set(), cluster="a", budget=6
