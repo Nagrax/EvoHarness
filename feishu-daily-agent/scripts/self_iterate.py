@@ -1008,15 +1008,30 @@ def _main_locked(args, phases) -> int:
     refresh_token_if_needed()
     age = _token_age_minutes()
     if age is not None and age > 110:
-        # 预防性早退：2 小时寿命余量不足一轮（20-50 分钟），先续期再跑，
-        # 避免轮次中途 TokenExpired 造成半途而废。
-        LEDGER.mkdir(parents=True, exist_ok=True)
-        (LEDGER / "TOKEN_EXPIRED").write_text(
-            json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                        "error": f"token age {age:.0f}min > 110min; renew before running"},
-                       ensure_ascii=False), encoding="utf-8")
-        log(f"token age {age:.0f}min — preflight abort, TOKEN_EXPIRED marker written")
-        return 3
+        # refresh_token 失效时用 IAB cookie 快照做 headless 续期，避免每 2 小时人工介入。
+        log(f"token age {age:.0f}min — running headless IAB renewal")
+        try:
+            renew = subprocess.run(
+                [str(ROOT / ".venv" / "Scripts" / "python.exe"),
+                 str(ROOT / "scripts" / "renew_user_token.py")],
+                cwd=str(ROOT), capture_output=True, text=True, timeout=180,
+                creationflags=CREATE_NO_WINDOW,
+            )
+            if '"ok": true' in (renew.stdout or ""):
+                age = _token_age_minutes()
+                log(f"headless renewal ok; token age {age:.0f}min")
+        except Exception as exc:  # noqa: BLE001
+            log(f"headless renewal failed: {exc}")
+        if age is not None and age > 110:
+            # 预防性早退：2 小时寿命余量不足一轮（20-50 分钟），先续期再跑，
+            # 避免轮次中途 TokenExpired 造成半途而废。
+            LEDGER.mkdir(parents=True, exist_ok=True)
+            (LEDGER / "TOKEN_EXPIRED").write_text(
+                json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "error": f"token age {age:.0f}min > 110min; renew before running"},
+                           ensure_ascii=False), encoding="utf-8")
+            log(f"token age {age:.0f}min — preflight abort, TOKEN_EXPIRED marker written")
+            return 3
     # 引擎启动时重置 WS 连接（实机发现：连接约 1 小时后事件可能分钟级迟到）。
     # 运维已单独重启/确认服务健康时可跳过，避免启动瞬间再次杀服务。
     if os.environ.get("FEISHU_SKIP_SERVICE_RESTART") != "1":
