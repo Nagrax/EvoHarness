@@ -517,6 +517,27 @@ def _logical_day() -> str:
     return datetime.now(ZoneInfo(tz)).date().isoformat()
 
 
+def decision_for_receipt(receipt_suffix: str) -> dict | None:
+    """按回执后缀取该消息最新决策；用于把 exact/变体发送按消息归属，而不是按时间窗猜测。"""
+    rows = db_query(
+        "SELECT rd.decision, rd.reason_codes, rd.experience_id FROM messages m "
+        "JOIN reply_decisions rd ON rd.message_id=m.message_id "
+        "WHERE m.message_id LIKE ? ORDER BY rd.id DESC LIMIT 1",
+        (f"%{receipt_suffix}",),
+    )
+    return rows[0] if rows else None
+
+
+def auto_window_result(*, exact_decisions: list[str | None], variant_decision: str | None) -> dict:
+    """把 exact 与变体分别按自己的决策归因，避免延迟发送被记到变体窗口。"""
+    return {
+        "autoSent": sum(1 for decision in exact_decisions if decision == "auto_eligible"),
+        "variantAutoSent": 1 if variant_decision == "auto_eligible" else 0,
+        "exactDecisions": list(exact_decisions),
+        "variantDecision": variant_decision,
+    }
+
+
 def auto_quota_state() -> dict:
     """生产灰度每日自动回复配额：与 policy._reserve_auto_slot 使用同一个 SystemState 键。"""
     tenant = ENVV.get("FEISHU_TENANT_ID", "default")
@@ -651,12 +672,26 @@ def phase_auto(asks_per_cluster: int = 10) -> dict:
                 break
             time.sleep(5)
         out["ingested"] = ingested if receipts else 0
-        # 等决策/发送收敛：auto 计数稳定 3 个周期无增长或达到发送数
-        settle_deadline = time.time() + 240
+        # 等每条 exact 探针产生决策：按消息决策归因，避免延迟发送被记到变体窗口。
+        decision_deadline = time.time() + 240
+        exact_decisions: list[str | None] = [None] * len(receipts)
+        while time.time() < decision_deadline:
+            exact_decisions = [
+                (decision_for_receipt(rc) or {}).get("decision") if rc else None
+                for rc in receipts
+            ]
+            if all(value is not None for value in exact_decisions):
+                break
+            time.sleep(5)
+        eligible = sum(1 for value in exact_decisions if value == "auto_eligible")
+        # 等对应发送落库（最多 120s；达到 eligible 条即可）
+        send_deadline = time.time() + 120
         stable = 0
         last_auto = -1
-        while time.time() < settle_deadline:
+        while time.time() < send_deadline:
             cur = db_query("SELECT COUNT(*) c FROM outbox WHERE auto=1 AND status='sent'")[0]["c"]
+            if cur >= before + eligible:
+                break
             if cur == last_auto:
                 stable += 1
                 if stable >= 3:
@@ -667,31 +702,33 @@ def phase_auto(asks_per_cluster: int = 10) -> dict:
             time.sleep(5)
         after = db_query("SELECT COUNT(*) c FROM outbox WHERE auto=1 AND status='sent'")[0]["c"]
         auto_sent = after - before
-        # 变体在 0.85 阈值下不得自动发送（近义不抬高的生产口径）
-        v_before = db_query("SELECT COUNT(*) c FROM outbox WHERE auto=1 AND status='sent'")[0]["c"]
-        owner_send("年假要怎么申请呀", "sim-autov")
-        v_settle = time.time() + 120
-        v_stable = 0
-        v_last = -1
-        while time.time() < v_settle:
-            cur = db_query("SELECT COUNT(*) c FROM outbox WHERE auto=1 AND status='sent'")[0]["c"]
-            if cur == v_last:
-                v_stable += 1
-                if v_stable >= 3:
+        # 变体：等它自己的决策，明确判断是否 auto；不再用计数窗口猜测。
+        variant_receipt = owner_send("年假要怎么申请呀", "sim-autov")
+        variant_decision = None
+        if variant_receipt:
+            v_deadline = time.time() + 120
+            while time.time() < v_deadline:
+                variant_decision = (decision_for_receipt(variant_receipt) or {}).get("decision")
+                if variant_decision is not None:
                     break
-            else:
-                v_stable = 0
-                v_last = cur
-            time.sleep(5)
-        v_after = db_query("SELECT COUNT(*) c FROM outbox WHERE auto=1 AND status='sent'")[0]["c"]
-        variant_shadow = v_after - v_before
+                time.sleep(5)
+        attribution = auto_window_result(
+            exact_decisions=exact_decisions,
+            variant_decision=variant_decision,
+        )
         out["windows"].append({
             "questionsSent": sent_questions,
             "ingested": out["ingested"],
             "autoSent": auto_sent,
-            "variantAutoSent": variant_shadow,
+            "variantAutoSent": attribution["variantAutoSent"],
+            "exactAutoEligible": attribution["autoSent"],
+            "exactDecisions": attribution["exactDecisions"],
+            "variantDecision": attribution["variantDecision"],
             "expected": {"autoSent": sent_questions, "variantAutoSent": 0},
         })
+        if attribution["variantAutoSent"]:
+            out["severe"] = "variant_auto_send"
+            log("SEVERE: variant auto-sent; see reply_decisions")
     finally:
         revert_auto()
     append_history(out)

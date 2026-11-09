@@ -18,6 +18,10 @@ def temp_db(tmp_path, monkeypatch):
         """
         CREATE TABLE messages (id INTEGER PRIMARY KEY, message_id TEXT, is_from_bot INTEGER);
         CREATE TABLE reply_drafts (id INTEGER PRIMARY KEY, message_id TEXT, status TEXT, mode TEXT);
+        CREATE TABLE reply_decisions (
+            id INTEGER PRIMARY KEY, message_id TEXT, decision TEXT,
+            reason_codes TEXT, experience_id INTEGER
+        );
         CREATE TABLE system_state (key TEXT PRIMARY KEY, value TEXT);
         """
     )
@@ -121,3 +125,43 @@ def test_variant_approval_is_deterministic_and_skips_shadow():
     assert not si.should_approve_variant(
         {"shadow": 0, "mode": "draft"}, approved_clusters={"a"}, cluster="a", budget=6
     )
+
+
+def test_auto_window_result_attributes_by_decision():
+    exact = si.auto_window_result(
+        exact_decisions=["auto_eligible", "auto_eligible", "auto_eligible"],
+        variant_decision="needs_review",
+    )
+    assert exact["autoSent"] == 3
+    assert exact["variantAutoSent"] == 0
+
+    delayed = si.auto_window_result(
+        exact_decisions=[None, "auto_eligible"],
+        variant_decision=None,
+    )
+    assert delayed["autoSent"] == 1
+    assert delayed["variantAutoSent"] == 0
+
+    severe = si.auto_window_result(
+        exact_decisions=["auto_eligible"],
+        variant_decision="auto_eligible",
+    )
+    assert severe["variantAutoSent"] == 1
+
+
+def test_decision_for_receipt_uses_latest(temp_db):
+    db = sqlite3.connect(temp_db)
+    db.execute("INSERT INTO messages (id, message_id, is_from_bot) VALUES (1, 'om_x_abc', 0)")
+    db.execute(
+        "INSERT INTO reply_decisions (id, message_id, decision) VALUES (1, 'om_x_abc', 'draft_only')"
+    )
+    db.execute(
+        "INSERT INTO reply_decisions (id, message_id, decision) VALUES (2, 'om_x_abc', 'auto_eligible')"
+    )
+    db.commit()
+    db.close()
+
+    row = si.decision_for_receipt("abc")
+
+    assert row is not None
+    assert row["decision"] == "auto_eligible"
