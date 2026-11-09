@@ -115,3 +115,40 @@ def test_small_report_keeps_all_items(settings):
     assert "未展示" not in raw
     assert raw.count("#0") >= 3
     assert raw.count("#1") >= 3
+
+
+def test_shadow_draft_has_observation_note_without_buttons(settings):
+    content = _large_content(count=1)
+    content["pending_replies"] = [
+        {
+            "id": 901,
+            "sender": "ou_sender",
+            "question": "年假要怎么申请呀",
+            "content": "影子回复",
+            "score": 0.2,
+            "experience_id": 1,
+            "version": 1,
+            "shadow": True,
+        },
+        {
+            "id": 902,
+            "sender": "ou_sender",
+            "question": "请问年假怎么申请？",
+            "content": "正常回复",
+            "score": 0.95,
+            "experience_id": 1,
+            "version": 1,
+            "shadow": False,
+        },
+    ]
+    content["summary"]["pending"] = 2
+    with session_scope() as session:
+        report = _report(session, content)
+
+        card = build_report_card(session, report)
+        raw = json.dumps(card, ensure_ascii=False)
+
+    assert "影子草稿：仅记录决策，不生成发送。" in raw
+    assert raw.count('"content": "批准"') == 1
+    assert '改 #901' not in raw
+    assert '改 #902' in raw

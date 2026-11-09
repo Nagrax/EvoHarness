@@ -310,12 +310,26 @@ def adjudication_needs_correction(experience: dict | None) -> bool:
     return not experience or experience.get("status") != "candidate"
 
 
+def needs_reactivation(experience: dict | None) -> bool:
+    """paused 的经验不会产生可批准草稿；先由 owner 指令验证恢复再走审批链。"""
+    return experience is not None and experience.get("status") == "paused"
+
+
 def phase_adjudicate() -> dict:
     """每个簇：exact 提问 → 改#N 批准 → 验证#E 发布（真实管线全链）。"""
     out = {"phase": "adjudicate", "clusters": [], "drained": 0}
     out["drained"] = _drain_pending_drafts()
     for item in CORPUS:
         entry = {"cluster": item["cluster"]}
+        prev = latest_experience_for(item["exact"])
+        entry["beforeStatus"] = prev["status"] if prev else None
+        if needs_reactivation(prev):
+            owner_send(f"验证 #{prev['id']}", "sim-reactivate")
+            time.sleep(3)
+            prev = latest_experience_for(item["exact"])
+            entry["reactivated"] = (
+                {"id": prev["id"], "status": prev["status"]} if prev else None
+            )
         receipt = owner_send(item["exact"], "sim-q")
         entry["questionReceipt"] = receipt
         draft = wait_for_draft(receipt) if receipt else None

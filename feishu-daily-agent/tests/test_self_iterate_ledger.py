@@ -115,6 +115,13 @@ def test_adjudication_requires_correction_unless_candidate():
     assert si.adjudication_needs_correction({"status": "candidate"}) is False
 
 
+def test_needs_reactivation_only_for_paused():
+    assert si.needs_reactivation({"status": "paused"}) is True
+    assert si.needs_reactivation({"status": "candidate"}) is False
+    assert si.needs_reactivation({"status": "approved_auto"}) is False
+    assert si.needs_reactivation(None) is False
+
+
 def test_variant_approval_is_deterministic_and_skips_shadow():
     assert si.should_approve_variant(
         {"shadow": 0, "mode": "draft"}, approved_clusters=set(), cluster="a", budget=6

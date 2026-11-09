@@ -117,29 +117,32 @@ def _render_report_elements(
                     f"  相似度 {draft['score']}｜经验 {draft.get('experience_id') or '无'}"
                 )
             )
-            elements.append(
-                _md(f"修改：发送「改 #{draft['id']} 新内容」给机器人")
-            )
-            elements.append(
-                _actions(
-                    _button(
-                        "批准", "primary",
-                        _token(
-                            session, report, action="approve",
-                            target_type="draft", target_id=draft["id"],
-                            target_version=draft["version"],
-                        ),
-                    ),
-                    _button(
-                        "驳回", "danger",
-                        _token(
-                            session, report, action="reject",
-                            target_type="draft", target_id=draft["id"],
-                            target_version=draft["version"],
-                        ),
-                    ),
+            if draft.get("shadow"):
+                elements.append(_md("影子草稿：仅记录决策，不生成发送。"))
+            else:
+                elements.append(
+                    _md(f"修改：发送「改 #{draft['id']} 新内容」给机器人")
                 )
-            )
+                elements.append(
+                    _actions(
+                        _button(
+                            "批准", "primary",
+                            _token(
+                                session, report, action="approve",
+                                target_type="draft", target_id=draft["id"],
+                                target_version=draft["version"],
+                            ),
+                        ),
+                        _button(
+                            "驳回", "danger",
+                            _token(
+                                session, report, action="reject",
+                                target_type="draft", target_id=draft["id"],
+                                target_version=draft["version"],
+                            ),
+                        ),
+                    )
+                )
         elements.extend(_omitted(limit, len(pending), "待批回复"))
     else:
         elements.append(_md("暂无待批回复。"))
