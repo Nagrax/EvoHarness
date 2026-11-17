@@ -376,6 +376,62 @@ def _is_within_workspace(raw_path: str) -> bool:
     return p == root or root in p.parents
 
 
+# ── DE-20 缺陷修复 SOP：既有测试文件写保护钩子 ────────────────────
+# 工作流执行期间由驱动方注册受保护的测试根；激活后对「已存在的测试文件」的
+# edit/覆盖写入一律 deny——修复不得删测试凑绿。尚不存在的测试文件（引擎要新增
+# 的回归测试）不受影响。未激活（None）时零行为变化，既有权限语义不变。
+_active_test_guard_roots: tuple[Path, ...] | None = None
+
+
+def set_active_test_guard(roots) -> None:
+    """缺陷修复 SOP 期间启用测试文件写保护：roots 为受保护的测试目录/文件。"""
+    global _active_test_guard_roots
+    _active_test_guard_roots = tuple(Path(r).resolve() for r in roots)
+
+
+def clear_active_test_guard() -> None:
+    """清除测试写保护；工作流结束/取消时必须调用，恢复默认权限语义。"""
+    global _active_test_guard_roots
+    _active_test_guard_roots = None
+
+
+# ── DE-41 组织治理钩子：撤权/暂停及时传到工具层 ────────────────────
+# 组织模式由组合根注册工具层授权闸门（evoharness.governance.decisions.tool_gate）：
+# 每次有副作用工具调用前重验组织授权交集，先于 bypassPermissions/acceptEdits 档位
+# 检查——组织授权不能被内层 harness 档位放宽（与 DE-20 测试写保护同级，且同样
+# 不可被 settings 的 allow 规则放宽）。未注册（None）时零行为变化，既有权限语义不变。
+_organization_governance_gate = None
+
+
+def set_organization_governance(gate) -> None:
+    """注册组织治理闸门：gate(tool_name, inp) -> None（放行）| str（拒绝原因）。"""
+    global _organization_governance_gate
+    _organization_governance_gate = gate
+
+
+def clear_organization_governance() -> None:
+    """清除组织治理闸门；会话退出组织模式时必须调用，恢复默认权限语义。"""
+    global _organization_governance_gate
+    _organization_governance_gate = None
+
+
+def _is_guarded_test_target(raw_path: str) -> bool:
+    """守卫命中 = 测试类路径 + 落在受保护根内 + 文件已存在（编辑会删既有断言）。"""
+    if _active_test_guard_roots is None or not raw_path:
+        return False
+    try:
+        resolved = _resolve_tool_path(raw_path, must_exist=False).resolve()
+    except Exception:
+        return False
+    name = resolved.name.lower()
+    looks_like_test = (name.startswith("test_") and name.endswith(".py")) or any(
+        part.lower() == "tests" for part in resolved.parts)
+    if not looks_like_test or not resolved.exists():
+        return False
+    return any(resolved == root or root in resolved.parents
+               for root in _active_test_guard_roots)
+
+
 #模型可写、且会被后续会话当作可信配置加载的文件（持久化代码执行风险）
 PROTECTED_CONFIG_NAME = ".mcp.json"
 PROTECTED_CONFIG_DIR = ".evoharness"
@@ -1050,18 +1106,26 @@ async def _run_shell_async(inp: dict) -> "ToolResult":
     timeout_s = timeout_ms / 1000
     started = time.time()
     command = inp.get("command")
-    if IS_WIN:
-        args = ["cmd", "/c", command]
-    else:
-        args = ["/bin/sh", "-c", command]
     proc = None
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=not IS_WIN,
-        )
+        if IS_WIN:
+            # Windows 必须用 shell 形式：`create_subprocess_exec("cmd", "/c", command)`
+            # 会走 list2cmdline，把命令里的引号转义成 \" —— cmd 不认这种转义，
+            # 于是 `python -c "import time; time.sleep(1)"` 这类命令必然 exit 1
+            # （2026-11-10 实测：任何带引号的命令都失败）。
+            # create_subprocess_shell 把原始字符串交给 cmd /c，语义与 `shell=True` 一致。
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                "/bin/sh", "-c", command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
         except asyncio.TimeoutError:
@@ -1355,6 +1419,23 @@ def check_permission(
     rule_result = _check_permission_rules(tool_name, inp)
     if rule_result == "deny":
         return {"action": "deny", "message": f"Denied by permission rule for {tool_name}"}
+
+    # DE-20 缺陷修复 SOP 测试写保护（工作流激活期间）：对既有测试文件的修改一律
+    # deny——修复不得删测试凑绿。与 deny 规则同级、先于 bypassPermissions，
+    # 不可被档位或 settings 的 allow 规则放宽；新增回归测试文件（尚不存在）不受影响。
+    if tool_name in ("write_file", "edit_file") and _is_guarded_test_target(
+            str(inp.get("file_path") or inp.get("path") or "")):
+        return {"action": "deny",
+                "message": "code_fix test guard: existing test files are read-only during defect-fix runs"}
+
+    # DE-41 组织治理闸门（组织模式注册）：撤权/暂停即时传到工具层，每次有副作用
+    # 调用前重验组织授权交集。先于 bypassPermissions/acceptEdits 档位检查——组织
+    # 授权交集不能被内层 harness 档位或 allow 规则放宽；未映射的读类/无副作用
+    # 工具不受影响（不要求为每个无副作用步骤重新确认）。
+    if _organization_governance_gate is not None:
+        denial = _organization_governance_gate(tool_name, inp)
+        if denial:
+            return {"action": "deny", "message": denial}
 
     if mode == "bypassPermissions":
         return {"action": "allow"}

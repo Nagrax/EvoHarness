@@ -33,7 +33,7 @@ def test_triage_closable_sources_include_single_shot_kinds():
 
 def test_real_backlog_has_no_stale_backend_pending():
     """真实 backlog：修好的 backend/frontend 信号不应仍是 pending。"""
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))

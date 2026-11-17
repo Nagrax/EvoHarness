@@ -28,7 +28,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 TASKS = REPO / "eval" / "runs" / "reflection-tasks" / "tasks.jsonl"
 MODEL = os.environ.get("EVOHARNESS_EVAL_MODEL", "raccoon/sn-deepseek-v4-1-flash-1017")
 

@@ -33,7 +33,7 @@ def test_next_number_starts_at_one():
 
 
 def test_real_backlog_ids_are_unique():
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -44,7 +44,7 @@ def test_real_backlog_ids_are_unique():
 
 def test_limitation_only_on_capability_items():
     """known-limitation 只能标在能力边界类项上（silent-except 不是能力边界）。"""
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))

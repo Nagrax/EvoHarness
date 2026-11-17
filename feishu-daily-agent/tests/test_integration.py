@@ -70,7 +70,8 @@ def test_approve_sends_and_sedates_new_experience(source, approval_mode):
         assert saved.sent_message_id == "om_sent_1"
         experiences = session.query(Experience).all()
         assert len(experiences) == 1
-        assert experiences[0].status == ExperienceStatus.CANDIDATE
+        # 2026-11-11 起"批准即发布"：不再要求用户另发「验证 #n」
+        assert experiences[0].status == ExperienceStatus.APPROVED_AUTO
         assert len(transport.replies) == 1
 
 

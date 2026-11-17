@@ -38,8 +38,10 @@ def test_event_dedupe_and_message_idempotent(source):
 
 
 def test_admission_rejects_unknown_bot_identity(source, settings, monkeypatch):
+    """配置成"必须 @"时，机器人身份未知不能把任意 @ 当成"@机器人"。"""
     monkeypatch.setattr(settings, "feishu_bot_open_id", "")
     monkeypatch.setattr(settings, "feishu_chat_whitelist", "oc_group,oc_1")
+    monkeypatch.setattr(settings, "feishu_group_reply_only_mention", True)
     with session_scope() as session:
         db_source = session.get(Source, source.id)
         group = admission.ensure_source(
@@ -74,7 +76,13 @@ def test_admission_group_mention_with_known_bot(source, settings, monkeypatch):
 
 
 def test_realtime_group_no_mention_is_ingested_without_processing(settings, monkeypatch):
+    """历史行为：配置成"群聊必须 @"时，不 @ 只入库不处理。
+
+    默认已改为免 @（见 test_multi_user.py），但这条开关必须保留可用：
+    有些群确实希望机器人只听 @。
+    """
     monkeypatch.setattr(settings, "feishu_chat_whitelist", "oc_group")
+    monkeypatch.setattr(settings, "feishu_group_reply_only_mention", True)
     from app.handlers.events import persist_event
 
     with session_scope() as session:

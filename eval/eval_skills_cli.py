@@ -21,7 +21,7 @@ import json
 import sys
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 EVOLUTION_DIR = REPO / ".evoharness" / "skill-evolution"
 
 

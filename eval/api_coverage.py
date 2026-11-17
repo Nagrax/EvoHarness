@@ -10,7 +10,7 @@ import json
 import re
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 APP = REPO / "server" / "app.py"
 CONTRACT = REPO / "eval" / "backend_contract.py"
 

@@ -21,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 EVAL = REPO / "eval"
 TESTS = REPO / "tests"
 
@@ -58,19 +58,44 @@ def _is_encoding_limit(detail: str) -> bool:
 
 
 def probe(script: Path) -> tuple[str, str]:
-    """用 --help 探活（不执行副作用）。"""
+    """探活：导入模块（不执行 main）。
+
+    旧实现跑 `script --help`，但这些脚本用 `raise SystemExit(main())` 结尾、
+    没有 argparse，`--help` 会被忽略 → 探活等于**真的运行脚本**，会写产物、
+    甚至因为缺产物而崩溃（2026-11-10：harness2_summary 探活时抛
+    FileNotFoundError，被判 broken，但它其实没坏，只是没有输入）。
+    现在改为在子进程里按 `__name__ != "__main__"` 导入：既验证语法与顶层依赖，
+    又保证不触发任何业务副作用。
+    """
+    runner = (
+        "import importlib.util, sys\n"
+        "path = sys.argv[1]\n"
+        "spec = importlib.util.spec_from_file_location('probe_target', path)\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "sys.modules['probe_target'] = module\n"
+        "spec.loader.exec_module(module)\n"
+    )
     try:
-        proc = subprocess.run([sys.executable, str(script), "--help"],
+        proc = subprocess.run([sys.executable, "-c", runner, str(script)],
                               cwd=str(REPO), capture_output=True, text=True,
                               encoding="utf-8", errors="replace",
-                              timeout=30)
+                              timeout=60)
     except subprocess.TimeoutExpired:
-        return "timeout", ">30s"
+        return "timeout", ">60s"
     if proc.returncode == 0:
         return "ok", ""
     err = (proc.stderr or "").strip().splitlines()
-    tail = err[-1][:120] if err else f"exit={proc.returncode}"
+    tail = err[-1][:160] if err else f"exit={proc.returncode}"
     return "fail", tail
+
+
+def supports_help(script: Path) -> bool:
+    """脚本是否实现了 --help（argparse / click）。仅对这类脚本跑用法探活。"""
+    try:
+        text = script.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return "argparse" in text or "click.command" in text
 
 
 def main() -> int:

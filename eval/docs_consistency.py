@@ -17,11 +17,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
-HANDOFF = Path(r"D:/claudecode/.zcode/workflows/evoharness-optimize-audit/HANDOFF.md")
+REPO = Path(__file__).resolve().parents[1]
+HANDOFF = Path(os.environ.get("DOCS_CONSISTENCY_HANDOFF", str(REPO / ".zcode/workflows/evoharness-optimize-audit/HANDOFF.md")))
 CHECKPOINT = REPO / "eval" / "loop" / "CHECKPOINT-20261025.md"
 BUDGET = REPO / "eval" / "runs" / "live-w13" / "LIVE_BUDGET.json"
 BACKLOG = REPO / "eval" / "loop" / "BACKLOG.json"
@@ -128,6 +129,7 @@ def main() -> int:
         "note": "只报告不一致，不自动修改——哪边对需人判断",
     }
     out = REPO / "eval" / "runs" / "docs-consistency.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     print(json.dumps(fact, ensure_ascii=False, indent=2))

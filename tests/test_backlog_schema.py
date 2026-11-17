@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-BACKLOG = REPO / "eval" / "loop" / "BACKLOG.json"
+BACKLOG = REPO / "tests" / "fixtures" / "loop-backlog.json"
 
 # 已知例外：这些条目的 detail 形态与本规则不同（信息型 / 聚合型 / 历史格式）
 KNOWN_EXCEPTIONS = {

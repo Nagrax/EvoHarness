@@ -13,6 +13,7 @@ import contextvars
 import ipaddress
 import json
 import os
+import sqlite3
 import time
 from pathlib import Path
 import hashlib
@@ -334,6 +335,58 @@ HOSTED_TOKEN = (os.environ.get("EVOHARNESS_HOSTED_TOKEN") or "").strip()
 _HOSTED_TOKEN_EXPLICIT = os.environ.get("EVOHARNESS_HOSTED_TOKEN") is not None
 
 
+# ─── token→主体映射注册表（R01）────────────────────────────────
+# hosted 模式下 /api/work/* 的操作者身份（Principal）只来自受信 token：
+#   · env 配置：EVOHARNESS_HOSTED_PRINCIPALS = JSON {"<token>": {"subject": "...",
+#     "org_ids": [...], "admin": false}}（部署期注册；解析失败忽略并 fail-closed）；
+#   · 测试/部署可直接改 HOSTED_PRINCIPALS；
+#   · 未注册的共享 HOSTED_TOKEN 回落为管理员主体（沿用既有共享 token 语义）。
+# 正文 actor_id/grantee_id 不再作为权限主体，只能作为声明被校验（evoharness/api.py
+# 的 Principal 绑定通道）。
+def _load_hosted_principals() -> dict[str, dict]:
+    raw = os.environ.get("EVOHARNESS_HOSTED_PRINCIPALS") or ""
+    if not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        print("[hosted] EVOHARNESS_HOSTED_PRINCIPALS 不是合法 JSON，忽略（fail-closed）")
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    registry: dict[str, dict] = {}
+    for token, principal in data.items():
+        if not isinstance(principal, dict):
+            continue
+        subject = str(principal.get("subject") or "").strip()
+        if not subject:
+            continue
+        registry[str(token)] = {
+            "subject": subject,
+            "org_ids": [str(o).strip() for o in (principal.get("org_ids") or [])
+                        if str(o).strip()],
+            "admin": bool(principal.get("admin")),
+            "tenant_id": str(principal.get("tenant_id") or "").strip(),
+            "app_id": str(principal.get("app_id") or "").strip(),
+        }
+    return registry
+
+
+HOSTED_PRINCIPALS: dict[str, dict] = _load_hosted_principals()
+
+
+def _bearer_token(request: Request) -> str:
+    auth = (request.headers.get("Authorization") or "").strip()
+    return auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
+
+
+def _request_is_hosted(request: Request) -> bool:
+    """实际监听地址也参与鉴权，防止 uvicorn --host 覆盖环境配置后裸露接口。"""
+    server = (getattr(request, "scope", None) or {}).get("server")
+    host = server[0] if isinstance(server, (tuple, list)) and server else None
+    return DEPLOYMENT_MODE == "hosted" or _is_exposed_bind(host)
+
+
 def _require_hosted_admin(request: Request, session_id: str | None = None) -> dict | None:
     """托管模式管理写端点的统一门。
 
@@ -342,18 +395,94 @@ def _require_hosted_admin(request: Request, session_id: str | None = None) -> di
 
     A/B 主体隔离：hosted 模式下管理操作必须声明 owner 主体；历史/stop/恢复等
     跨 session 读写由各端点自行调用本门 + session 归属检查。
+
+    R01：共享 HOSTED_TOKEN 与已注册的 Principal token 都算已认证
+    （注册表见 _load_hosted_principals）。
+
+    N01：管理 token 与普通成员 token 分开——已认证普通成员（admin=False）
+    不再放行管理端点，只有 admin=True 的注册主体或共享 HOSTED_TOKEN
+    （部署运维身份回落管理员）可通过。
     """
-    if DEPLOYMENT_MODE != "hosted":
+    if not _request_is_hosted(request):
         return None
-    auth = (request.headers.get("Authorization") or "").strip()
-    expected = f"Bearer {HOSTED_TOKEN}"
-    if not auth or auth != expected:
+    token = _bearer_token(request)
+    if not token or not (token == HOSTED_TOKEN or token in HOSTED_PRINCIPALS):
         return {
             "ok": False,
             "error": "hosted 模式管理操作需要认证（Authorization: Bearer <EVOHARNESS_HOSTED_TOKEN>）",
             "deploymentMode": DEPLOYMENT_MODE,
         }
+    principal = HOSTED_PRINCIPALS.get(token)
+    if principal is not None and not principal.get("admin"):
+        return {
+            "ok": False,
+            "error": "hosted 模式管理操作需要管理员主体"
+                     "（admin=true 的注册 token 或共享 EVOHARNESS_HOSTED_TOKEN）",
+            "reason_code": "admin_required",
+            "deploymentMode": DEPLOYMENT_MODE,
+        }
     return None
+
+
+def _admin_denial_status(denied: dict) -> int:
+    """管理门拒绝的 HTTP 语义：已认证但非管理员=403；未认证/未知 token=401。"""
+    return 403 if denied.get("reason_code") == "admin_required" else 401
+
+
+def _hosted_principal(request: Request) -> "dict | None":
+    """hosted 模式下从受信 token 解析 Principal；local 模式无 Principal 语义。"""
+    if not _request_is_hosted(request):
+        return None
+    token = _bearer_token(request)
+    if not token:
+        return None
+    principal = HOSTED_PRINCIPALS.get(token)
+    if principal is not None:
+        return principal
+    if HOSTED_TOKEN and token == HOSTED_TOKEN:
+        # 共享 token 回落为管理员主体（持有共享 token = 部署运维身份）
+        return {"subject": "hosted-admin", "org_ids": [], "admin": True}
+    return None
+
+
+def _work_gate(request: Request) -> "tuple[dict | None, JSONResponse | None]":
+    """/api/work/* 统一入口门（R01）：hosted 模式必须携带已注册受信 token。
+
+    返回 (principal, None)：principal 为 None 表示 local 模式（无 Principal 语义）。
+    返回 (None, response)：hosted 模式未认证/错误 token，调用方直接返回 response。
+    """
+    principal = _hosted_principal(request)
+    if not _request_is_hosted(request):
+        return None, None
+    if principal is None:
+        return None, JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "hosted 模式访问工作台需要认证"
+                         "（Authorization: Bearer <已注册主体 token 或 EVOHARNESS_HOSTED_TOKEN>）",
+                "deploymentMode": DEPLOYMENT_MODE,
+            },
+        )
+    return principal, None
+
+
+@app.middleware("http")
+async def _shared_runtime_gate(request: Request, call_next):
+    """旧聊天/技能/评测共用宿主状态，hosted 时只允许管理员访问。
+
+    组织成员使用 /api/work/* 的逐目标权限；共享运行时没有成员隔离，不能
+    仅凭登录就访问宿主历史或驱动模型/工具。健康探针和 CORS 预检保持可用。
+    """
+    path = request.url.path
+    shared = path in {"/api/chat", "/api/history", "/api/stop"} or any(
+        path == prefix or path.startswith(prefix + "/")
+        for prefix in ("/api/skills", "/api/eval", "/api/daily"))
+    if shared and request.method != "OPTIONS":
+        denied = _require_hosted_admin(request)
+        if denied:
+            return JSONResponse(status_code=_admin_denial_status(denied), content=denied)
+    return await call_next(request)
 
 
 def _effective_auto_confirm(server) -> bool:
@@ -432,6 +561,21 @@ def _config_fingerprint(base: str | None, key: str | None, name: str | None) -> 
     return (base or "", digest, name or "")
 
 
+def _web_sdk_client(base: str | None, key: str | None, name: str,
+                    use_openai: bool):
+    """DE-15：组织模式 Web chat 必须经预算网关；本地模式保持原直连。"""
+    from evoharness.governance import chat_budget
+    if not chat_budget.budget_enforced():
+        return None
+    try:
+        return chat_budget.build_chat_gateway_client(
+            api_base=base, api_key=key, model=name,
+            use_openai=use_openai, principal_id="web-chat")
+    except Exception as error:  # noqa: BLE001 — 装配缺口必须可见且可操作
+        raise RuntimeError(
+            f"budget_gateway_unavailable:{type(error).__name__}:{error}") from None
+
+
 def _get_agent(session_id: str, permission_mode: str, api_base: str | None = None,
                api_key: str | None = None, model: str | None = None,
                auto_confirm_enabled: bool | None = None) -> Agent:
@@ -464,6 +608,7 @@ def _get_agent(session_id: str, permission_mode: str, api_base: str | None = Non
         api_base=base if use_openai else None,
         anthropic_base_url=base if not use_openai else None,
         api_key=key,
+        sdk_client=_web_sdk_client(base, key, name, use_openai),
     )
     # Web 会话 id 对齐落盘文件名，重启后可从 ~/.evoharness/sessions/<id>.json 恢复
     agent.session_id = session_id
@@ -643,6 +788,15 @@ async def history(session_id: str):
 
 @app.get("/api/skills")
 async def skills_overview():
+    def _skill_search_summary(name: str) -> dict:
+        """DE-36 搜索增强状态摘要（eval/skill_search_eval 与 CLI 同一函数）。"""
+        try:
+            from eval.skill_search_eval import skill_search_summary
+
+            return skill_search_summary(name)
+        except Exception:
+            return {"found": False}
+
     report = _read_json_file(EVOLUTION_DIR / "online_eval_report.json") or {}
     usage_stats = _read_json_file(EVOLUTION_DIR / "skill_usage_stats.json") or {}
     champions = (_read_json_file(ONLINE_EVAL_DIR / "champions.json") or {}).get("champions", {})
@@ -743,6 +897,8 @@ async def skills_overview():
             "champion": champions.get(str(item.get("lineage_id") or "")),
             "last_reason": usage.get("last_reason", ""),
             "last_score": float(usage.get("last_score", 0.0) or 0.0),
+            # DE-36：Skill 详情接搜索状态（同一 search ID 与证据；详情走 /api/skills/search）
+            "search": _skill_search_summary(name),
         })
 
     events_out = [
@@ -836,7 +992,7 @@ async def repair_apply(req: RepairRequest, request: Request):
 
     denied = _require_hosted_admin(request)
     if denied:
-        return JSONResponse(status_code=401, content=denied)
+        return JSONResponse(status_code=_admin_denial_status(denied), content=denied)
     if not _is_allowed_repair_file(req.file):
         return {"ok": False, "error": "文件不在允许的 skills 目录内（仅支持 .evoharness/skills 下的 .md）"}
     kind = _classify(req.event, req.reason)
@@ -896,7 +1052,7 @@ async def skills_tier_action(req: TierActionRequest, request: Request):
 
     denied = _require_hosted_admin(request)
     if denied:
-        return JSONResponse(status_code=401, content=denied)
+        return JSONResponse(status_code=_admin_denial_status(denied), content=denied)
     action = str(req.action or "").strip().lower()
     if action == "promote":
         return skill_tiers.manual_promote(req.skill)
@@ -904,6 +1060,62 @@ async def skills_tier_action(req: TierActionRequest, request: Request):
         return skill_tiers.rollback(req.skill)
     if action == "core":
         return skill_tiers.manual_promote_core(req.skill)
+    return {"ok": False, "error": f"unknown action: {req.action}"}
+
+
+# ---------------------------------------------------------------------------
+# DE-36 搜索增强：搜索状态详情与 Agent 操作（CLI 与本 API 引用同一 search ID 与证据）
+# ---------------------------------------------------------------------------
+
+class SearchActionRequest(BaseModel):
+    search_id: str
+    action: str  # pause | resume | cancel
+    note: str = ""
+
+
+@app.get("/api/skills/search")
+async def skills_search_overview():
+    """全部搜索命名空间摘要（只读）。完整详情按 search_id 走 /api/skills/search/detail。"""
+    from eval.skill_search_eval import find_searches
+
+    return {"searches": find_searches()}
+
+
+@app.get("/api/skills/search/detail")
+async def skills_search_detail(search_id: str):
+    """搜索详情：状态/预算/逐 Case 得失/差异/下一动作/认证五状态/证据（同一 search ID）。"""
+    from eval.skill_search_eval import build_detail_report
+
+    try:
+        return build_detail_report(search_id)
+    except FileNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error": "search_state_not_found", "search_id": search_id},
+        )
+
+
+@app.post("/api/skills/search/action")
+async def skills_search_action(req: SearchActionRequest, request: Request):
+    """Agent 操作入口：pause/resume/cancel（跨进程 CAS 写标记）。
+
+    resume 清除暂停标记后由持有运行组件的运行器（CLI/worker）从断点续跑
+    （不重抽父代、不重扣费）；本端点不持有执行器，不直接推进控制器。
+    hosted 模式下为管理写端点：必须带认证（W08），与 tiers/action 同口径。
+    """
+    denied = _require_hosted_admin(request)
+    if denied:
+        return JSONResponse(status_code=_admin_denial_status(denied), content=denied)
+    from eval.skill_search_eval import SkillSearchRuntime
+
+    runtime = SkillSearchRuntime()
+    action = str(req.action or "").strip().lower()
+    if action == "pause":
+        return runtime.pause(req.search_id, req.note)
+    if action == "resume":
+        return runtime.resume(req.search_id, req.note)
+    if action == "cancel":
+        return runtime.cancel(req.search_id, req.note)
     return {"ok": False, "error": f"unknown action: {req.action}"}
 
 
@@ -1001,7 +1213,7 @@ async def stop(req: StopRequest, request: Request):
     # hosted 模式：stop 属于跨 session 管理动作（A 主体不能停 B 主体的会话），需要认证。
     denied = _require_hosted_admin(request, session_id=req.session_id)
     if denied:
-        return JSONResponse(status_code=401, content=denied)
+        return JSONResponse(status_code=_admin_denial_status(denied), content=denied)
     agent = AGENTS.get(req.session_id)
     if agent:
         agent.abort()
@@ -1099,9 +1311,333 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+# ---------------------------------------------------------------------------
+# DE-28 工作台：统一走 evoharness/api.py 契约层，不在 Web 层重复业务判定。
+# 数据库未配置时返回可读信封（database_not_configured），不假装空数据。
+# ---------------------------------------------------------------------------
+
+_WORK_API = None
+
+
+class _WorkUnavailable(Exception):
+    def __init__(self, code: str, detail: str = ""):
+        self.code = code
+        self.detail = detail
+
+
+def _get_work_api():
+    global _WORK_API
+    if _WORK_API is not None:
+        return _WORK_API
+    try:
+        from evoharness.config import resolve_config
+        config = resolve_config()
+    except ValueError:
+        raise _WorkUnavailable("database_not_configured") from None
+    try:
+        from evoharness.api import open_api
+    except Exception as error:  # noqa: BLE001 — 运行时缺依赖要可见
+        raise _WorkUnavailable("runtime_unavailable",
+                               f"{type(error).__name__}: {error}") from None
+    _WORK_API = open_api(config.database_url,
+                         artifacts_dir=config.artifacts_dir or (ROOT / "data" / "api-artifacts"),
+                         # DE-13：正式组织（hosted）验收强制可信检查回执；
+                         # 本地单用户保留 grace（按装配传入，不改全局环境）
+                         acceptance_policy=("strict" if DEPLOYMENT_MODE == "hosted"
+                                            else None))
+    return _WORK_API
+
+
+# op → (WorkApi 方法, 允许透传的参数名)；白名单外参数丢弃，不透传任意 kwargs
+_WORK_OPS = {
+    "skills_view": ("skills_view", ("org_id", "space_id", "tenant", "owner", "legacy")),
+    "schema": ("schema", ()),
+    "work_view": ("work_view", ("tenant", "owner", "org_id")),
+    "get_work_item": ("get_work_item", ("task_id",)),
+    "create_work_item": ("create_work_item",
+                         ("tenant", "owner", "title", "action", "chat_id", "goal",
+                          "acceptance", "assignee_id", "assignee_name", "workflow_kind",
+                          "org_id", "space_id", "due_text", "source_refs",
+                          "idempotency_key")),
+    "transition_work_item": ("transition_work_item",
+                             ("task_id", "to_state", "actor", "reason", "expected_revision")),
+    "pause_work_item": ("pause_work_item", ("task_id", "actor", "reason")),
+    "complete_work_item": ("complete_work_item",
+                           ("task_id", "actor", "evidence_message_ids")),
+    "cancel_work_item": ("cancel_work_item", ("task_id", "actor", "reason")),
+    "request_clarification": ("request_clarification", ("task_id", "actor", "question")),
+    "resolve_clarification": ("resolve_clarification",
+                              ("task_id", "actor", "answer_message_id")),
+    "submit_supplement": ("submit_supplement", ("task_id", "event_id", "note", "actor")),
+    "run_request_payload": ("run_request_payload", ("task_id", "brief")),
+    "start_run": ("start_run", ("task_id", "actor_id", "brief", "mode", "output_root",
+                                "idempotency_key")),
+    "pause_run": ("pause_run", ("run_id",)),
+    "request_acceptance": ("request_acceptance", ("task_id", "run_id", "requester")),
+    "review_acceptance": ("review_acceptance",
+                          ("task_id", "run_id", "reviewer", "verdict", "notes")),
+    "submit_approval": ("submit_approval",
+                        ("org_id", "actor_id", "target_type", "target_id",
+                         "target_revision", "payload", "actions", "grantee_id",
+                         "expires_at")),
+    "get_approval": ("get_approval", ("decision_id",)),
+    "approvals_view": ("approvals_view", ("org_id",)),
+    "revoke_approval": ("revoke_approval",
+                        ("org_id", "actor_id", "target_type", "target_id")),
+    "search_knowledge": ("search_knowledge",
+                         ("space_id", "subject", "owner_scope", "include_private")),
+    "view_evidence": ("view_evidence", ("task_id",)),
+    "view_cost": ("view_cost", ("org_id", "space_id", "principal_id")),
+    "view_health": ("view_health", ("org_id",)),
+}
+
+
+# 受信 Principal 通道（N01）：hosted 模式下**所有** work op 都进入同一 Principal
+# 服务——读操作按目标归属组织/当事人校验可见性，写操作按动作 grant 校验，
+# actor/requester/reviewer 只从受信会话解析。principal 为 None（local 模式/CLI）
+# 时保持既有行为。正文 params 里出现 principal 一律丢弃（白名单不含该键），
+# 权限主体不可能从请求正文注入。
+
+
+def work_dispatch(op: str, params: dict, principal=None) -> dict:
+    """统一派发：路由与离线测试都走这里（同一判定，无第二实现）。
+
+    先校验操作名（Agent 拿到确定的 unknown_operation），再解析数据源可用性。
+    principal 非空（hosted 模式受信主体）时注入 Principal 通道。
+    """
+    entry = _WORK_OPS.get(op)
+    if entry is None:
+        return {
+            "ok": False, "data": {"detail": {"op": op}}, "reason_code": "unknown_operation",
+            "retryable": False, "next_action": "check_api_schema", "evidence_refs": [],
+        }
+    try:
+        api = _get_work_api()
+    except _WorkUnavailable as exc:
+        return {
+            "ok": False,
+            "data": {"detail": {"error": exc.detail} if exc.detail else {}},
+            "reason_code": exc.code,
+            "retryable": False,
+            "next_action": "configure_evo_harness_database_url",
+            "evidence_refs": [],
+        }
+    name, allowed = entry
+    method = getattr(api, name)
+    try:
+        kwargs = {key: params[key] for key in allowed
+                  if key in params and params[key] is not None}
+        if principal is not None:
+            kwargs["principal"] = principal
+        return method(**kwargs)
+    except ValueError as error:
+        from evoharness.api import WorkApi
+        return WorkApi._convert(error)
+
+
+class WorkOpRequest(BaseModel):
+    op: str
+    params: dict = {}
+
+
+@app.get("/api/work/schema")
+async def work_schema(request: Request):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    return work_dispatch("schema", {}, principal=principal)
+
+
+@app.get("/api/work/view")
+async def work_view(request: Request, tenant: str, owner: str, org: str = ""):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    return work_dispatch("work_view", {"tenant": tenant, "owner": owner, "org_id": org},
+                         principal=principal)
+
+
+@app.get("/api/work/item")
+async def work_item(request: Request, task_id: int):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    return work_dispatch("get_work_item", {"task_id": task_id}, principal=principal)
+
+
+@app.get("/api/work/evidence")
+async def work_evidence(request: Request, task_id: int):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    return work_dispatch("view_evidence", {"task_id": task_id}, principal=principal)
+
+
+@app.get("/api/work/approvals")
+async def work_approvals(request: Request, org: str):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    return work_dispatch("approvals_view", {"org_id": org}, principal=principal)
+
+
+@app.get("/api/work/cost")
+async def work_cost(request: Request, org: str = "", space: str = "", principal: str = ""):
+    session_principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    return work_dispatch("view_cost", {"org_id": org, "space_id": space,
+                                       "principal_id": principal},
+                         principal=session_principal)
+
+
+@app.get("/api/work/health")
+async def work_health(request: Request, org: str = ""):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    return work_dispatch("view_health", {"org_id": org}, principal=principal)
+
+
+@app.get("/api/work/skills")
+async def work_skills(request: Request, org: str = "", space: str = "",
+                      tenant: str = "", owner: str = "", legacy: bool = False):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    return work_dispatch("skills_view", {"org_id": org, "space_id": space,
+        "tenant": tenant, "owner": owner, "legacy": legacy}, principal=principal)
+
+
+@app.get("/api/work/knowledge")
+async def work_knowledge(request: Request, space: str, subject: str,
+                         owner_scope: str = "", include_private: bool = False):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    # R01：hosted 模式 owner_scope/include_private 不再作为可见性依据，
+    # 可见集从受信 Principal 派生（WorkApi.search_knowledge 处理）
+    return work_dispatch("search_knowledge", {"space_id": space, "subject": subject,
+                                              "owner_scope": owner_scope,
+                                              "include_private": include_private},
+                         principal=principal)
+
+
+@app.post("/api/work/op")
+async def work_op(req: WorkOpRequest, request: Request):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    return work_dispatch(req.op, req.params or {}, principal=principal)
+
+
+# ─── DE-43 组织视图：org/position/goal/task/run/artifact 引用与 reason/next_action ───
+# 只读投影走同一 evoharness.api 契约层（org_view 复用 WorkApi 的唯一展示态映射，
+# 不在 Web 层生成第二份状态）；数据库未配置时同样给可读降级信封。
+
+@app.get("/api/work/org")
+async def work_org_view(request: Request, org: str = ""):
+    principal, denied = _work_gate(request)
+    if denied is not None:
+        return denied
+    if not org.strip():
+        return {
+            "ok": False, "data": {"detail": {"org": org}},
+            "reason_code": "org_id_required", "retryable": False,
+            "next_action": "pass_org_id", "evidence_refs": [],
+        }
+    try:
+        api = _get_work_api()
+    except _WorkUnavailable as exc:
+        return {
+            "ok": False,
+            "data": {"detail": {"error": exc.detail} if exc.detail else {}},
+            "reason_code": exc.code,
+            "retryable": False,
+            "next_action": "configure_evo_harness_database_url",
+            "evidence_refs": [],
+        }
+    from evoharness.__main__ import org_view
+    return org_view(api, org_id=org, principal=principal)
+
+
 @app.get("/")
 async def index():
     return FileResponse(ROOT / "frontend" / "index.html")
+
+
+# ---------------------------------------------------------------------------
+# 飞书日报（只读）：工作台"日报"视图的数据源。
+# feishu-daily-agent 是独立子服务（自带 SQLite）；这里以只读方式取最新一份
+# 日报做展示，不做任何写入。DB 不存在或被锁时安静降级，绝不影响主服务。
+# ---------------------------------------------------------------------------
+_FEISHU_DAILY_DB = ROOT / "feishu-daily-agent" / "data" / "agent.db"
+_DAILY_SECTION_LIMIT = 8  # 每节最多带出的条数，防止响应膨胀
+
+
+def _clip_daily_section(items, limit=_DAILY_SECTION_LIMIT):
+    items = [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+    return {"total": len(items), "items": items[:limit]}
+
+
+def _daily_count(value):
+    try:
+        return max(1, int(value or 1))
+    except (TypeError, ValueError, OverflowError):
+        return 1
+
+
+@app.get("/api/daily/latest")
+async def daily_latest():
+    db_path = _FEISHU_DAILY_DB
+    if not db_path.exists():
+        return {"available": False, "reason": "feishu_daily_db_missing"}
+    try:
+        con = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.25)
+        con.row_factory = sqlite3.Row
+        try:
+            row = con.execute(
+                "select logical_date, status, delivered_at, created_at, content_json"
+                " from daily_reports order by id desc limit 1"
+            ).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return {"available": False, "reason": "read_failed"}
+    if row is None:
+        return {"available": False, "reason": "no_reports"}
+    try:
+        content = json.loads(row["content_json"] or "{}")
+    except (ValueError, TypeError):
+        return {"available": False, "reason": "invalid_report_content"}
+    if not isinstance(content, dict):
+        return {"available": False, "reason": "invalid_report_content"}
+    sections = {
+        key: _clip_daily_section(content.get(key))
+        for key in ("tasks", "pending_replies", "sent_replies",
+                    "experience_changes", "gaps")
+    }
+    # 聚合节保留原始规模：影子按同题聚类、同类投递异常合并后，
+    # total 是"类数"，item_count/counts 才是真实条数（诚实计数）。
+    pending_items = _clip_daily_section(content.get("pending_replies"), limit=None)["items"]
+    sections["pending_replies"]["pending_count"] = sum(
+        1 for item in pending_items if not item.get("shadow"))
+    sections["pending_replies"]["shadow_count"] = sum(
+        1 for item in pending_items if item.get("shadow"))
+    gap_items = _clip_daily_section(content.get("gaps"), limit=None)["items"]
+    sections["gaps"]["item_count"] = sum(
+        _daily_count(item.get("count")) for item in gap_items)
+    return {
+        "available": True,
+        "report": {
+            "logical_date": row["logical_date"],
+            "status": row["status"],
+            "delivered_at": row["delivered_at"],
+            "created_at": row["created_at"],
+            "summary": content.get("summary") if isinstance(content.get("summary"), dict) else {},
+            "sections": sections,
+        },
+    }
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 from collections import Counter
@@ -63,26 +64,46 @@ class SkillDefinition:
     prompt_template: str = ""
     source: str = "project"  # "project" or "user"
     skill_dir: str = ""
+    # DE-06：托管投影的 scope-json；None = 旧技能（无作用域声明）
+    scope: dict | None = None
+    content_sha256: str = ""
 
 
 # skills 只在首次读取时扫描磁盘，后续复用缓存；修改 skill 后需要重启或 reset。
 _cached_skills: list[SkillDefinition] | None = None
 
 
-def execute_skill(skill_name:str, args:object)-> dict | None:
+def execute_skill(skill_name:str, args:object, *, scope_ref=None)-> dict | None:
     # skill 工具的执行入口：按名字找到 skill，并返回解析后的 prompt 和执行配置。
-    skill = get_skill_by_name(skill_name)
+    skill = get_skill_by_name(skill_name, scope_ref=scope_ref)
     if not skill:
         return None
 
+    scope_row = None
+    if scope_ref is not None:
+        scope_row = {"tenant": scope_ref.tenant, "space": scope_ref.space,
+                     "owner": scope_ref.owner, "producer": scope_ref.producer,
+                     "source_revision": int(scope_ref.source_revision)}
+    bound_sha256 = ""
+    from .scoped_skill_report import _valid_ref
+    if (_valid_ref(scope_ref) and isinstance(skill.scope, dict)
+            and all(type(skill.scope.get(k)) is type(getattr(scope_ref, k))
+                    and skill.scope[k] == getattr(scope_ref, k)
+                    for k in ("tenant", "space", "owner", "producer", "source_revision"))):
+        bound_sha256 = skill.content_sha256
     record_skill_invocation(
         skill_name=skill.name,
         source=skill.source,
         context=skill.context,
         args=args,
+        scope=scope_row,
+        skill_sha256=bound_sha256,
     )
 
+    binding = ({"ref": {"name": skill.name, **scope_row}, "skill_sha256": bound_sha256}
+               if bound_sha256 else None)
     return {
+        "binding": binding,
         "prompt": resolve_skill_prompt(skill, args),
         "allowed_tools": skill.allowed_tools,
         "context": skill.context,
@@ -101,12 +122,27 @@ def resolve_skill_prompt(skill: SkillDefinition, args: object) -> str:
     prompt = prompt.replace("${CLAUDE_SKILL_DIR}", skill.skill_dir)
     return prompt
 
-def get_skill_by_name(skill_name:str)->SkillDefinition | None:
+def get_skill_by_name(skill_name:str, *, scope_ref=None)->SkillDefinition | None:
     # 通过 name 查找 skill；name 来自 frontmatter，没有写时使用目录名。
-    for s in discover_skills():
-        if s.name == skill_name:
-            return s
-    return None
+    candidates = [s for s in discover_skills() if s.name == skill_name]
+    if not candidates:
+        return None
+    if scope_ref is None:
+        return candidates[0]
+    # DE-06：给定作用域时只解析同域技能；无 scope-json 的旧技能在受域模式下
+    # 明确拒绝（skill_scope_unbound），不靠名称猜归属。
+    from .skill_scope import SkillScopeError, scope_mismatch
+    mismatched = None
+    for skill in candidates:
+        if skill.scope is None:
+            mismatched = mismatched or "skill_scope_unbound"
+            continue
+        bad = scope_mismatch(skill.scope, scope_ref)
+        if bad:
+            mismatched = mismatched or f"skill_scope_mismatch:{bad}"
+            continue
+        return skill
+    raise SkillScopeError(mismatched or "skill_scope_unbound")
 
 def discover_skills() -> list[SkillDefinition]:
     global _cached_skills
@@ -177,7 +213,10 @@ def _parse_skill_file(file_path: Path, source: str, skill_dir: str) -> SkillDefi
         # SKILL.md = frontmatter 配置 + markdown 正文。
         # utf-8-sig：与 skill_evolution 的 utf-8 写入闭环，并透明剥离手工编辑带入的 BOM；
         # 坏编码（如 GBK）在此抛 UnicodeDecodeError，进 except 记 load_failed 而非静默消失。
-        raw = file_path.read_text(encoding="utf-8-sig")
+        content = file_path.read_bytes()
+        # Semantic snapshots use normalized newlines; the binding hash retains
+        # the exact bytes that were loaded, including Windows line endings.
+        raw = content.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
         result = parse_frontmatter(raw)
         meta = result.meta
         _warn_suspicious_frontmatter(file_path, raw, result)
@@ -199,6 +238,14 @@ def _parse_skill_file(file_path: Path, source: str, skill_dir: str) -> SkillDefi
             else:
                 allowed_tools = [s.strip() for s in raw_tools.split(",")]
 
+        scope = None
+        raw_scope = meta.get("scope-json")
+        if raw_scope:
+            try:
+                parsed_scope = json.loads(raw_scope)
+                scope = parsed_scope if isinstance(parsed_scope, dict) else None
+            except ValueError:
+                scope = None
         return SkillDefinition(
             name=name,
             description=meta.get("description", ""),
@@ -209,6 +256,8 @@ def _parse_skill_file(file_path: Path, source: str, skill_dir: str) -> SkillDefi
             prompt_template=result.body,
             source=source,
             skill_dir=skill_dir,
+            scope=scope,
+            content_sha256=hashlib.sha256(content).hexdigest(),
         )
 
     except Exception as ex:
@@ -516,6 +565,7 @@ def evolve_skill(
     description: str = "",
     when_to_use: str = "",
     tags: list[str] | None = None,
+    expected_version: str | None = None,
 ) -> dict:
     skill = get_skill_by_name(skill_name)
     result = evolve_skill_file(
@@ -528,6 +578,7 @@ def evolve_skill(
         description=description,
         when_to_use=when_to_use,
         tags=tags,
+        expected_version=expected_version,
     )
     if result.get("ok"):
         reset_skill_cache()

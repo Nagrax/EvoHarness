@@ -185,3 +185,12 @@ def test_main_survives_stdout_without_reconfigure(tmp_path, monkeypatch):
 
     # 不得抛异常
     assert loop_context.main() == 0
+
+
+def test_clean_checkout_without_runtime_ledger_is_read_only(tmp_path, monkeypatch):
+    from eval import loop_context
+    import sys
+    monkeypatch.setattr(loop_context, "REPO", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["loop_context.py"])
+    assert loop_context.main() == 0
+    assert not (tmp_path / "eval/loop/BACKLOG.json").exists()

@@ -46,7 +46,7 @@ def test_module_backlog_fully_triaged():
     """真实 backlog：module 类项不应再有未判读位置挂在 pending。"""
     import json
 
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))

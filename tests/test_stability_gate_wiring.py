@@ -53,7 +53,7 @@ def test_stability_informational_whitelist():
 
 
 def test_real_backlog_item_closed():
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))

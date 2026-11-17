@@ -14,7 +14,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 BACKLOG = REPO / "eval" / "loop" / "BACKLOG.json"
 
 # 源 → 底层脚本（与 loop.py 里各 _collect_* 实际调用的命令一致）
@@ -61,6 +61,7 @@ def _usage() -> str:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if any(a in {"-h", "--help"} for a in sys.argv[1:]):
         print(_usage())
         return 0

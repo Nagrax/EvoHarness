@@ -141,6 +141,113 @@ def main() -> int:
         except Exception as error:  # noqa: BLE001
             record("skill_tiers_listing", "GET /api/skills/tiers", "happy", False, {}, str(error))
 
+        # ── ⑤c GET /api/daily/latest 飞书日报只读投影 ─────
+        # 两分支：DB 存在 → available:true 且带 report 结构；
+        # DB 缺失 → 安静降级 available:false（绝不 5xx，不影响主服务）。
+        try:
+            r = client.get("/api/daily/latest")
+            body = r.json() if r.status_code == 200 else {}
+            ok = r.status_code == 200 and isinstance(body.get("available"), bool)
+            if body.get("available"):
+                rep = body.get("report") or {}
+                ok = ok and {"logical_date", "status", "summary", "sections"}.issubset(rep)
+                ok = ok and isinstance(rep.get("sections"), dict)
+            record("daily_latest_contract", "GET /api/daily/latest", "happy", ok,
+                   {"status": r.status_code, "available": body.get("available")})
+        except Exception as error:  # noqa: BLE001
+            record("daily_latest_contract", "GET /api/daily/latest", "happy", False, {}, str(error))
+        try:
+            original_db = appmod._FEISHU_DAILY_DB
+            appmod._FEISHU_DAILY_DB = original_db.parent / "no-such-agent.db"
+            r = client.get("/api/daily/latest")
+            body = r.json() if r.status_code == 200 else {}
+            ok = (r.status_code == 200 and body.get("available") is False
+                  and isinstance(body.get("reason"), str))
+            record("daily_latest_missing_db_degrades", "GET /api/daily/latest", "negative", ok,
+                   {"status": r.status_code, "reason": body.get("reason")})
+        except Exception as error:  # noqa: BLE001
+            record("daily_latest_missing_db_degrades", "GET /api/daily/latest", "negative", False, {}, str(error))
+        finally:
+            appmod._FEISHU_DAILY_DB = original_db
+
+        # ── ⑤d /api/work/* 组织契约：无库时也必须是可读信封（不 5xx）──
+        work_gets = [
+            ("work_skills_envelope", "/api/work/skills", {}),
+            ("work_schema_envelope", "/api/work/schema", {}),
+            ("work_view_envelope", "/api/work/view", {"tenant": "local", "owner": "founder"}),
+            ("work_item_envelope", "/api/work/item", {"task_id": 1}),
+            ("work_evidence_envelope", "/api/work/evidence", {"task_id": 1}),
+            ("work_approvals_envelope", "/api/work/approvals", {"org": "org-demo"}),
+            ("work_cost_envelope", "/api/work/cost", {"org": "org-demo"}),
+            ("work_health_envelope", "/api/work/health", {"org": "org-demo"}),
+            ("work_knowledge_envelope", "/api/work/knowledge",
+             {"space": "space-support", "subject": "登录问题受理口径"}),
+            ("work_org_envelope", "/api/work/org", {"org": "org-demo"}),
+        ]
+        for name, path, params in work_gets:
+            try:
+                r = client.get(path, params=params)
+                body = r.json() if r.status_code == 200 else {}
+                ok = (r.status_code == 200 and isinstance(body, dict) and "ok" in body)
+                if body.get("ok") is True:
+                    ok = ok and "data" in body
+                else:
+                    ok = ok and isinstance(body.get("reason_code"), str)
+                record(name, f"GET {path}", "negative", ok,
+                       {"status": r.status_code, "ok": body.get("ok"),
+                        "reason": body.get("reason_code")})
+            except Exception as error:  # noqa: BLE001
+                record(name, f"GET {path}", "negative", False, {}, str(error))
+
+        try:
+            r = client.post("/api/work/op", json={"op": "schema", "params": {}})
+            body = r.json() if r.status_code == 200 else {}
+            ok = (r.status_code == 200 and isinstance(body, dict)
+                  and ("ok" in body)
+                  and (body.get("ok") is True or isinstance(body.get("reason_code"), str)))
+            record("work_op_envelope", "POST /api/work/op", "negative", ok,
+                   {"status": r.status_code, "ok": body.get("ok"),
+                    "reason": body.get("reason_code")})
+        except Exception as error:  # noqa: BLE001
+            record("work_op_envelope", "POST /api/work/op", "negative", False, {}, str(error))
+
+        # ── ⑤e /api/skills/search* 搜索命名空间契约 ──────────
+        try:
+            r = client.get("/api/skills/search")
+            body = r.json() if r.status_code == 200 else {}
+            ok = r.status_code == 200 and isinstance(body.get("searches"), list)
+            record("skills_search_overview", "GET /api/skills/search", "happy", ok,
+                   {"status": r.status_code, "searches": len(body.get("searches") or [])})
+            # 负向：只读端点不接受 POST（方法约束是契约的一部分）
+            bad = client.post("/api/skills/search")
+            record("skills_search_overview_rejects_post", "GET /api/skills/search",
+                   "negative", bad.status_code == 405, {"status": bad.status_code})
+        except Exception as error:  # noqa: BLE001
+            record("skills_search_overview", "GET /api/skills/search", "happy", False, {}, str(error))
+
+        try:
+            r = client.get("/api/skills/search/detail", params={"search_id": "no-such-search"})
+            body = r.json() if r.status_code in (200, 404) else {}
+            ok = (r.status_code == 404 and body.get("ok") is False
+                  and body.get("error") == "search_state_not_found")
+            record("skills_search_detail_missing", "GET /api/skills/search/detail", "negative", ok,
+                   {"status": r.status_code, "error": body.get("error")})
+        except Exception as error:  # noqa: BLE001
+            record("skills_search_detail_missing", "GET /api/skills/search/detail", "negative",
+                   False, {}, str(error))
+
+        try:
+            r = client.post("/api/skills/search/action",
+                            json={"search_id": "no-such-search", "action": "bogus"})
+            body = r.json() if r.status_code == 200 else {}
+            ok = r.status_code == 200 and body.get("ok") is False
+            record("skills_search_action_rejects_unknown",
+                   "POST /api/skills/search/action", "negative", ok,
+                   {"status": r.status_code, "ok": body.get("ok")})
+        except Exception as error:  # noqa: BLE001
+            record("skills_search_action_rejects_unknown",
+                   "POST /api/skills/search/action", "negative", False, {}, str(error))
+
         # ── ⑤b GET /api/skills 与 /api/skills/tiers 不得泄漏敏感信息 ──
         # 这两个端点只有 happy 用例时，"响应结构没变"校验不到"内容泄漏"。
         # 判据：序列化后的响应不含凭据标记、不含盘符绝对路径。

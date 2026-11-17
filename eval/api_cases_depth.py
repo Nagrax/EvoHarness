@@ -15,7 +15,7 @@ import json
 import re
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 CONTRACT = REPO / "eval" / "backend_contract.py"
 
 # record(name, endpoint, kind, ok, detail, ...) —— 从源码里静态提取

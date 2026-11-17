@@ -13,7 +13,7 @@ import json
 import sys
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 
 # 依据 list_long_funcs.py 的实测指标 + 逐个读代码后的判断
 ASSESSMENT = {

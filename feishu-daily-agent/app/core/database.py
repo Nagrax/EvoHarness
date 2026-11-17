@@ -44,8 +44,32 @@ def build_engine(url: str | None = None, *, test_mode: bool | None = None) -> En
         raise RuntimeError(
             "测试模式禁止连接业务数据库；请把 DATABASE_URL 指向系统临时目录或 :memory:。"
         )
-    connect_args = {"check_same_thread": False} if target.startswith("sqlite") else {}
-    return create_engine(target, connect_args=connect_args, pool_pre_ping=True, future=True)
+    connect_args: dict = {}
+    if target.startswith("sqlite"):
+        # 实时事件处理跑在线程池里（4 worker），SQLite 默认 5s 忙等会直接抛
+        # "database is locked"（2026-11-10 实机联调复现）。这里放宽忙等超时，
+        # 并在连接建立后开启 WAL + 延长 busy_timeout，让并发写排队而不是报错。
+        connect_args = {
+            "check_same_thread": False,
+            "timeout": 30,
+        }
+    engine = create_engine(
+        target, connect_args=connect_args, pool_pre_ping=True, future=True
+    )
+    if target.startswith("sqlite"):
+        from sqlalchemy import event as sa_event
+
+        @sa_event.listens_for(engine, "connect")
+        def _sqlite_pragmas(dbapi_connection, _record):  # pragma: no cover - 连接级钩子
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+            finally:
+                cursor.close()
+
+    return engine
 
 
 _settings = get_settings()

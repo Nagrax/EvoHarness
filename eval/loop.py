@@ -66,7 +66,7 @@ def _is_under_test() -> bool:
 def _is_real_ledger(path: Path) -> bool:
     """BACKLOG 是否指向仓库内的真实台账（而非测试 patch 的 tmp_path）。"""
     try:
-        return str(path.resolve()).startswith(str(REPO.resolve()))
+        return path.resolve().is_relative_to(REPO.resolve())
     except OSError:
         return False
 
@@ -344,6 +344,28 @@ def _collect_feishu(findings: list[dict], runs: dict) -> None:
         })
         return
     runs["feishu"] = result["summary"]
+    findings.extend(result["findings"])
+
+
+def _collect_collab(findings: list[dict], runs: dict) -> None:
+    """桥接层评测信号：结构化 artifact 与 feishu 源同一判据（设计 §3）。"""
+    try:
+        try:
+            import collab_signal  # 以脚本方式运行时 eval/ 在 sys.path
+        except ImportError:
+            from eval import collab_signal  # pytest / 包导入
+        result = collab_signal.collect()
+    except Exception as exc:  # noqa: BLE001
+        runs["collab"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        findings.append({
+            "source": "collab",
+            "key": "collab:collector-crashed",
+            "severity": "high",
+            "title": "桥接层信号采集器崩溃，当前质量状态未知",
+            "detail": {"error": str(exc), "repro": "python eval/collab_signal.py --json"},
+        })
+        return
+    runs["collab"] = result["summary"]
     findings.extend(result["findings"])
 
 
@@ -723,6 +745,9 @@ def collect(round_label: str = "") -> dict:
     # ⑫ benchmark 失败 → 稳定性过滤 → 工单（把闸门真正接上"失败→工单"路径）
     # ⑬ 飞书日报黄金回放：产物缺失/过期/严重错答 → finding
     _collect_feishu(findings, runs)
+
+    # ⑭ 桥接层评测（eval-workflow.v1 第 14 号源）：intake/nudge/ask/audit/red
+    _collect_collab(findings, runs)
     return _finalize_round(findings, runs, state, round_id)
 
 def pick_next(state: dict) -> dict | None:

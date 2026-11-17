@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EvoHarness v1.4 implementation contract drafts",
+  "description": "设计契约草案；不是已部署API。生产实现须用完整Schema/Pydantic验证并补跨字段权限测试。",
+  "schema_revision": "1.4",
+  "$defs": {
+    "RequestContext": {
+      "type": "object",
+      "required": [
+        "org_ref",
+        "space_ref",
+        "principal_ref",
+        "assignment_ref",
+        "grant_ref",
+        "policy_revision",
+        "correlation_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "org_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "space_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "principal_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assignment_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "grant_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "correlation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_revision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "EventEnvelope": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "event_id",
+        "channel",
+        "source_ref",
+        "source_revision",
+        "observed_at",
+        "content_ref"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 2
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observed_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "work_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "CoordinationProposal": {
+      "type": "object",
+      "required": [
+        "proposal_id",
+        "work_ref",
+        "based_on_revision",
+        "kind",
+        "evidence_refs",
+        "payload",
+        "expected_effect"
+      ],
+      "properties": {
+        "proposal_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "work_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "based_on_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "link_work",
+            "clarify_goal",
+            "propose_plan",
+            "request_run",
+            "reconcile_progress",
+            "raise_blocker"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "payload": {
+          "type": "object"
+        },
+        "expected_effect": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "ContextPackV2": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "context",
+        "work_ref",
+        "work_revision",
+        "objective_refs",
+        "acceptance_ref",
+        "sources",
+        "omitted",
+        "snapshot_hash"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 2
+        },
+        "context": {
+          "$ref": "#/$defs/RequestContext"
+        },
+        "work_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "work_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "objective_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "acceptance_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "ref",
+              "revision",
+              "sha256",
+              "scope_ref"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "scope_ref": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "omitted": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "ref",
+              "reason",
+              "read_ref"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "read_ref": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "snapshot_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CaseEvaluation": {
+      "type": "object",
+      "required": [
+        "candidate_ref",
+        "bundle_hash",
+        "protocol_ref",
+        "case_ref",
+        "origin_group",
+        "split_role",
+        "evaluation_level",
+        "validity",
+        "score",
+        "evidence_refs"
+      ],
+      "properties": {
+        "candidate_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bundle_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "protocol_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "case_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin_group": {
+          "enum": [
+            "evidence",
+            "score",
+            "curated_run"
+          ]
+        },
+        "split_role": {
+          "enum": [
+            "S",
+            "V",
+            "H"
+          ]
+        },
+        "evaluation_level": {
+          "enum": [
+            "text_only",
+            "tool_replay",
+            "artifact_verified",
+            "live_shadow"
+          ]
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "infrastructure_error",
+            "incomplete",
+            "invalid_loading",
+            "safety_failure"
+          ]
+        },
+        "score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "validity": {
+                "const": "valid"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "score": {
+                "type": "number"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "score": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

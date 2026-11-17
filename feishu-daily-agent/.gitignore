@@ -1,11 +1,15 @@
-.env
+﻿.env
 data/*.db
 data/*.db-journal
+data/*.db-wal
+data/*.db-shm
 data/agent.db.bak-*
 data/heartbeat.json
+logs/
 __pycache__/
 *.pyc
 .venv/
 venv/
 .DS_Store
 *.log
+data/.token_key

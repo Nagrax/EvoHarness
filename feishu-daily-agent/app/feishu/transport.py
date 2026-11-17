@@ -47,21 +47,20 @@ def receive_id_type_of(target: str) -> str:
 
     实机发现（2026-11-07）：对 oc_ 群会话用 open_id 类型发送会被飞书拒绝
     （code=99992361 open_id cross app），日报此前只发给 owner 单聊所以未暴露。
+    2026-11-10 追加：owner 的 open_id 在本应用命名空间下可能未知（open_id 跨应用
+    不同），此时可用 chat_id 或企业邮箱（含 @）作为兜底投递目标。
     """
     value = (target or "").strip()
     if value.startswith("oc_"):
         return "chat_id"
     if value.startswith("om_"):
         return "message_id"
+    if "@" in value:
+        return "email"
     return "open_id"
 
 
-@dataclass
-class TransportResult:
-    outcome: str
-    receipt_id: str = ""
-    error: str = ""
-    retry_after: float | None = None
+from evoharness.ports import TransportResult
 
 
 class FeishuTransport:
@@ -184,8 +183,38 @@ class FeishuTransport:
         return TransportResult("retryable", error=f"{type(exc).__name__}:{exc}", retry_after=5.0)
 
     def reply_text(
-        self, message_id: str, text: str, idempotency_key: str = "", reply_in_thread: bool = False
+        self,
+        message_id: str,
+        text: str,
+        idempotency_key: str = "",
+        reply_in_thread: bool = False,
+        *,
+        user_access_token: str = "",
+        user_chat_id: str = "",
+        send_identity: str = "bot",
     ) -> TransportResult:
+        """回复文本。
+
+        `send_identity` 由上游发送前身份冻结（R09）决定，传输层不再自行推断：
+        - "user"：已判定以**本人身份**发送。`user_access_token` + `user_chat_id`
+          缺任一即返回明确 permanent 错误（user_identity_token_unavailable），
+          **绝不静默降级机器人**（防御纵深：静默 fallback 只能来自已获批的
+          allow_bot_fallback，且上游会把身份改为 bot 后再调）；
+        - "bot"：明确机器人身份发送（含上游已获批的 fallback、无治理绑定的
+          既有口径）。未传 send_identity 的旧调用按机器人身份处理（兼容）。
+
+        平台限制（2026-11-11 实测，必须记下）：
+        以用户身份发消息时 `receive_id_type` **只接受
+        open_id / user_id / union_id / email / chat_id**，**不支持 message_id**。
+        也就是说分身只能"往这个会话发一条消息"，做不到"引用回复某条消息"。
+        这是平台能力边界，不是实现选择；机器人身份才支持 message_id 回复。
+        """
+        if send_identity == "user":
+            if not (user_access_token and user_chat_id):
+                return TransportResult(
+                    "permanent", error="user_identity_token_unavailable"
+                )
+            return self._send_as_user(user_chat_id, text, user_access_token)
         return self._reply(
             message_id,
             "text",
@@ -193,6 +222,50 @@ class FeishuTransport:
             idempotency_key,
             reply_in_thread,
         )
+
+    def _send_as_user(
+        self, chat_id: str, text: str, user_access_token: str
+    ) -> TransportResult:
+        """以用户身份向会话发消息。
+
+        用裸 HTTP 而不是 SDK：SDK 的消息创建走 tenant token，
+        容易"看起来用 user 身份，实际发出去还是机器人"。
+        """
+        import requests
+
+        try:
+            resp = requests.post(
+                "https://open.feishu.cn/open-apis/im/v1/messages",
+                params={"receive_id_type": "chat_id"},
+                headers={
+                    "Authorization": f"Bearer {user_access_token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                json={
+                    "receive_id": chat_id,
+                    "msg_type": "text",
+                    "content": json.dumps({"text": text}, ensure_ascii=False),
+                },
+                timeout=15,
+            )
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001
+            return self._exception_result(exc)
+        code = int(data.get("code", -1))
+        if code == 0:
+            receipt = (data.get("data") or {}).get("message_id", "")
+            return (
+                TransportResult("sent", receipt_id=receipt)
+                if receipt
+                else TransportResult("unknown", error="success_without_receipt")
+            )
+        message = str(data.get("msg") or "")
+        # 授权类错误不可重试：需要本人重新授权
+        if code in {99991663, 99991668, 20005, 20027}:
+            return TransportResult("permanent", error=f"code={code} {message[:120]}")
+        if code in {99991400, 230020}:
+            return TransportResult("retryable", error=f"code={code}", retry_after=1.0)
+        return TransportResult("permanent", error=f"code={code} {message[:120]}")
 
     def reply_card(
         self, message_id: str, card: dict, idempotency_key: str = "", reply_in_thread: bool = False

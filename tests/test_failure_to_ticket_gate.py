@@ -40,7 +40,7 @@ def test_triage_closes_informational():
 
 
 def test_real_backlog_split_is_correct():
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))

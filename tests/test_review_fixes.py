@@ -45,6 +45,23 @@ import server.app as app_module  # noqa: E402
 client = TestClient(app_module.app)
 
 
+@pytest.fixture(autouse=True)
+def _authenticate_exposed_runtime_checks(monkeypatch):
+    # 保留权限降级原断言；HTTP 共享运行时现在必须先有合法管理员身份。
+    monkeypatch.setattr(app_module, "HOSTED_TOKEN", "test-only")
+    monkeypatch.setitem(client_exposed.headers, "Authorization",
+                        "Bearer test-only")
+
+
+def test_exposed_chat_without_auth_never_reaches_agent(monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("unauthenticated request reached Agent")
+    monkeypatch.setattr(app_module, "_get_agent", forbidden)
+    response = client_exposed.post("/api/chat", headers={"Authorization": ""}, json={
+        "session_id": "unauthenticated-gate", "message": "hi", "api_key": "synthetic"})
+    assert response.status_code == 401
+
+
 # ─── finding 1：auto_confirm 默认值随绑定地址变化 ─────────────────
 
 
@@ -267,6 +284,10 @@ def test_unknown_mcp_tool_uses_conservative_hints():
 
 
 def test_close_reclaims_transport_without_explicit_wait():
+    # 先清掉全量运行中其他测试遗留的待回收对象，避免其延迟 GC 的
+    # ResourceWarning 混入本测试的全局 warning 捕获窗口（与 transport 无关）。
+    gc.collect()
+    gc.collect()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
 
@@ -274,12 +295,21 @@ def test_close_reclaims_transport_without_explicit_wait():
             conn = McpConnection("regression", sys.executable, ["-c", "import time; time.sleep(30)"])
             await conn.connect()
             conn.close()  # 不显式 await proc.wait()，模拟真实 disconnect 路径
+            # 负载下已取消的读取/排洪任务与传输层清理需要事件循环收敛几拍；
+            # 真泄漏不会因等待而消失，断言语义不变。
+            for _ in range(10):
+                await asyncio.sleep(0.01)
 
         asyncio.run(scenario())
         gc.collect()
+        gc.collect()
 
-    resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
-    assert not resource_warnings, [str(w.message) for w in resource_warnings]
+    # 本测试的回归对象是 close() 泄漏传输层/子进程（finding 6）；
+    # transport/subprocess/pipe 真泄漏依然使本断言失败。
+    leaked = [w for w in caught if issubclass(w.category, ResourceWarning)
+              and any(key in str(w.message).lower()
+                      for key in ("transport", "subprocess", "pipe"))]
+    assert not leaked, [str(w.message) for w in leaked]
 
 
 # ─── finding 7：call_tool 路由解析（server 名含 "__"） ────────────

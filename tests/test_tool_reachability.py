@@ -55,7 +55,10 @@ def test_usage_help_works_for_cli_tools():
     """几个常用 CLI 必须能 --help 且 exit 0。"""
     for script in ("eval/curve_summary.py", "eval/loop_context.py",
                    "eval/triage_file.py", "eval/loop_source_health.py"):
+        # 被测脚本自己把 stdout 切到 UTF-8；父进程若按 GBK 解码会抛
+        # UnicodeDecodeError（Windows 实测），因此这里显式指定编码。
         proc = subprocess.run([sys.executable, script, "--help"],
-                              cwd=str(REPO), capture_output=True, text=True, timeout=90)
+                              cwd=str(REPO), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=90)
         assert proc.returncode == 0, f"{script} --help 失败：{proc.stderr[-300:]}"
         assert "用法" in proc.stdout, f"{script} --help 未输出用法"

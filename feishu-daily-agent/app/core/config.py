@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import List, Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
@@ -19,19 +20,36 @@ DeploymentMode = Literal["offline", "readonly_shadow", "single_approval", "white
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=Path(__file__).resolve().parents[2] / ".env", env_file_encoding="utf-8", extra="ignore"
     )
 
     # ---- 飞书应用 ----
     feishu_app_id: str = Field("offline-app", alias="FEISHU_APP_ID")
     feishu_app_secret: str = Field("offline-secret", alias="FEISHU_APP_SECRET")
     feishu_owner_open_id: str = Field("ou_owner", alias="FEISHU_OWNER_OPEN_ID")
+    # owner 的 p2p chat_id（oc_ 开头）。p2p 场景下比 open_id 更稳定：
+    # 拿到 chat_id 就能发日报/提醒，不必先知道 owner 在本应用命名空间里的 open_id。
+    feishu_owner_chat_id: str = Field("", alias="FEISHU_OWNER_CHAT_ID")
+    # owner 的企业邮箱：open_id 未知时可用它作为兜底投递目标（receive_id_type=email）。
+    feishu_owner_email: str = Field("", alias="FEISHU_OWNER_EMAIL")
     feishu_bot_open_id: str = Field("", alias="FEISHU_BOT_OPEN_ID")
+    # ---- 数字分身 OAuth ----
+    # 用户显式授权后，机器人才能以该用户身份发言（im:message.send_as_user）。
+    # 重定向 URL 必须先在开放平台「安全设置」登记，否则拿不到授权码。
+    feishu_redirect_uri: str = Field("", alias="FEISHU_REDIRECT_URI")
+    feishu_oauth_scopes: str = Field("", alias="FEISHU_OAUTH_SCOPES")
+    # OAuth 回调监听端口（与重定向 URL 的端口一致）
+    oauth_callback_port: int = Field(8791, alias="FEISHU_OAUTH_CALLBACK_PORT")
+    # 首次接入引导：owner 仍为空时，允许第一条 p2p 消息的发送者成为 owner。
+    # 这是显式 opt-in 的便利开关；默认关闭，多租户生产环境不要打开。
+    feishu_owner_bootstrap: bool = Field(False, alias="FEISHU_OWNER_BOOTSTRAP")
     feishu_group_reply_only_mention: bool = Field(
-        True, alias="FEISHU_GROUP_REPLY_ONLY_MENTION"
+        False, alias="FEISHU_GROUP_REPLY_ONLY_MENTION"
     )
     feishu_chat_whitelist: str = Field("", alias="FEISHU_CHAT_WHITELIST")
     feishu_chat_blacklist: str = Field("", alias="FEISHU_CHAT_BLACKLIST")
+    # 放行机器人所在的所有会话（含所有群）。默认关闭；开启后黑名单仍然生效。
+    feishu_allow_all_chats: bool = Field(False, alias="FEISHU_ALLOW_ALL_CHATS")
     feishu_reply_allowed_chats: str = Field("", alias="FEISHU_REPLY_ALLOWED_CHATS")
     feishu_reply_identity: Literal["bot", "user"] = Field("bot", alias="FEISHU_REPLY_IDENTITY")
 
@@ -97,10 +115,24 @@ class Settings(BaseSettings):
     inbox_replay_interval_seconds: int = Field(60, alias="FEISHU_INBOX_REPLAY_INTERVAL_SECONDS")
     inbox_replay_batch: int = Field(50, alias="FEISHU_INBOX_REPLAY_BATCH")
     inbox_backlog_alert: int = Field(1000, alias="FEISHU_INBOX_BACKLOG_ALERT")
+    # 历史轮询兜底：事件订阅要发布新版本并过审才生效，审核窗口内靠轮询闭环。
+    poll_enabled: bool = Field(True, alias="FEISHU_POLL_ENABLED")
+    poll_interval_seconds: int = Field(45, alias="FEISHU_POLL_INTERVAL_SECONDS")
+    poll_window_seconds: int = Field(3600, alias="FEISHU_POLL_WINDOW_SECONDS")
+
+    # ---- EvoHarness Agent 桥（L9049：问：路由到执行层大脑）----
+    evoharness_ask_enabled: bool = Field(False, alias="FEISHU_EVOHARNESS_ASK_ENABLED")
+    evoharness_ask_base_url: str = Field("http://127.0.0.1:8800", alias="EVOHARNESS_ASK_BASE_URL")
 
     # ---- 测试隔离 ----
     test_mode: bool = Field(False, alias="FEISHU_TEST_MODE")
     test_db_prefix: str = Field("", alias="FEISHU_TEST_DB_PREFIX")
+
+    @field_validator("database_url")
+    @classmethod
+    def resolve_database_url(cls, value: str) -> str:
+        from evoharness.storage import normalize_database_url
+        return normalize_database_url(value, base_dir=Path(__file__).resolve().parents[2])
 
     @field_validator("matcher_mode")
     @classmethod
@@ -158,6 +190,16 @@ class Settings(BaseSettings):
         return [x.strip() for x in self.feishu_reply_allowed_chats.split(",") if x.strip()]
 
     def reply_allowed_for(self, chat_id: str) -> bool:
+        """回复许可单独判定，不能由"读得到"推导出来。
+
+        历史约束（勿破）：owner 会话即便在白名单/可读，也不自动获得回复许可；
+        要发业务回复必须在 FEISHU_REPLY_ALLOWED_CHATS 里显式列出，
+        或打开 FEISHU_ALLOW_ALL_CHATS（那是部署者对全部会话的显式声明）。
+        """
+        if chat_id in self.blacklist:
+            return False
+        if self.feishu_allow_all_chats:
+            return True
         return chat_id in self.reply_allowed_chats
 
     @property
@@ -183,10 +225,41 @@ class Settings(BaseSettings):
         return self.deployment_mode in {"single_approval", "whitelist_auto"}
 
     def is_whitelisted(self, chat_id: str) -> bool:
-        """空白名单按关闭处理；需要全放行必须显式列出会话。"""
+        """会话是否被授权接入。
+
+        三种放行方式（优先级从高到低）：
+        1. `FEISHU_CHAT_BLACKLIST` 永远一票否决；
+        2. `FEISHU_ALLOW_ALL_CHATS=1`：放行机器人所在的所有会话
+           （机器人只能收到它被加入的群/私聊，所以"所有群"的实际边界是
+           "机器人被拉进去的群"，不是"全公司任意会话"）；
+        3. 显式列出的 owner 会话与逗号白名单。
+        空白名单 + 未开启全放行 = 全部关闭（安全默认）。
+        """
         if chat_id in self.blacklist:
             return False
+        if self.feishu_allow_all_chats and chat_id:
+            return True
+        if chat_id and chat_id == (self.feishu_owner_chat_id or "").strip():
+            return True
         return chat_id in self.whitelist
+
+    # ---- owner 投递目标（日报/指令回执/主动提醒共用）----
+    def owner_target(self) -> tuple[str, str]:
+        """返回 (receive_id_type, receive_id)。
+
+        优先级：显式 owner chat_id（最稳） > open_id > 邮箱兜底。
+        全空时返回 ("open_id", "")，由调用方按缺配置处理。
+        """
+        chat_id = (self.feishu_owner_chat_id or "").strip()
+        if chat_id.startswith("oc_"):
+            return "chat_id", chat_id
+        owner = (self.feishu_owner_open_id or "").strip()
+        if owner:
+            return "open_id", owner
+        email = (self.feishu_owner_email or "").strip()
+        if "@" in email:
+            return "email", email
+        return "open_id", ""
 
 
 @lru_cache

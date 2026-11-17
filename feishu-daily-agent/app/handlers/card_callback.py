@@ -72,6 +72,7 @@ def handle_card_action(data):
     operator = getattr(getattr(data.event, "operator", None), "open_id", "")
     if not operator:
         operator = getattr(getattr(getattr(data.event, "operator", None), "operator_id", None), "open_id", "")
+    logger.info("收到卡片回调 action_id=%s operator=%s", action_id[-6:], operator[-6:])
     form = getattr(action, "form_value", None) or {}
     edited_content = None
     if isinstance(form, dict):

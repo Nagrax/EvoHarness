@@ -1,0 +1,22 @@
+{
+  "version": "collab-gates.v2",
+  "frozenAt": "2026-11-14",
+  "note": "冻结阈值门。任何改动 = 台账立项 + owner 人工批准（继承上游 F00/F07 冻结协议纪律）。v2 变更：DE-24 故障集接入，新增 faultViolationsAllow（故障集违规只允许 0）；其余阈值与 v1 完全一致。",
+  "gates": {
+    "overallMin": 1.0,
+    "groupPassRateMin": 1.0,
+    "severeAllow": 0,
+    "reopenedAllow": 0,
+    "artifactMaxAgeDays": 7,
+    "faultViolationsAllow": 0
+  },
+  "severity": {
+    "safetyFailed": "high",
+    "severeErrors": "high",
+    "overallBelowGate": "high",
+    "faultViolations": "high",
+    "artifactMissing": "medium",
+    "artifactStale": "medium",
+    "goldenChanged": "medium"
+  }
+}

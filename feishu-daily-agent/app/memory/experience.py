@@ -77,7 +77,21 @@ def create_candidate(
 ) -> Experience:
     settings = get_settings()
     tenant = tenant or settings.tenant_id
-    owner = owner or settings.feishu_owner_open_id
+    if owner is None:
+        # owner 必须是真实身份（open_id 优先，退回归属 chat_id），
+        # 不能是空串：private 经验的受众校验按 owner 比对，
+        # 空 owner 会让"刚沉淀的经验"对任何来源都不匹配（2026-11-10 实机）。
+        try:
+            from app.services.owner_bootstrap import resolve_owner_open_id
+
+            owner = (
+                resolve_owner_open_id(session)
+                or settings.feishu_owner_open_id
+                or settings.feishu_owner_chat_id
+            )
+        except Exception:  # noqa: BLE001
+            owner = settings.feishu_owner_open_id or settings.feishu_owner_chat_id
+    owner = (owner or "").strip()
     intent = intent_id or question_hash(question)
     experience = Experience(
         tenant=tenant,
@@ -125,6 +139,7 @@ def create_candidate(
         )
     )
     session.flush()
+    _project_to_skill(session, experience, actor=created_by)
     return experience
 
 
@@ -145,11 +160,45 @@ def create_experience(
     )
 
 
+def _project_to_skill(session: Session, experience: Experience, *, actor: str) -> None:
+    """把经验变更投影到 skill 文件（B 方法双向融合）。
+
+    为什么在函数末尾统一调用而不是散落各处：经验的状态机有 5 个出口
+    （候选/发布/暂停/修正/回滚），漏掉任何一个都会让 skill 与库不一致。
+
+    为什么吞异常：经验是事实，skill 是派生物。投影失败可以靠 sync_all 重建，
+    但绝不能让"写 skill 文件失败"回滚一次合法的人工批准。
+    """
+    try:
+        from app.memory import skill_sync
+
+        skill_sync.sync_after_change(session, experience, actor=actor)
+    except Exception as exc:  # noqa: BLE001 — 投影失败不影响业务事务
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "skill 投影失败（经验 #%s）：%s", getattr(experience, "id", "?"), exc
+        )
+
+
 def _audience_allows(experience: Experience, source: Source | None) -> tuple[bool, str]:
-    if source is None:
-        return False, "audience_source_missing"
-    audience = experience.audience()
     visibility = experience.visibility or "private"
+    audience = experience.audience()
+
+    # 没有来源上下文时（探针/评测/预览），只按"经验自身是否可用于回答"判断：
+    # 已发布(approved_auto) 且敏感级别在可用范围内，即可被检索到。
+    # 历史缺陷（2026-11-10 实机）：这里无条件 `audience_source_missing`，
+    # 导致"批准→沉淀→发布"完成后同类问题永远命中不到，
+    # 经验回流整条链看起来通、实际是死的。
+    if source is None:
+        if visibility == "private":
+            return (True, "audience_no_source_private")
+        if visibility == "public":
+            if experience.sensitive_level not in {"public", "internal"}:
+                return False, "audience_sensitive_level"
+            return True, "audience_no_source_public"
+        return False, "audience_visibility_unknown"
+
     if visibility == "private":
         chat_ids = audience.get("chat_ids") or []
         if chat_ids:
@@ -275,6 +324,16 @@ def find_best_match(
     return MatchResult(best, float(best_score), engine, reasons)
 
 
+def _sync_claim_bridge(session: Session, experience: Experience) -> None:
+    """DE-16：owning source（Experience）生命周期 → 知识主张自动同步/失效。"""
+    try:
+        from evoharness.knowledge.experience_bridge import sync_experience
+
+        sync_experience(session, experience)
+    except Exception as exc:  # noqa: BLE001 — 主张登记是次级投影，不回滚 Experience 事实
+        logger.warning("knowledge claim bridge failed for %s: %s", experience.id, exc)
+
+
 def publish(
     session: Session, experience_id: int, *, actor: str, reason: str = ""
 ) -> Experience:
@@ -301,6 +360,7 @@ def publish(
                 detail=f"由版本 v{experience.version} 取代",
             )
         )
+        _sync_claim_bridge(session, other)
     experience.status = ExperienceStatus.APPROVED_AUTO
     head = session.get(ExperienceHead, experience.intent_id)
     if head is None:
@@ -323,6 +383,8 @@ def publish(
         )
     )
     session.flush()
+    _project_to_skill(session, experience, actor=actor)
+    _sync_claim_bridge(session, experience)
     return experience
 
 
@@ -344,6 +406,8 @@ def pause(session: Session, experience_id: int, *, actor: str, reason: str = "")
         )
     )
     session.flush()
+    _project_to_skill(session, experience, actor=actor)
+    _sync_claim_bridge(session, experience)
     return experience
 
 
@@ -386,6 +450,9 @@ def rollback(
         )
     )
     session.flush()
+    if current is not None:
+        _sync_claim_bridge(session, current)
+    _sync_claim_bridge(session, target)
     return target
 
 
@@ -400,22 +467,61 @@ def record_hit(
     session.flush()
 
 
-def record_reject(session: Session, experience: Experience | None) -> None:
-    if experience is None:
-        return
-    experience.reject_count = int(experience.reject_count or 0) + 1
+def record_reject(
+    session: Session,
+    experience: Experience | None,
+    *,
+    reason: str = "",
+    question: str = "",
+    answer: str = "",
+    actor: str = "",
+) -> Experience | None:
+    """记录一次驳回。
+
+    两层语义（2026-11-11）：
+    1. 有经验来源：累加 reject_count，达阈值自动停用（防错误知识继续流出去）；
+    2. **无论有没有经验来源**都留痕。历史实现只在 experience 存在时动作，
+       于是最常见的场景——"没有经验、模型自己拟的草稿被驳回"——什么都没留下，
+       用户的纠错信号完全丢失。现在把被否的问答与原因记成负例，
+       供后续拟稿避坑。
+    """
     settings = get_settings()
-    if int(experience.reject_count or 0) >= settings.experience_dismiss_limit:
-        experience.status = ExperienceStatus.PAUSED
+    target = experience
+    if target is not None:
+        target.reject_count = int(target.reject_count or 0) + 1
+        if int(target.reject_count or 0) >= settings.experience_dismiss_limit:
+            target.status = ExperienceStatus.PAUSED
+            session.add(
+                ExperienceEvent(
+                    experience_id=target.id,
+                    action="auto_pause",
+                    actor="system",
+                    detail=f"连续驳回达到 {settings.experience_dismiss_limit} 次",
+                )
+            )
+
+    if question and answer:
         session.add(
             ExperienceEvent(
-                experience_id=experience.id,
-                action="auto_pause",
-                actor="system",
-                detail=f"连续驳回达到 {settings.experience_dismiss_limit} 次",
+                experience_id=target.id if target is not None else 0,
+                action="reject_archived",
+                actor=actor or "system",
+                detail=json.dumps(
+                    {"question": question, "answer": answer, "reason": reason},
+                    ensure_ascii=False,
+                ),
             )
         )
+        if target is not None:
+            # 把"被否的答法"记进负例：下次检索到这条经验时，
+            # 命中负例会压低分数并要求人工确认，而不是直接复用错误答案。
+            negatives = target.negative_examples()
+            marker = answer.strip()[:120]
+            if marker and marker not in negatives:
+                negatives.append(marker)
+                target.negative_examples_json = json.dumps(negatives, ensure_ascii=False)
     session.flush()
+    return target
 
 
 def invalidate_experience_for_message(
@@ -445,6 +551,7 @@ def invalidate_experience_for_message(
                 detail=f"{reason}: {message.message_id}",
             )
         )
+        _sync_claim_bridge(session, experience)
         for draft in session.scalars(
             select(ReplyDraft).where(
                 ReplyDraft.experience_id == experience.id,

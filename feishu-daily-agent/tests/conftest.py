@@ -15,7 +15,23 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB.as_posix()}"
 os.environ["FEISHU_APP_ID"] = "test-app"
 os.environ["FEISHU_APP_SECRET"] = "test-secret"
 os.environ["FEISHU_OWNER_OPEN_ID"] = "ou_owner"
+# 部署用 .env 里的真实 owner 会话/邮箱不得渗进测试（否则夹具认主会被挡下，
+# 或者测试反过来把假 owner 写进真实配置）。环境变量优先级高于 .env。
+os.environ["FEISHU_OWNER_CHAT_ID"] = ""
+os.environ["FEISHU_OWNER_EMAIL"] = ""
+os.environ["FEISHU_OWNER_BOOTSTRAP"] = "0"
+os.environ["FEISHU_CHAT_WHITELIST"] = ""
+os.environ["FEISHU_CHAT_BLACKLIST"] = ""
+os.environ["FEISHU_REPLY_ALLOWED_CHATS"] = ""
+# 部署环境可能开了"全群放行"；测试必须从关闭态起跑，否则白名单/回复许可
+# 相关的断言会全部失真（2026-11-11 实际踩到：.env 开了 ALLOW_ALL，
+# 两个"读许可不等于写许可"的用例直接翻红）。
+os.environ["FEISHU_ALLOW_ALL_CHATS"] = "0"
+os.environ["FEISHU_DAILY_REPORT_ENABLED"] = "0"
+os.environ["FEISHU_ALLOW_LIVE_MODEL"] = "0"
 os.environ["FEISHU_BOT_OPEN_ID"] = "ou_bot"
+# User-confirmed default; mention-only cases enable their gate explicitly.
+os.environ["FEISHU_GROUP_REPLY_ONLY_MENTION"] = "0"
 os.environ["FEISHU_DEPLOYMENT_MODE"] = "offline"
 os.environ["FEISHU_AUTO_REPLY_ENABLED"] = "0"
 os.environ["FEISHU_SHADOW_MODE"] = "1"
@@ -50,6 +66,26 @@ def _reset_db():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_owner_mutations():
+    """owner bootstrap 会就地改 Settings 实例（object.__setattr__），
+    monkeypatch 管不到，必须每例快照/还原，否则会串到后续测试。"""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    fields = (
+        "feishu_owner_open_id",
+        "feishu_owner_chat_id",
+        "feishu_chat_whitelist",
+        "feishu_reply_allowed_chats",
+        "feishu_bot_open_id",
+    )
+    snapshot = {name: getattr(settings, name) for name in fields}
+    yield
+    for name, value in snapshot.items():
+        object.__setattr__(settings, name, value)
 
 
 @pytest.fixture

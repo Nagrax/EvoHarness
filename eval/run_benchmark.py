@@ -156,6 +156,12 @@ async def run_task(item: dict, dataset: str, *, no_fold: bool, max_turns: int, t
 
     def _work() -> None:
         agent = None
+        from evoharness.governance import eval_budget
+        sdk_client = None
+        if eval_budget.enabled():
+            sdk_client = eval_budget.build_async_client(
+                api_base=base, api_key=key, model=os.environ.get("MODEL") or "",
+                use_openai=use_openai, principal="eval-benchmark")
         try:
             agent = Agent(
                 permission_mode="bypassPermissions",
@@ -164,11 +170,15 @@ async def run_task(item: dict, dataset: str, *, no_fold: bool, max_turns: int, t
                 api_base=base if use_openai else None,
                 anthropic_base_url=base if not use_openai else None,
                 api_key=key,
+                sdk_client=sdk_client,
             )
             if no_fold:
                 strip_fold_tool(agent)
             prompt = build_gaia_prompt(item) if dataset == "gaia" else build_hle_prompt(item)
             result = asyncio.run(agent.run_once(prompt))
+            from evoharness.governance.usage_sidecar import write_usage
+            write_usage(getattr(agent, "total_input_tokens", 0)
+                        + getattr(agent, "total_output_tokens", 0))
             holder["text"] = str(result.get("text") or "")
             holder["agent"] = agent
         except Exception as exc:  # noqa: BLE001

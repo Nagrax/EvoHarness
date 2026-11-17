@@ -21,7 +21,7 @@ import re
 import subprocess
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 
 # 敏感文件名/路径模式
 SENSITIVE_PATH = [
@@ -58,8 +58,12 @@ BIG_FILE = 5 * 1024 * 1024
 
 
 def git(*args: str) -> str:
-    return subprocess.run(["git", *args], cwd=str(REPO), capture_output=True,
-                          text=True, timeout=180).stdout
+    # core.quotepath=false + utf-8：porcelain 默认把非 ASCII 路径转义成 "\345\225…"
+    # 且按本地代码页解码。未反转义的 "\345…" 在 Windows pathlib 里会被当作盘根
+    # 相对路径，relative_to(REPO) 随即抛 ValueError（仓库含中文目录名时必现）。
+    return subprocess.run(["git", "-c", "core.quotepath=false", *args], cwd=str(REPO),
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=180).stdout
 
 
 def candidate_files() -> list[Path]:

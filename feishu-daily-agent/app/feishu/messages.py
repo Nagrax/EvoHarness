@@ -28,6 +28,8 @@ class IncomingMessage:
     mention_names: List[str] = field(default_factory=list)
     raw: str = ""
     event_time_ms: int = 0
+    # 首次联系时附带的"已开启日报"告知（由事件层写入，渲染草稿时追加）
+    enroll_notice: str = ""
 
     @property
     def bot_open_id(self) -> str:
@@ -35,11 +37,20 @@ class IncomingMessage:
 
     @property
     def is_from_bot(self) -> bool:
+        """是否机器人自己发的。
+
+        两个口径都要认（2026-11-10 实机踩到）：
+        - 实时事件：sender.sender_id.open_id 是机器人 open_id；
+        - 历史接口：sender.id 是 **app_id**（cli_ 前缀），sender_type=app。
+        旧实现只要配置了 bot_open_id 就只比 open_id，历史拉取回来的自家回执
+        会被当成用户消息再回复一遍（自回复环）。
+        """
         bot_open_id = self.bot_open_id
-        if bot_open_id:
-            return self.sender_id == bot_open_id
-        # 身份未知时只信任 sender_type；不再用“任意 @”推断机器人。
-        return self.sender_type == "app"
+        if bot_open_id and self.sender_id == bot_open_id:
+            return True
+        if self.sender_type == "app":
+            return True
+        return (self.sender_id or "").startswith("cli_")
 
     @property
     def mentions_bot(self) -> bool:

@@ -21,7 +21,7 @@ import math
 import random
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 
 
 def mcnemar_exact(b: int, c: int) -> float:

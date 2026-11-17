@@ -113,6 +113,16 @@ def answer_safety(answer: str, *, allowed_links: str = "") -> list[str]:
     return reasons
 
 
+def knowledge_answer_risk_flags(answer: str) -> list[str]:
+    """DE-19 组织答疑与个人分身共用的承诺/敏感确定性口径。
+
+    组织答疑工作流核心（evoharness.workflows.knowledge_answer，不依赖飞书）自带
+    等价词表；飞书适配层用本函数以 answer_safety 同一口径复核，保证两条链路
+    不出现第二套敏感/承诺标准。
+    """
+    return answer_safety(answer)
+
+
 def evaluate(
     session: Session,
     *,

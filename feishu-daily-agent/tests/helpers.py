@@ -17,6 +17,10 @@ class FakeTransport:
     sent_text: list[tuple[str, str, str]] = field(default_factory=list)
     sent_cards: list[tuple[str, dict, str]] = field(default_factory=list)
     replies: list[tuple[str, str, str]] = field(default_factory=list)
+    # 以用户身份（数字分身）发出的记录：(chat_id, text)
+    as_user_sent: list[tuple[str, str]] = field(default_factory=list)
+    # 每次回复的真实发送身份（R09 回执对账断言用，与上游冻结结论一致）
+    send_identities: list[str] = field(default_factory=list)
     calls: int = 0
 
     def _next(self, kind: str, target: str, payload) -> TransportResult:
@@ -35,7 +39,12 @@ class FakeTransport:
             self.sent_cards.append((target, payload, result.receipt_id))
         return result
 
-    def reply_text(self, message_id, text, idempotency_key="", reply_in_thread=False):
+    def reply_text(self, message_id, text, idempotency_key="", reply_in_thread=False,
+                   *, user_access_token="", user_chat_id="", send_identity="bot"):
+        # 记录用的是哪个身份发的：分身相关断言需要区分 user / bot
+        self.send_identities.append(send_identity)
+        if user_access_token and user_chat_id:
+            self.as_user_sent.append((user_chat_id, text))
         return self._next("reply_text", message_id, text)
 
     def reply_card(self, message_id, card, idempotency_key="", reply_in_thread=False):

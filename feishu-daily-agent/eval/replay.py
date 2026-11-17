@@ -235,6 +235,31 @@ def _group_metrics(cases: list[dict], decisions: list[dict], key: str) -> dict:
     return result
 
 
+# ── DE-19：组织答疑独立冻结留出口径 ──────────────────────────────────────────
+# 与 golden_cases.json（F08/F09）互不影响：不读同一阈值、不改任何既有冻结值。
+# auto 对应工作流 delivery.mode=auto_send；draft 对应待批准/呈报路径。
+ORG_FAQ_THRESHOLDS = {"autoMinConfidence": 0.92, "draftMinConfidence": 0.5}
+ORG_FAQ_MIN_HOLDOUT_SAMPLES = 8
+
+
+def evaluate_org_faq(cases: list[dict], decisions: list[dict]) -> dict:
+    """组织答疑留出评估：复用同一 evaluate/Wilson 判据，阈值独立冻结。
+
+    cases/decisions 字段口径与 golden 相同（decision: auto/draft、
+    expected.decision、experience 可空）；另要求留出样本不少于
+    ORG_FAQ_MIN_HOLDOUT_SAMPLES，防止拿开发集冒充留出。
+    """
+    report = evaluate(cases, decisions)
+    report["thresholds"] = dict(ORG_FAQ_THRESHOLDS)
+    report["thresholdSource"] = (
+        "ORG_FAQ_THRESHOLDS（组织答疑独立冻结值，与 golden F08/F09 不共用）"
+    )
+    report["scope"] = "org_faq_holdout"
+    report["minHoldoutSamples"] = ORG_FAQ_MIN_HOLDOUT_SAMPLES
+    report["ok"] = bool(report["ok"]) and len(cases) >= ORG_FAQ_MIN_HOLDOUT_SAMPLES
+    return report
+
+
 def build_report(golden: dict) -> dict:
     cases = golden["cases"]
     thresholds = golden["thresholds"]
@@ -313,6 +338,26 @@ def build_report(golden: dict) -> dict:
         "failingCases": [item for item in case_evidence["approved"] if not item["pass"]],
         "sampleNote": "12 个冻结 case；dev 10 / holdout 2，仅用于回归与硬门，不足以支撑对外精度宣称",
         "repro": "cd feishu-daily-agent && .venv/Scripts/python.exe eval/replay.py --run",
+    }
+    # DE-24：分母纪律字段——全部输入（含 severe/失败 case）显式列出，规模如实标注，
+    # 旧 12 case/2 holdout 不被夸大为业务精度证据（总体指南 §12.2）。
+    dev_cases = sum(1 for case in cases if case.get("split", "dev") == "dev")
+    holdout_cases = sum(1 for case in cases if case.get("split") == "holdout")
+    payload["denominator"] = {
+        "plannedCases": len(cases),
+        "devCases": dev_cases,
+        "holdoutCases": holdout_cases,
+        "expectedAuto": strategies["approved"]["expectedAuto"],
+        "actualAuto": strategies["approved"]["actualAuto"],
+        "severeErrors": len(strategies["approved"]["severeErrors"]),
+        "failingCases": len(payload["failingCases"]),
+        "note": "全部 golden 输入计入分母；severe/失败 case 不移出，只做单列展示",
+    }
+    payload["honestScale"] = {
+        "autoPrecisionWilsonLower95": strategies["approved"]["autoPrecisionLower95"],
+        "autoCoverageWilsonLower95": strategies["approved"]["autoCoverageLower95"],
+        "note": "60/60 正确的 Wilson 双侧 95% 下界约 0.94，仍不能宣称下界 0.95；"
+                "0 失败需至少 73 个独立样本，同一 FAQ 重复不算独立业务覆盖（指南 §12.2）",
     }
     payload["artifactDigest"] = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")

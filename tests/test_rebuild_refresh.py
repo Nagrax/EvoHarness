@@ -25,7 +25,7 @@ import eval.rebuild_occurrences as rebuild_mod
 
 @pytest.fixture()
 def temp_backlog(tmp_path, monkeypatch):
-    source = REPO / "eval" / "loop" / "BACKLOG.json"
+    source = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not source.is_file():
         pytest.skip("BACKLOG 不存在")
     target = tmp_path / "BACKLOG.json"

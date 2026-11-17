@@ -13,7 +13,7 @@ import json
 import shutil
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 def _is_under_test() -> bool:
     """当前是否在 pytest 运行时。
 
@@ -26,7 +26,7 @@ def _is_under_test() -> bool:
 def _is_real_ledger(path: Path) -> bool:
     """BACKLOG 是否指向仓库内的真实台账（而非测试 patch 的 tmp_path）。"""
     try:
-        return str(path.resolve()).startswith(str(REPO.resolve()))
+        return path.resolve().is_relative_to(REPO.resolve())
     except OSError:
         return False
 
@@ -106,6 +106,8 @@ VERDICTS: dict[str, str] = {
 
 
 def main() -> int:
+    if not _write_allowed(BACKLOG):
+        return 0
     data = json.loads(BACKLOG.read_text(encoding="utf-8"))
     shutil.copyfile(BACKLOG, BACKLOG.with_suffix(".json.bak-before-triage-mark"))
 

@@ -28,7 +28,7 @@ def test_verdicts_cover_judged_files():
 
 
 def test_real_backlog_distinguishes_triaged():
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -50,7 +50,7 @@ def test_real_backlog_distinguishes_triaged():
 
 
 def test_closed_items_have_reason():
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -62,7 +62,7 @@ def test_closed_items_have_reason():
 
 def test_dry_run_does_not_write(tmp_path, monkeypatch):
     """重跑不得改动已标记的结果（幂等）。"""
-    source = REPO / "eval" / "loop" / "BACKLOG.json"
+    source = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not source.is_file():
         return
     target = tmp_path / "BACKLOG.json"

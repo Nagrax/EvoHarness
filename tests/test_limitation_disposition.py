@@ -48,7 +48,7 @@ def test_limitation_subcommand_registered_correctly():
 
 
 def test_real_limitation_item_closed_correctly():
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))

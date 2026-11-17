@@ -22,7 +22,7 @@ import eval.rebuild_occurrences as rebuild_mod
 @pytest.fixture()
 def temp_backlog(tmp_path, monkeypatch):
     """在临时副本上跑重建，绝不动真实 BACKLOG。"""
-    source = REPO / "eval" / "loop" / "BACKLOG.json"
+    source = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not source.is_file():
         pytest.skip("BACKLOG 不存在")
     target = tmp_path / "BACKLOG.json"
@@ -59,29 +59,25 @@ def test_rebuild_reports_stale_locations_count(temp_backlog):
     assert isinstance(result["staleLocations"], int)
 
 
-def test_real_backlog_occurrences_are_locatable():
+def test_real_backlog_occurrences_are_locatable(temp_backlog):
     """真实 backlog：重建后不得有失效定位（0 stale）。"""
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
-    if not path.is_file():
-        return
-    data = json.loads(path.read_text(encoding="utf-8"))
+    rebuild_mod.rebuild(apply=True)
+    data = json.loads(temp_backlog.read_text(encoding="utf-8"))
     stale = [occ for item in data["items"]
              for occ in (item.get("openOccurrences") or [])
              if occ.get("staleLocation")]
     assert not stale, f"存在无法定位的位置：{stale[:3]}"
 
 
-def test_rebuilt_occurrences_locate_to_real_code():
+def test_rebuilt_occurrences_locate_to_real_code(temp_backlog):
     """抽查：locatedLine 必须指向真实的 except 代码附近。
 
     注意：指纹窗口是 except 行 ±2；若文件里有**完全相同的 except 块**（例如多处
     `except OSError: pass`），滑窗只能定位到第一处——这是指纹法的固有局限，
     所以断言检查 ±2 行范围而不是精确等于原行号。
     """
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
-    if not path.is_file():
-        return
-    data = json.loads(path.read_text(encoding="utf-8"))
+    rebuild_mod.rebuild(apply=True)
+    data = json.loads(temp_backlog.read_text(encoding="utf-8"))
     checked = 0
     for item in data["items"]:
         for occ in (item.get("openOccurrences") or []):

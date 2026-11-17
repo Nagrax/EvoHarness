@@ -21,6 +21,18 @@ from app.services.reply_engine import process_incoming, upsert_chat
 logger = logging.getLogger(__name__)
 
 
+def _infer_chat_type(settings, chat_id: str) -> str:
+    """无会话元数据时推断类型。
+
+    坑（2026-11-10 接入实证）：p2p chat_id 同样是 oc_ 前缀，按前缀判群会把
+    owner 私聊登记成 group，随后按"群聊必须 @"的规则静默丢弃 owner 消息。
+    显式配置的 owner 会话必须先判 p2p。
+    """
+    if chat_id and chat_id == (settings.feishu_owner_chat_id or "").strip():
+        return "p2p"
+    return "group" if chat_id.startswith("oc_") else "p2p"
+
+
 def bootstrap_sources(session: Session, *, transport=None) -> list[Source]:
     settings = get_settings()
     transport = transport or get_transport()
@@ -34,12 +46,16 @@ def bootstrap_sources(session: Session, *, transport=None) -> list[Source]:
     by_chat = {item["chat_id"]: item for item in discovered}
     chat_ids = set(settings.whitelist) | set(settings.reply_allowed_chats)
     chat_ids |= set(by_chat)
+    # owner 会话是显式授权：即便没写进逗号白名单、也拿不到 list_chats，
+    # 也必须登记来源，否则实时消息会因 source_missing 被静默丢弃。
+    if (settings.feishu_owner_chat_id or "").strip():
+        chat_ids.add(settings.feishu_owner_chat_id.strip())
     sources: list[Source] = []
     for chat_id in sorted(chat_ids):
         if not settings.is_whitelisted(chat_id):
             continue
         info = by_chat.get(chat_id, {})
-        chat_type = info.get("chat_type") or ("group" if chat_id.startswith("oc_") else "p2p")
+        chat_type = info.get("chat_type") or _infer_chat_type(settings, chat_id)
         upsert_chat(session, chat_id, chat_type, info.get("name", ""))
         source = admission.ensure_source(
             session,
@@ -55,6 +71,9 @@ def bootstrap_sources(session: Session, *, transport=None) -> list[Source]:
         # 配置移除会话后，已有 Source 也必须同步撤权。
         source.reply_allowed = settings.reply_allowed_for(chat_id)
         source.reply_identity = settings.feishu_reply_identity
+        # 历史行可能按 oc_ 前缀误登记成 group（见 _infer_chat_type），每次同步修正。
+        if source.source_type != chat_type:
+            source.source_type = chat_type
         sources.append(source)
     _reconcile_group_revocations(session, by_chat, sources, discovery_ok=discovery_ok)
     session.flush()
@@ -170,6 +189,76 @@ def sync_and_process(session: Session, *, transport=None, target_date: date | No
     return result
 
 
+def _owner_identity(session) -> str:
+    """报告归属者标识：优先配置/学到的 open_id，没有就用 chat_id 兜底。
+
+    报告归属必须稳定：同一 owner 的不同轮次不能生成两份日报，
+    所以这里与投递目标（chat_id/邮箱）分开计算。
+    """
+    settings = get_settings()
+    try:
+        from app.services.owner_bootstrap import resolve_owner_open_id
+
+        learned = resolve_owner_open_id(session)
+    except Exception:  # noqa: BLE001
+        learned = ""
+    return (
+        learned
+        or (settings.feishu_owner_open_id or "").strip()
+        or (settings.feishu_owner_chat_id or "").strip()
+    )
+
+
+def _recipients(session) -> list:
+    """日报收件人清单（至少包含 owner，否则一条都不发）。
+
+    返回带 identity（报告归属与去重键）与 delivery_target（飞书投递目标）
+    的轻量对象：归属键要稳定（同一人不能出两份报告），投递目标要可用
+    （open_id 可能未知，退 chat_id / 邮箱）。
+    """
+    from dataclasses import dataclass
+
+    from app.services import roster as roster_module
+
+    @dataclass
+    class Recipient:
+        identity: str
+        target_type: str
+        target_id: str
+
+    settings = get_settings()
+    result: list[Recipient] = []
+
+    roster = roster_module.build_roster(session)
+    if roster.owner is not None:
+        target_type, target_id = settings.owner_target()
+        result.append(
+            Recipient(
+                identity=roster.owner.open_id or target_id,
+                target_type=target_type or "chat_id",
+                target_id=target_id or roster.owner.chat_id,
+            )
+        )
+    for user in roster.users:
+        if not user.open_id:
+            continue
+        result.append(
+            Recipient(
+                identity=user.open_id,
+                target_type="chat_id" if user.chat_id.startswith("oc_") else "open_id",
+                target_id=user.chat_id or user.open_id,
+            )
+        )
+    if not result:
+        # 极端兜底：没有任何使用者信息时仍按旧行为发给 owner 目标，
+        # 否则配置不全的部署会静默地一条日报都不发。
+        target_type, target_id = settings.owner_target()
+        if target_id:
+            result.append(Recipient(identity=target_id, target_type=target_type,
+                                    target_id=target_id))
+    return result
+
+
 def _last_report_date(session: Session, tenant: str, owner: str) -> date | None:
     rows = list(
         session.scalars(
@@ -198,7 +287,8 @@ def run_daily_pipeline(
     try:
         with session_scope() as session:
             summary["expiredDrafts"] = review_module.expire_stale_drafts(session, now=now)
-            last = _last_report_date(session, settings.tenant_id, settings.feishu_owner_open_id)
+            owner_id = _owner_identity(session)
+            last = _last_report_date(session, settings.tenant_id, owner_id)
             start = (last + timedelta(days=1)) if last else report_date
             # 已生成当天日报后仍要重算最近一天，才能吸收迟到消息/回执。
             if start > report_date:
@@ -223,21 +313,26 @@ def run_daily_pipeline(
             }
             cursor = start
             while cursor <= report_date:
-                generated = reports.generate_report(
-                    session,
-                    logical_date=cursor,
-                    tenant=settings.tenant_id,
-                    owner=settings.feishu_owner_open_id,
-                    timezone=settings.daily_report_timezone,
-                )
-                summary["reports"].append(
-                    {
-                        "date": cursor.isoformat(),
-                        "created": generated.created,
-                        "revised": generated.revised,
-                        "outbox_id": generated.outbox_id,
-                    }
-                )
+                # 多用户：给每位使用者各出一份（内容按人裁剪），
+                # 而不是只给 owner 出一份。收件人来自实际互动数据。
+                for recipient in _recipients(session):
+                    generated = reports.generate_report(
+                        session,
+                        logical_date=cursor,
+                        tenant=settings.tenant_id,
+                        owner=recipient.identity,
+                        timezone=settings.daily_report_timezone,
+                        delivery_target=(recipient.target_type, recipient.target_id),
+                    )
+                    summary["reports"].append(
+                        {
+                            "date": cursor.isoformat(),
+                            "recipient": recipient.identity[-8:] or "-",
+                            "created": generated.created,
+                            "revised": generated.revised,
+                            "outbox_id": generated.outbox_id,
+                        }
+                    )
                 cursor += timedelta(days=1)
     except Exception as exc:  # noqa: BLE001 - 调度器不能中断
         logger.exception("每日流水线失败")

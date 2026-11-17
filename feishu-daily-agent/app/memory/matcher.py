@@ -25,14 +25,19 @@ class Matcher:
         self._model = settings.embedding_model
         if self.mode == "embedding":
             try:
-                self._client = OpenAI(
+                client = OpenAI(
                     base_url=settings.effective_embedding_base_url,
                     api_key=settings.effective_embedding_api_key,
                     timeout=settings.llm_timeout,
                 )
+                # DE-15：组织模式下 embedding 逐次经预算网关（category=embedding）；
+                # 归属缺失/网关不可用 → 明确告警并降级关键词（不产生未记账付费调用）。
+                from evoharness.governance.feishu_budget import maybe_wrap_openai
+                self._client = maybe_wrap_openai(client, principal="feishu-embedding")
             except Exception as exc:
                 logger.warning("embedding 客户端初始化失败，降级为关键词模式: %s", exc)
                 self.mode = "keyword"
+                self._client = None
 
     # ---------- embedding ----------
 

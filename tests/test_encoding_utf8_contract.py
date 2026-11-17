@@ -251,3 +251,16 @@ def test_index_rebuild_consistent_after_reload(monkeypatch, tmp_path):
     assert names == {f1, f2}
     for name in names:
         assert name in memory.load_memory_index()
+
+
+def test_gbk_legacy_memory_is_portable_to_western_windows_locale(monkeypatch, tmp_path):
+    import agents.memory as memory
+    monkeypatch.setattr(memory.locale, "getpreferredencoding", lambda *args: "cp1252")
+    path = tmp_path / "legacy.md"
+    original = "记忆内容：中文与特殊符号 → ★ …".encode("gbk")
+    path.write_bytes(original)
+    assert memory.read_text_migrating(path) == original.decode("gbk")
+    assert memory.read_text_migrating_limited(path) == original.decode("gbk")
+    assert path.read_bytes() == original
+    assert memory.migrate_legacy_encoding(path) is True
+    assert path.read_text(encoding="utf-8") == original.decode("gbk")

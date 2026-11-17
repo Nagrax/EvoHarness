@@ -9,6 +9,7 @@ import json
 import os
 import re
 import time
+import tempfile
 
 SESSION_DIR = Path.home() / ".evoharness" / "sessions"
 SCHEMA_VERSION = 2
@@ -44,10 +45,12 @@ def atomic_write_text(path: Path, text: str) -> None:
     不用固定 `.tmp` 名：并发写者会互相覆盖对方的临时文件，反而制造半截文件。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    tmp = None
     descriptor = None
     try:
-        descriptor = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+        # 临时名与目标文件名长度无关，避免合法的 Windows 目标路径被后缀推过 MAX_PATH。
+        descriptor, name = tempfile.mkstemp(prefix=".evo-", suffix=".tmp", dir=str(path.parent))
+        tmp = Path(name)
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
             descriptor = None
             handle.write(text)
@@ -58,7 +61,7 @@ def atomic_write_text(path: Path, text: str) -> None:
     finally:
         if descriptor is not None:
             os.close(descriptor)
-        if tmp.exists():
+        if tmp is not None and tmp.exists():
             try:
                 tmp.unlink()
             except OSError:
@@ -79,10 +82,11 @@ def backup_file(path: Path, suffix: str = BACKUP_SUFFIX) -> bool:
 
 def atomic_write_bytes(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    tmp = None
     descriptor = None
     try:
-        descriptor = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+        descriptor, name = tempfile.mkstemp(prefix=".evo-", suffix=".tmp", dir=str(path.parent))
+        tmp = Path(name)
         with os.fdopen(descriptor, "wb") as handle:
             descriptor = None
             handle.write(data)
@@ -93,7 +97,7 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
     finally:
         if descriptor is not None:
             os.close(descriptor)
-        if tmp.exists():
+        if tmp is not None and tmp.exists():
             try:
                 tmp.unlink()
             except OSError:

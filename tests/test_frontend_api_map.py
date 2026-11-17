@@ -21,11 +21,15 @@ sys.path.insert(0, str(REPO))
 
 import eval.frontend_api_map as fam
 
-# 当前明确"后端有、前端无"的端点（不含根路径 /）
+# 当前明确"后端有、前端无"的端点（不含根路径 /）。
+# 这些入口服务于 CLI / panel / agent，不在工作台首轮承接；新增前端绑定会打破本表。
 KNOWN_UNWIRED = {
     "/api/eval/skills",
     "/api/skills/tiers",
     "/api/skills/tiers/action",
+    # DE-36 搜索命名空间：观测/控制入口由评测与 agent 使用
+    # DE-43 契约层其余只读投影：工作台只承接 view/org/item/op/approvals/knowledge
+    "/api/work/health",
 }
 
 
@@ -45,7 +49,7 @@ def test_no_frontend_calls_missing_backend_route():
 
 
 def test_unwired_endpoints_match_known_set():
-    """后端未被前端引用的端点集合 = 已知的 3 个（+ 根路径）。"""
+    """后端未被前端引用的端点集合 = 已登记的未接线集合（+ 根路径）。"""
     routes = {fam._normalize(p) for p in fam.backend_routes()}
     refs = {fam._normalize(r) for r in fam.frontend_refs()[0]}
     unwired = routes - refs - {""}

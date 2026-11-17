@@ -15,6 +15,7 @@ from .skill_evolution import (
     get_evolution_dir,
     load_skill_stats,
     maybe_archive_never_retrieved_skill,
+    skill_content_hash,
 )
 
 
@@ -1533,6 +1534,32 @@ def _run_id(lineage_id: str) -> str:
     return f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{str(lineage_id or '')[-6:]}"
 
 
+def _eval_protocol_fingerprint(rules: list[dict[str, Any]] | None, response_source: str) -> str:
+    """评分协议指纹：rules + response_source 的 stable hash（DE-18）。
+
+    「缓存与比较绑定完整协议」的最小落点：历史冠军分数与本次样本/模型可能不同，
+    跨协议比较不得作为自动发布依据。指纹写进 eval_spec/summary/champion 与晋级
+    审计证据，协议（规则集、答题来源）变化后旧分数与新分数一眼可辨、不可混用。
+    """
+    normalized_rules = [
+        {
+            "rule_id": str(rule.get("rule_id") or ""),
+            "label": str(rule.get("label") or ""),
+            "kind": str(rule.get("kind") or ""),
+            "hard": bool(rule.get("hard")),
+        }
+        for rule in list(rules or [])
+        if isinstance(rule, dict)
+    ]
+    return _stable_hash(
+        {
+            "response_source": str(response_source or ""),
+            "rule_count": len(normalized_rules),
+            "rules": normalized_rules,
+        }
+    )
+
+
 def _variant_summary(
     *,
     skill_name: str,
@@ -1547,6 +1574,7 @@ def _variant_summary(
         "mutation_type": "active",
         "skill": skill_name,
         "version": version,
+        "snapshot_hash": skill_content_hash(snapshot),
         "sample_count": len(replay_pool),
         "total_score": float(rule_summary.get("total_score", 0.0) or 0.0),
         "average_score": float(rule_summary.get("average_score", 0.0) or 0.0),
@@ -1671,6 +1699,11 @@ def _persist_eval_artifacts(
 ) -> dict[str, Any]:
     lineage_id = _lineage_id_for_skill(skill_name)
     eval_dir = _lineage_eval_dir(lineage_id)
+    # DE-18 制品/协议绑定：本次评测考的是哪份 active 制品、晋级的候选是哪份制品、
+    # 用的什么评分协议——三者在报告（summary/artifacts）与晋级审计证据中可见，
+    # apply_eval_promotions 据此拒绝「候选 A 的成绩给 active B 晋级」。
+    active_snapshot_hash = skill_content_hash(snapshot)
+    protocol_fingerprint = _eval_protocol_fingerprint(rules, "history_latest_assistant")
     _write_json(
         eval_dir / "eval_spec.json",
         {
@@ -1678,6 +1711,8 @@ def _persist_eval_artifacts(
             "skill": skill_name,
             "rules": rules,
             "response_source": "history_latest_assistant",
+            "eval_protocol_fingerprint": protocol_fingerprint,
+            "active_snapshot_hash": active_snapshot_hash,
         },
     )
 
@@ -1753,6 +1788,8 @@ def _persist_eval_artifacts(
     if best_variant and best_test_summary and candidate_beats_current:
         promotion_candidate = dict(best_test_summary)
         promotion_snapshot = best_variant.get("snapshot") if isinstance(best_variant.get("snapshot"), dict) else snapshot
+        promotion_candidate["snapshot_hash"] = skill_content_hash(promotion_snapshot)
+    candidate_snapshot_hash = skill_content_hash(promotion_snapshot)
     champion_before = _load_champion(lineage_id)
     promotion = _promotion_decision(
         status=status,
@@ -1768,6 +1805,7 @@ def _persist_eval_artifacts(
                 "snapshot": promotion_snapshot,
                 "summary": promotion_candidate,
                 "promotion": promotion,
+                "eval_protocol_fingerprint": protocol_fingerprint,
                 "updated_at": _utc_now(),
             },
         )
@@ -1807,6 +1845,9 @@ def _persist_eval_artifacts(
         "variant_summaries": list(bundle.get("variant_summaries") or []),
         "best_candidate": dict(bundle.get("best_dev_summary") or {}),
         "promotion": promotion,
+        "active_snapshot_hash": active_snapshot_hash,
+        "candidate_snapshot_hash": candidate_snapshot_hash,
+        "eval_protocol_fingerprint": protocol_fingerprint,
         "replay_counts": {
             "total": len(replay_pool),
             "mutate_dev": sum(1 for item in replay_pool if item.get("split") == "mutate_dev"),
@@ -1817,6 +1858,9 @@ def _persist_eval_artifacts(
             "eval_spec": str(eval_dir / "eval_spec.json"),
             "outputs": str(run_dir / "outputs.jsonl"),
             "judgments": str(run_dir / "judgments.jsonl"),
+            "active_snapshot_hash": active_snapshot_hash,
+            "candidate_snapshot_hash": candidate_snapshot_hash,
+            "eval_protocol_fingerprint": protocol_fingerprint,
         },
     }
     _write_json(run_dir / "summary.json", summary)
@@ -1827,7 +1871,32 @@ def _persist_eval_artifacts(
         "eval_spec_file": str(eval_dir / "eval_spec.json"),
         "champion_file": str(_lineage_champion_dir(lineage_id) / "champion.json"),
         "promotion": promotion,
+        "active_snapshot_hash": active_snapshot_hash,
+        "candidate_snapshot_hash": candidate_snapshot_hash,
+        "eval_protocol_fingerprint": protocol_fingerprint,
     }
+
+
+def _deployment_states_field(skill_name: str) -> dict[str, Any]:
+    """DE-35 五状态报告字段：search_champion / certified_candidate /
+    adopted_experimental / staging / core 显式分开（接缝 agents/skill_search/
+    certification.certification_state，只读）。
+
+    无搜索认证记录的原生技能返回五个 active=False 的空阶梯——零行为变化
+    （S5：不因搜索认证要求全局禁用）；认证接缝不可用时降级为空阶梯不阻塞评测。
+    """
+    try:
+        from .skill_search.certification import certification_state
+
+        return certification_state(skill_name)
+    except Exception:
+        return {
+            "skill": str(skill_name or ""),
+            "states": {},
+            "current_tier": "",
+            "certification_only": True,
+            "note": "certification seam unavailable",
+        }
 
 
 def _materialize_status_map(skills: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
@@ -2127,6 +2196,8 @@ async def _evaluate_online_skill_evolution_core(
                     "has_promotion_test_eval": bool((candidate_bundle or {}).get("best_test_summary")) if isinstance(candidate_bundle, dict) else False,
                 },
                 "artifacts": artifacts,
+                # DE-35 五状态显式区分（报告字段）：认证/采用/晋级各答各的问题，不折叠。
+                "deployment_states": _deployment_states_field(name),
                 "file": lifecycle.get("file", ""),
                 "skill_dir": snapshot.get("skill_dir", ""),
             }

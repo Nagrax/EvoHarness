@@ -214,6 +214,10 @@ def _invalidate_for_message(session: Session, message: Message, *, reason: str) 
     ):
         if message.message_id in task.source_ids():
             task.needs_confirmation = True
+            if task.workflow_kind == "delegated_delivery":
+                task.revision += 1
+                task.status = "waiting_dependency"
+                task.waiting_reason = reason
             if task.status == TaskStatus.OPEN:
                 task.status = TaskStatus.NEEDS_CONFIRMATION
             session.add(

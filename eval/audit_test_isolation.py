@@ -14,7 +14,7 @@ import json
 import re
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 TESTS = REPO / "tests"
 
 # 来源 → 隔离它的典型写法（正则片段）
@@ -22,7 +22,8 @@ ISOLATION = {
     "cwd": [r"chdir\(", r'"get_evolution_dir"\s*,', r"'get_evolution_dir'\s*,",
             r'"get_memory_dir"\s*,', r"'get_memory_dir'\s*,"],
     "home": [r'setenv\(\s*"HOME"', r"setenv\(\s*'HOME'",
-             r'setenv\(\s*"USERPROFILE"', r"setenv\(\s*'USERPROFILE'"],
+             r'setenv\(\s*"USERPROFILE"', r"setenv\(\s*'USERPROFILE'",
+             r'setattr\(\s*Path\s*,\s*"home"', r"setattr\(\s*Path\s*,\s*'home'"],
 }
 
 # 使用路径来源的信号
@@ -56,7 +57,12 @@ def audit() -> list[dict]:
         missing = []
         for src in touched:
             if src == "cwd" and not any(re.search(p, text) for p in ISOLATION["cwd"]):
-                missing.append("cwd")
+                # An explicit evolution root isolates get_tier/get_evolution_dir,
+                # but cannot isolate direct filesystem calls on Path.cwd().
+                evolution_override = re.search(r"setenv\(\s*['\"]EVOHARNESS_EVOLUTION_DIR['\"]", text)
+                direct_cwd = re.search(r"Path\.cwd\(\)|get_memory_dir\(", text)
+                if not evolution_override or direct_cwd:
+                    missing.append("cwd")
             if src == "home" and not any(re.search(p, text) for p in ISOLATION["home"]):
                 missing.append("home")
         if missing:

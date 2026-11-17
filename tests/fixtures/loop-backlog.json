@@ -1,0 +1,3813 @@
+{
+  "fixture_kind": "legacy_loop_contracts",
+  "items": [
+    {
+      "id": "L0001",
+      "key": "module:silent-except:agents/agent.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/agent.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/agent.py",
+        "line": 1094,
+        "exceptLine": 1095,
+        "fingerprint": "00293070ff4d",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/agent.py",
+          "line": 1094,
+          "exceptLine": 1095,
+          "fingerprint": "00293070ff4d",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/agent.py",
+          "line": 1776,
+          "exceptLine": 1779,
+          "fingerprint": "218d550e9567",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/agent.py",
+          "line": 1903,
+          "exceptLine": 1916,
+          "fingerprint": "24bcc43e3378",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/agent.py",
+          "line": 2123,
+          "exceptLine": 2126,
+          "fingerprint": "c73375191a43",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/agent.py",
+          "line": 2387,
+          "exceptLine": 2408,
+          "fingerprint": "c7df143f6733",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/agent.py",
+          "line": 2703,
+          "exceptLine": 2717,
+          "fingerprint": "01589351e1bf",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0001",
+          "status": "pending",
+          "file": "agents/agent.py",
+          "line": 1144,
+          "exceptLine": 1145,
+          "fingerprint": "00293070ff4d",
+          "locatedLine": 1145,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0001",
+          "status": "pending",
+          "file": "agents/agent.py",
+          "line": 1826,
+          "exceptLine": 1829,
+          "fingerprint": "218d550e9567",
+          "locatedLine": 1829,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0001",
+          "status": "pending",
+          "file": "agents/agent.py",
+          "line": 1953,
+          "exceptLine": 1966,
+          "fingerprint": "24bcc43e3378",
+          "locatedLine": 1966,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0001",
+          "status": "pending",
+          "file": "agents/agent.py",
+          "line": 2173,
+          "exceptLine": 2176,
+          "fingerprint": "c73375191a43",
+          "locatedLine": 2176,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0001",
+          "status": "pending",
+          "file": "agents/agent.py",
+          "line": 2451,
+          "exceptLine": 2472,
+          "fingerprint": "c7df143f6733",
+          "locatedLine": 2472,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0001",
+          "status": "pending",
+          "file": "agents/agent.py",
+          "line": 2767,
+          "exceptLine": 2781,
+          "fingerprint": "01589351e1bf",
+          "locatedLine": 2781,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0004",
+          "file": "agents/agent.py",
+          "line": 1158,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0067",
+          "file": "agents/agent.py",
+          "line": 1161,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0078",
+          "file": "agents/agent.py",
+          "line": 1053,
+          "category": "reasonable-defense",
+          "reason": "cleanup:close,kill"
+        },
+        {
+          "fromId": "L0079",
+          "file": "agents/agent.py",
+          "line": 1155,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0082",
+          "file": "agents/agent.py",
+          "line": 1892,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0010",
+          "file": "agents/agent.py",
+          "line": 2465,
+          "category": "degradation-only",
+          "reason": "degrade:index"
+        },
+        {
+          "fromId": "L0084",
+          "file": "agents/agent.py",
+          "line": 2471,
+          "category": "degradation-only",
+          "reason": "degrade:index"
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0011",
+      "key": "module:silent-except:agents/mcp_client.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/mcp_client.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/mcp_client.py",
+        "line": 80,
+        "exceptLine": 84,
+        "fingerprint": "370483412d15",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/mcp_client.py",
+          "line": 80,
+          "exceptLine": 84,
+          "fingerprint": "370483412d15",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/mcp_client.py",
+          "line": 89,
+          "exceptLine": 90,
+          "fingerprint": "a373baed7d37",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/mcp_client.py",
+          "line": 218,
+          "exceptLine": 225,
+          "fingerprint": "b97c68eab446",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/mcp_client.py",
+          "line": 367,
+          "exceptLine": 368,
+          "fingerprint": "8aa761227b76",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/mcp_client.py",
+          "line": 376,
+          "exceptLine": 377,
+          "fingerprint": "33da5537553e",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0011",
+          "status": "pending",
+          "file": "agents/mcp_client.py",
+          "line": 80,
+          "exceptLine": 84,
+          "fingerprint": "370483412d15",
+          "locatedLine": 84,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（6 处）：管道/transport 关闭是清理路径、stderr 只作排洪道、kill 已退出进程；坏配置跳过一处已修为可见"
+        },
+        {
+          "fromId": "L0011",
+          "status": "pending",
+          "file": "agents/mcp_client.py",
+          "line": 89,
+          "exceptLine": 90,
+          "fingerprint": "a373baed7d37",
+          "locatedLine": 90,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（6 处）：管道/transport 关闭是清理路径、stderr 只作排洪道、kill 已退出进程；坏配置跳过一处已修为可见"
+        },
+        {
+          "fromId": "L0011",
+          "status": "pending",
+          "file": "agents/mcp_client.py",
+          "line": 218,
+          "exceptLine": 225,
+          "fingerprint": "b97c68eab446",
+          "locatedLine": 225,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（6 处）：管道/transport 关闭是清理路径、stderr 只作排洪道、kill 已退出进程；坏配置跳过一处已修为可见"
+        },
+        {
+          "fromId": "L0011",
+          "status": "pending",
+          "file": "agents/mcp_client.py",
+          "line": 367,
+          "exceptLine": 368,
+          "fingerprint": "8aa761227b76",
+          "locatedLine": 368,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（6 处）：管道/transport 关闭是清理路径、stderr 只作排洪道、kill 已退出进程；坏配置跳过一处已修为可见"
+        },
+        {
+          "fromId": "L0011",
+          "status": "pending",
+          "file": "agents/mcp_client.py",
+          "line": 376,
+          "exceptLine": 377,
+          "fingerprint": "33da5537553e",
+          "locatedLine": 377,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（6 处）：管道/transport 关闭是清理路径、stderr 只作排洪道、kill 已退出进程；坏配置跳过一处已修为可见"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0085",
+          "file": "agents/mcp_client.py",
+          "line": 80,
+          "category": "reasonable-defense",
+          "reason": "cleanup:close"
+        },
+        {
+          "fromId": "L0086",
+          "file": "agents/mcp_client.py",
+          "line": 89,
+          "category": "reasonable-defense",
+          "reason": "cleanup:close"
+        },
+        {
+          "fromId": "L0087",
+          "file": "agents/mcp_client.py",
+          "line": 274,
+          "category": "reasonable-defense",
+          "reason": "cleanup:close,kill"
+        },
+        {
+          "fromId": "L0088",
+          "file": "agents/mcp_client.py",
+          "line": 283,
+          "category": "reasonable-defense",
+          "reason": "cleanup:close"
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0016",
+      "key": "module:silent-except:agents/memory.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/memory.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/memory.py",
+        "line": 150,
+        "exceptLine": 151,
+        "fingerprint": "9f13701ac86a",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/memory.py",
+          "line": 150,
+          "exceptLine": 151,
+          "fingerprint": "9f13701ac86a",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/memory.py",
+          "line": 237,
+          "exceptLine": 239,
+          "fingerprint": "1c05e9fe9e83",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0016",
+          "status": "pending",
+          "file": "agents/memory.py",
+          "line": 150,
+          "exceptLine": 151,
+          "fingerprint": "9f13701ac86a",
+          "locatedLine": 151,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（4 处）：stderr 不可用时放弃（防递归）、UnicodeDecodeError 后转 read_bytes 是编码迁移正常控制流；索引/扫描两处已修为汇总留痕"
+        },
+        {
+          "fromId": "L0016",
+          "status": "pending",
+          "file": "agents/memory.py",
+          "line": 237,
+          "exceptLine": 239,
+          "fingerprint": "1c05e9fe9e83",
+          "locatedLine": 239,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（4 处）：stderr 不可用时放弃（防递归）、UnicodeDecodeError 后转 read_bytes 是编码迁移正常控制流；索引/扫描两处已修为汇总留痕"
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0020",
+      "key": "module:silent-except:agents/online_skill_eval.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_eval.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_eval.py",
+        "line": 154,
+        "exceptLine": 156,
+        "fingerprint": "b4372755ef64",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/online_skill_eval.py",
+          "line": 154,
+          "exceptLine": 156,
+          "fingerprint": "b4372755ef64",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/online_skill_eval.py",
+          "line": 2024,
+          "exceptLine": 2032,
+          "fingerprint": "ee1587f4655c",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/online_skill_eval.py",
+          "line": 2027,
+          "exceptLine": 2030,
+          "fingerprint": "84112ee47287",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0020",
+          "status": "pending",
+          "file": "agents/online_skill_eval.py",
+          "line": 155,
+          "exceptLine": 157,
+          "fingerprint": "b4372755ef64",
+          "locatedLine": 157,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0020",
+          "status": "pending",
+          "file": "agents/online_skill_eval.py",
+          "line": 2093,
+          "exceptLine": 2101,
+          "fingerprint": "ee1587f4655c",
+          "locatedLine": 2101,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0020",
+          "status": "pending",
+          "file": "agents/online_skill_eval.py",
+          "line": 2096,
+          "exceptLine": 2099,
+          "fingerprint": "84112ee47287",
+          "locatedLine": 2099,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0095",
+          "file": "agents/online_skill_eval.py",
+          "line": 1228,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0096",
+          "file": "agents/online_skill_eval.py",
+          "line": 1971,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0098",
+          "file": "agents/online_skill_eval.py",
+          "line": 2212,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0097",
+          "file": "agents/online_skill_eval.py",
+          "line": 1974,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0025",
+      "key": "module:silent-except:agents/online_skill_evolution.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/online_skill_evolution.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/online_skill_evolution.py",
+        "line": 38,
+        "exceptLine": 39,
+        "fingerprint": "bc6249b51ad6",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/online_skill_evolution.py",
+          "line": 38,
+          "exceptLine": 39,
+          "fingerprint": "bc6249b51ad6",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0025",
+          "status": "pending",
+          "file": "agents/online_skill_evolution.py",
+          "line": 38,
+          "exceptLine": 39,
+          "fingerprint": "bc6249b51ad6",
+          "locatedLine": 39,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（1 处）：JSON 两级解析（先整体后找 {）属正常控制流，不改"
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0026",
+      "key": "module:silent-except:agents/prompt.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/prompt.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/prompt.py",
+        "line": 158,
+        "exceptLine": 161,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/prompt.py",
+          "line": 158,
+          "exceptLine": 161,
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/prompt.py",
+          "line": 176,
+          "exceptLine": 179,
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [],
+      "status": "done",
+      "informational": false,
+      "staleOccurrences": [
+        {
+          "fromId": "L0026",
+          "status": "pending",
+          "file": "agents/prompt.py",
+          "line": 158,
+          "exceptLine": 161,
+          "fingerprint": "6e24584746cf",
+          "locatedLine": 161,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0026",
+          "status": "pending",
+          "file": "agents/prompt.py",
+          "line": 176,
+          "exceptLine": 179,
+          "fingerprint": "04dd22fadfbc",
+          "locatedLine": 179,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0028",
+      "key": "module:silent-except:agents/session.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/session.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/session.py",
+        "line": 34,
+        "exceptLine": 35,
+        "fingerprint": "71f94392dcb8",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/session.py",
+          "line": 34,
+          "exceptLine": 35,
+          "fingerprint": "71f94392dcb8",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/session.py",
+          "line": 63,
+          "exceptLine": 64,
+          "fingerprint": "4081c2ea5c45",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/session.py",
+          "line": 98,
+          "exceptLine": 99,
+          "fingerprint": "4081c2ea5c45",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0028",
+          "status": "pending",
+          "file": "agents/session.py",
+          "line": 34,
+          "exceptLine": 35,
+          "fingerprint": "71f94392dcb8",
+          "locatedLine": 35,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（3 条记录/2 个位置）：_fsync_dir 的目录 fsync 在 Windows 上常不可用，注释已明确\"忽略即可\"；tmp 清理在 finally 内，失败不影响原子写主流程。另注：atomic_write_text 主路径的 fsync 未包 try/except——那是正确的，写失败必须抛出，不能被吞"
+        },
+        {
+          "fromId": "L0028",
+          "status": "pending",
+          "file": "agents/session.py",
+          "line": 63,
+          "exceptLine": 64,
+          "fingerprint": "4081c2ea5c45",
+          "locatedLine": 64,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（3 条记录/2 个位置）：_fsync_dir 的目录 fsync 在 Windows 上常不可用，注释已明确\"忽略即可\"；tmp 清理在 finally 内，失败不影响原子写主流程。另注：atomic_write_text 主路径的 fsync 未包 try/except——那是正确的，写失败必须抛出，不能被吞"
+        },
+        {
+          "fromId": "L0028",
+          "status": "pending",
+          "file": "agents/session.py",
+          "line": 98,
+          "exceptLine": 99,
+          "fingerprint": "4081c2ea5c45",
+          "locatedLine": 64,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（3 条记录/2 个位置）：_fsync_dir 的目录 fsync 在 Windows 上常不可用，注释已明确\"忽略即可\"；tmp 清理在 finally 内，失败不影响原子写主流程。另注：atomic_write_text 主路径的 fsync 未包 try/except——那是正确的，写失败必须抛出，不能被吞"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0103",
+          "file": "agents/session.py",
+          "line": 63,
+          "category": "reasonable-defense",
+          "reason": "cleanup:unlink"
+        },
+        {
+          "fromId": "L0104",
+          "file": "agents/session.py",
+          "line": 98,
+          "category": "reasonable-defense",
+          "reason": "cleanup:unlink"
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0032",
+      "key": "module:silent-except:agents/skill_evolution.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_evolution.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_evolution.py",
+        "line": 393,
+        "exceptLine": 400,
+        "fingerprint": "16ede339d5ae",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/skill_evolution.py",
+          "line": 393,
+          "exceptLine": 400,
+          "fingerprint": "16ede339d5ae",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/skill_evolution.py",
+          "line": 505,
+          "exceptLine": 512,
+          "fingerprint": "5f100b7afb0d",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0032",
+          "status": "pending",
+          "file": "agents/skill_evolution.py",
+          "line": 461,
+          "exceptLine": 468,
+          "fingerprint": "16ede339d5ae",
+          "locatedLine": 468,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0032",
+          "status": "pending",
+          "file": "agents/skill_evolution.py",
+          "line": 593,
+          "exceptLine": 600,
+          "fingerprint": "5f100b7afb0d",
+          "locatedLine": 600,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0033",
+          "file": "agents/skill_evolution.py",
+          "line": 512,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0034",
+      "key": "module:silent-except:agents/skill_repair.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_repair.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_repair.py",
+        "line": 151,
+        "exceptLine": 162,
+        "fingerprint": "c93e898abcae",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/skill_repair.py",
+          "line": 151,
+          "exceptLine": 162,
+          "fingerprint": "c93e898abcae",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0034",
+          "status": "pending",
+          "file": "agents/skill_repair.py",
+          "line": 151,
+          "exceptLine": 162,
+          "fingerprint": "c93e898abcae",
+          "locatedLine": 162,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0107",
+          "file": "agents/skill_repair.py",
+          "line": 151,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0035",
+      "key": "module:silent-except:agents/skill_tiers.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/skill_tiers.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/skill_tiers.py",
+        "line": 137,
+        "exceptLine": 139,
+        "fingerprint": "47444fc473ae",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/skill_tiers.py",
+          "line": 137,
+          "exceptLine": 139,
+          "fingerprint": "47444fc473ae",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/skill_tiers.py",
+          "line": 211,
+          "exceptLine": 215,
+          "fingerprint": "48f409e83b5f",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/skill_tiers.py",
+          "line": 291,
+          "exceptLine": 293,
+          "fingerprint": "5dbeeca99332",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0035",
+          "status": "pending",
+          "file": "agents/skill_tiers.py",
+          "line": 153,
+          "exceptLine": 155,
+          "fingerprint": "47444fc473ae",
+          "locatedLine": 155,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0035",
+          "status": "pending",
+          "file": "agents/skill_tiers.py",
+          "line": 227,
+          "exceptLine": 231,
+          "fingerprint": "48f409e83b5f",
+          "locatedLine": 231,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0035",
+          "status": "pending",
+          "file": "agents/skill_tiers.py",
+          "line": 370,
+          "exceptLine": 372,
+          "fingerprint": "5dbeeca99332",
+          "locatedLine": 372,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0035",
+          "status": "pending",
+          "file": "agents/skill_tiers.py",
+          "line": 503,
+          "exceptLine": 505,
+          "fingerprint": "175c3e32bdd1",
+          "locatedLine": 505,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0035",
+          "status": "pending",
+          "file": "agents/skill_tiers.py",
+          "line": 603,
+          "exceptLine": 606,
+          "fingerprint": "6c8675eea424",
+          "locatedLine": 606,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0036",
+          "file": "agents/skill_tiers.py",
+          "line": 207,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0108",
+          "file": "agents/skill_tiers.py",
+          "line": 116,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0109",
+          "file": "agents/skill_tiers.py",
+          "line": 203,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0038",
+      "key": "module:silent-except:agents/subagent.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/subagent.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/subagent.py",
+        "line": 113,
+        "exceptLine": 127,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/subagent.py",
+          "line": 113,
+          "exceptLine": 127,
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [],
+      "status": "done",
+      "informational": false,
+      "staleOccurrences": [
+        {
+          "fromId": "L0038",
+          "status": "pending",
+          "file": "agents/subagent.py",
+          "line": 113,
+          "exceptLine": 127,
+          "fingerprint": "f50c8abd2737",
+          "locatedLine": 127,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0039",
+      "key": "module:silent-except:agents/tools.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/tools.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/tools.py",
+        "line": 760,
+        "exceptLine": 762,
+        "fingerprint": "8fa854887cf7",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/tools.py",
+          "line": 760,
+          "exceptLine": 762,
+          "fingerprint": "8fa854887cf7",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/tools.py",
+          "line": 816,
+          "exceptLine": 838,
+          "fingerprint": "e4ccaf0f4317",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/tools.py",
+          "line": 873,
+          "exceptLine": 879,
+          "fingerprint": "f07fc3489d41",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/tools.py",
+          "line": 1028,
+          "exceptLine": 1038,
+          "fingerprint": "421f2a6632e0",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/tools.py",
+          "line": 1221,
+          "exceptLine": 1222,
+          "fingerprint": "500bf549829f",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0039",
+          "status": "pending",
+          "file": "agents/tools.py",
+          "line": 816,
+          "exceptLine": 818,
+          "fingerprint": "8fa854887cf7",
+          "locatedLine": 818,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0039",
+          "status": "pending",
+          "file": "agents/tools.py",
+          "line": 872,
+          "exceptLine": 894,
+          "fingerprint": "e4ccaf0f4317",
+          "locatedLine": 894,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0039",
+          "status": "pending",
+          "file": "agents/tools.py",
+          "line": 929,
+          "exceptLine": 935,
+          "fingerprint": "f07fc3489d41",
+          "locatedLine": 935,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0039",
+          "status": "pending",
+          "file": "agents/tools.py",
+          "line": 1084,
+          "exceptLine": 1094,
+          "fingerprint": "421f2a6632e0",
+          "locatedLine": 1094,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0039",
+          "status": "pending",
+          "file": "agents/tools.py",
+          "line": 1285,
+          "exceptLine": 1286,
+          "fingerprint": "500bf549829f",
+          "locatedLine": 1286,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0042",
+          "file": "agents/tools.py",
+          "line": 745,
+          "category": "degradation-only",
+          "reason": "degrade:walk("
+        },
+        {
+          "fromId": "L0044",
+          "file": "agents/tools.py",
+          "line": 1076,
+          "category": "degradation-only",
+          "reason": "degrade:normcase"
+        },
+        {
+          "fromId": "L0045",
+          "file": "agents/tools.py",
+          "line": 1344,
+          "category": "degradation-only",
+          "reason": "degrade:getmtime,read_file_state"
+        },
+        {
+          "fromId": "L0112",
+          "file": "agents/tools.py",
+          "line": 553,
+          "category": "degradation-only",
+          "reason": "degrade:index,mem_path"
+        },
+        {
+          "fromId": "L0116",
+          "file": "agents/tools.py",
+          "line": 882,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0117",
+          "file": "agents/tools.py",
+          "line": 1075,
+          "category": "degradation-only",
+          "reason": "degrade:normcase,normpath"
+        },
+        {
+          "fromId": "L0118",
+          "file": "agents/tools.py",
+          "line": 1343,
+          "category": "degradation-only",
+          "reason": "degrade:getmtime,read_file_state"
+        },
+        {
+          "fromId": "L0119",
+          "file": "agents/tools.py",
+          "line": 1445,
+          "category": "degradation-only",
+          "reason": "degrade:getmtime,read_file_state"
+        },
+        {
+          "fromId": "L0039",
+          "file": "agents/tools.py",
+          "line": 574,
+          "category": "degradation-only",
+          "reason": "degrade:index,mem_path"
+        },
+        {
+          "fromId": "L0040",
+          "file": "agents/tools.py",
+          "line": 577,
+          "category": "degradation-only",
+          "reason": "degrade:index,mem_path"
+        },
+        {
+          "fromId": "L0046",
+          "file": "agents/tools.py",
+          "line": 1446,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0113",
+          "file": "agents/tools.py",
+          "line": 561,
+          "category": "degradation-only",
+          "reason": "degrade:index,memory_index"
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0047",
+      "key": "module:silent-except:eval/evolution_experiment.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/evolution_experiment.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/evolution_experiment.py",
+        "line": 42,
+        "exceptLine": 43,
+        "fingerprint": "6a423cff0b87",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "eval/evolution_experiment.py",
+          "line": 42,
+          "exceptLine": 43,
+          "fingerprint": "6a423cff0b87",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "eval/evolution_experiment.py",
+          "line": 264,
+          "exceptLine": 267,
+          "fingerprint": "6622ba9ac03f",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "eval/evolution_experiment.py",
+          "line": 846,
+          "exceptLine": 847,
+          "fingerprint": "110970548083",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "eval/evolution_experiment.py",
+          "line": 1049,
+          "exceptLine": 1050,
+          "fingerprint": "2244a91d7554",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0047",
+          "status": "pending",
+          "file": "eval/evolution_experiment.py",
+          "line": 42,
+          "exceptLine": 43,
+          "fingerprint": "6a423cff0b87",
+          "locatedLine": 43,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0047",
+          "status": "pending",
+          "file": "eval/evolution_experiment.py",
+          "line": 264,
+          "exceptLine": 267,
+          "fingerprint": "6622ba9ac03f",
+          "locatedLine": 267,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0047",
+          "status": "pending",
+          "file": "eval/evolution_experiment.py",
+          "line": 857,
+          "exceptLine": 858,
+          "fingerprint": "110970548083",
+          "locatedLine": 858,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0047",
+          "status": "pending",
+          "file": "eval/evolution_experiment.py",
+          "line": 1060,
+          "exceptLine": 1061,
+          "fingerprint": "2244a91d7554",
+          "locatedLine": 1061,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0122",
+          "file": "eval/evolution_experiment.py",
+          "line": 810,
+          "category": "reasonable-defense",
+          "reason": "cleanup:close"
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0051",
+      "key": "module:silent-except:eval/experience_eval/hallucination_probe.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/experience_eval/hallucination_probe.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/experience_eval/hallucination_probe.py",
+        "line": 172,
+        "exceptLine": 181,
+        "fingerprint": "7411334183e7",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "eval/experience_eval/hallucination_probe.py",
+          "line": 172,
+          "exceptLine": 181,
+          "fingerprint": "7411334183e7",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0051",
+          "status": "pending",
+          "file": "eval/experience_eval/hallucination_probe.py",
+          "line": 172,
+          "exceptLine": 181,
+          "fingerprint": "7411334183e7",
+          "locatedLine": 181,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（1 处）：可选 ground-truth 文件读取失败返回空字典，调用方按缺省处理"
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0052",
+      "key": "module:silent-except:eval/loop.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/loop.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/loop.py",
+        "line": 107,
+        "exceptLine": 112,
+        "fingerprint": "5b5a6033f4e4",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "eval/loop.py",
+          "line": 107,
+          "exceptLine": 112,
+          "fingerprint": "5b5a6033f4e4",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "eval/loop.py",
+          "line": 118,
+          "exceptLine": 124,
+          "fingerprint": "e097270898de",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0052",
+          "status": "pending",
+          "file": "eval/loop.py",
+          "line": 107,
+          "exceptLine": 112,
+          "fingerprint": "5b5a6033f4e4",
+          "locatedLine": 112,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0052",
+          "status": "pending",
+          "file": "eval/loop.py",
+          "line": 118,
+          "exceptLine": 124,
+          "fingerprint": "e097270898de",
+          "locatedLine": 124,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0054",
+      "key": "module:silent-except:eval/run_benchmark.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/run_benchmark.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/run_benchmark.py",
+        "line": 182,
+        "exceptLine": 183,
+        "fingerprint": "110970548083",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "eval/run_benchmark.py",
+          "line": 182,
+          "exceptLine": 183,
+          "fingerprint": "110970548083",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0054",
+          "status": "pending",
+          "file": "eval/run_benchmark.py",
+          "line": 192,
+          "exceptLine": 193,
+          "fingerprint": "110970548083",
+          "locatedLine": 193,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0056",
+      "key": "module:silent-except:server/app.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ server/app.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "server/app.py",
+        "line": 264,
+        "exceptLine": 265,
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "server/app.py",
+          "line": 264,
+          "exceptLine": 265,
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "server/app.py",
+          "line": 452,
+          "exceptLine": 453,
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "server/app.py",
+          "line": 843,
+          "exceptLine": 846,
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "openOccurrences": [],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0057",
+          "file": "server/app.py",
+          "line": 453,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        }
+      ],
+      "informational": false,
+      "staleOccurrences": [
+        {
+          "fromId": "L0056",
+          "status": "pending",
+          "file": "server/app.py",
+          "line": 264,
+          "exceptLine": 265,
+          "fingerprint": "e7eb52c37643",
+          "locatedLine": 265,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0056",
+          "status": "pending",
+          "file": "server/app.py",
+          "line": 452,
+          "exceptLine": 453,
+          "fingerprint": "96f0b9907af6",
+          "locatedLine": 453,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        },
+        {
+          "fromId": "L0056",
+          "status": "pending",
+          "file": "server/app.py",
+          "line": 843,
+          "exceptLine": 846,
+          "fingerprint": "71d78e02eee6",
+          "locatedLine": 846,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0059",
+      "key": "module:silent-except-return-none:agents/agent.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/agent.py",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/agent.py",
+        "line": 539,
+        "exceptLine": 541,
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except-return-none",
+          "file": "agents/agent.py",
+          "line": 539,
+          "exceptLine": 541,
+          "severity": "high",
+          "detail": "except 分支直接 return None：损坏与缺失无法区分"
+        },
+        {
+          "rule": "silent-except-return-none",
+          "file": "agents/agent.py",
+          "line": 1159,
+          "exceptLine": 1160,
+          "severity": "high",
+          "detail": "except 分支直接 return None：损坏与缺失无法区分"
+        },
+        {
+          "rule": "silent-except-return-none",
+          "file": "agents/agent.py",
+          "line": 1186,
+          "exceptLine": 1211,
+          "severity": "high",
+          "detail": "except 分支直接 return None：损坏与缺失无法区分"
+        }
+      ],
+      "openOccurrences": [],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0060",
+          "file": "agents/agent.py",
+          "line": 1109,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0133",
+          "file": "agents/agent.py",
+          "line": 1113,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0134",
+          "file": "agents/agent.py",
+          "line": 1140,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0061",
+          "file": "agents/agent.py",
+          "line": 1160,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        },
+        {
+          "fromId": "L0076",
+          "file": "agents/agent.py",
+          "line": 1163,
+          "category": "reasonable-defense",
+          "reason": "cleanup:kill"
+        }
+      ],
+      "informational": false,
+      "staleOccurrences": [
+        {
+          "fromId": "L0059",
+          "status": "pending",
+          "file": "agents/agent.py",
+          "line": 539,
+          "exceptLine": 541,
+          "fingerprint": "4601c421a784",
+          "locatedLine": 541,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0062",
+      "key": "module:silent-except-return-none:agents/session.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/session.py",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/session.py",
+        "line": 30,
+        "exceptLine": 31,
+        "fingerprint": "95cf8eaa7974",
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except-return-none",
+          "file": "agents/session.py",
+          "line": 30,
+          "exceptLine": 31,
+          "fingerprint": "95cf8eaa7974",
+          "severity": "high",
+          "detail": "except 分支直接 return None：损坏与缺失无法区分"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0062",
+          "status": "pending",
+          "file": "agents/session.py",
+          "line": 30,
+          "exceptLine": 31,
+          "fingerprint": "95cf8eaa7974",
+          "locatedLine": 31,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（1 处）：_fsync_dir 的 os.open 失败直接 return —— 目录不存在或不可打开时放弃 fsync，属 Windows 下的预期降级"
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0063",
+      "key": "module:silent-except-return-none:agents/tools.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except-return-none @ agents/tools.py",
+      "detail": {
+        "rule": "silent-except-return-none",
+        "file": "agents/tools.py",
+        "line": 860,
+        "exceptLine": 861,
+        "fingerprint": "c95f715508b6",
+        "severity": "high",
+        "detail": "except 分支直接 return None：损坏与缺失无法区分"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except-return-none",
+          "file": "agents/tools.py",
+          "line": 860,
+          "exceptLine": 861,
+          "fingerprint": "c95f715508b6",
+          "severity": "high",
+          "detail": "except 分支直接 return None：损坏与缺失无法区分"
+        }
+      ],
+      "openOccurrences": [
+        {
+          "fromId": "L0063",
+          "status": "pending",
+          "file": "agents/tools.py",
+          "line": 916,
+          "exceptLine": 917,
+          "fingerprint": "c95f715508b6",
+          "locatedLine": 917,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "status": "done",
+      "triageClosed": [
+        {
+          "fromId": "L0063",
+          "file": "agents/tools.py",
+          "line": 727,
+          "category": "degradation-only",
+          "reason": "degrade:read_text(errors,walk("
+        },
+        {
+          "fromId": "L0136",
+          "file": "agents/tools.py",
+          "line": 726,
+          "category": "degradation-only",
+          "reason": "degrade:read_text(errors,walk("
+        }
+      ],
+      "informational": false,
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0021",
+      "key": "harness2:tool_policy:tight",
+      "source": "harness2",
+      "severity": "medium",
+      "title": "配置变体负收益 tool_policy/tight",
+      "detail": {
+        "variant": "tight",
+        "env": {
+          "EVOHARNESS_MAX_RESULT_CHARS": "20000"
+        },
+        "passAt1": 0,
+        "tokensM": 0.41,
+        "deltaPassAt1": -50,
+        "deltaTokensM": 0.01,
+        "tokenSavingPct": -2.5,
+        "roiPerMillionTokens": -5000,
+        "verdict": "negative:quality-loss-and-more-cost",
+        "nPerVariant": 2,
+        "scaleNote": "结论随规模变化；本条只反映最近一次 run 的证据"
+      },
+      "occurrences": [
+        {
+          "variant": "tight",
+          "env": {
+            "EVOHARNESS_MAX_RESULT_CHARS": "20000"
+          },
+          "passAt1": 0,
+          "tokensM": 0.41,
+          "deltaPassAt1": -50,
+          "deltaTokensM": 0.01,
+          "tokenSavingPct": -2.5,
+          "roiPerMillionTokens": -5000,
+          "verdict": "negative:quality-loss-and-more-cost",
+          "nPerVariant": 2,
+          "scaleNote": "结论随规模变化；本条只反映最近一次 run 的证据"
+        }
+      ],
+      "status": "done",
+      "informational": false
+    },
+    {
+      "id": "L0022",
+      "key": "variance:config-noise-exceeds-delta",
+      "source": "variance",
+      "severity": "high",
+      "title": "配置噪声 50.0pp：小于该值的差异不可宣称",
+      "detail": {
+        "ok": true,
+        "designs": [
+          {
+            "design": "heavy-wrapped",
+            "runs": 4,
+            "passAt1Values": [
+              0,
+              0,
+              0,
+              50
+            ],
+            "passAt1Range": 50,
+            "passAt1Stdev": 21.7,
+            "tokensMValues": [
+              0.4,
+              0.3,
+              0.39,
+              0.41
+            ],
+            "distinctScales": 1,
+            "comparableWithinSameScale": true
+          },
+          {
+            "design": "lightweight",
+            "runs": 3,
+            "passAt1Values": [
+              0,
+              0,
+              0
+            ],
+            "passAt1Range": 0,
+            "passAt1Stdev": 0,
+            "tokensMValues": [
+              0.33,
+              0.41,
+              0.44
+            ],
+            "distinctScales": 1,
+            "comparableWithinSameScale": true
+          },
+          {
+            "design": "only-prefetch-off",
+            "runs": 1,
+            "passAt1Values": [
+              0
+            ],
+            "passAt1Range": 0,
+            "passAt1Stdev": 0,
+            "tokensMValues": [
+              0.38
+            ],
+            "distinctScales": 1,
+            "comparableWithinSameScale": true
+          },
+          {
+            "design": "only-tight-tools",
+            "runs": 1,
+            "passAt1Values": [
+              0
+            ],
+            "passAt1Range": 0,
+            "passAt1Stdev": 0,
+            "tokensMValues": [
+              0.4
+            ],
+            "distinctScales": 1,
+            "comparableWithinSameScale": true
+          }
+        ],
+        "unstableSameScale": [
+          {
+            "design": "heavy-wrapped",
+            "range": 50,
+            "values": [
+              0,
+              0,
+              0,
+              50
+            ]
+          }
+        ],
+        "maxObservedRangePts": 50,
+        "implication": "同一配置在同规模下的实测极差达 50.0pp。任何小于该极差的配置差异都不可宣称，必须先扩样本（n>=30）或重复多轮取均值。",
+        "rule": [
+          "对照实验的 claimed delta 必须显著大于同配置重复运行的极差",
+          "n<30 时一律 not-claimable（eval/roi.py 已有判据）",
+          "报告里必须给出同配置重复次数与极差，而不是只报单次结果"
+        ]
+      },
+      "occurrences": [
+        {
+          "ok": true,
+          "designs": [
+            {
+              "design": "heavy-wrapped",
+              "runs": 4,
+              "passAt1Values": [
+                0,
+                0,
+                0,
+                50
+              ],
+              "passAt1Range": 50,
+              "passAt1Stdev": 21.7,
+              "tokensMValues": [
+                0.4,
+                0.3,
+                0.39,
+                0.41
+              ],
+              "distinctScales": 1,
+              "comparableWithinSameScale": true
+            },
+            {
+              "design": "lightweight",
+              "runs": 3,
+              "passAt1Values": [
+                0,
+                0,
+                0
+              ],
+              "passAt1Range": 0,
+              "passAt1Stdev": 0,
+              "tokensMValues": [
+                0.33,
+                0.41,
+                0.44
+              ],
+              "distinctScales": 1,
+              "comparableWithinSameScale": true
+            },
+            {
+              "design": "only-prefetch-off",
+              "runs": 1,
+              "passAt1Values": [
+                0
+              ],
+              "passAt1Range": 0,
+              "passAt1Stdev": 0,
+              "tokensMValues": [
+                0.38
+              ],
+              "distinctScales": 1,
+              "comparableWithinSameScale": true
+            },
+            {
+              "design": "only-tight-tools",
+              "runs": 1,
+              "passAt1Values": [
+                0
+              ],
+              "passAt1Range": 0,
+              "passAt1Stdev": 0,
+              "tokensMValues": [
+                0.4
+              ],
+              "distinctScales": 1,
+              "comparableWithinSameScale": true
+            }
+          ],
+          "unstableSameScale": [
+            {
+              "design": "heavy-wrapped",
+              "range": 50,
+              "values": [
+                0,
+                0,
+                0,
+                50
+              ]
+            }
+          ],
+          "maxObservedRangePts": 50,
+          "implication": "同一配置在同规模下的实测极差达 50.0pp。任何小于该极差的配置差异都不可宣称，必须先扩样本（n>=30）或重复多轮取均值。",
+          "rule": [
+            "对照实验的 claimed delta 必须显著大于同配置重复运行的极差",
+            "n<30 时一律 not-claimable（eval/roi.py 已有判据）",
+            "报告里必须给出同配置重复次数与极差，而不是只报单次结果"
+          ]
+        }
+      ],
+      "status": "done",
+      "informational": false
+    },
+    {
+      "id": "L0023",
+      "key": "module:silent-except:eval/arch_run.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/arch_run.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/arch_run.py",
+        "line": 156,
+        "exceptLine": 158,
+        "fingerprint": "dfe94c3043b5",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "eval/arch_run.py",
+          "line": 156,
+          "exceptLine": 158,
+          "fingerprint": "dfe94c3043b5",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "openOccurrences": [
+        {
+          "fromId": "L0023",
+          "status": "pending",
+          "file": "eval/arch_run.py",
+          "line": 156,
+          "exceptLine": 158,
+          "fingerprint": "dfe94c3043b5",
+          "locatedLine": 158,
+          "staleLocation": false,
+          "triage": "reasonable-defense",
+          "triageReason": "已逐处判读（1 处）：variance 文件解析失败 → 跨批噪声退化为 0。方向是保守的（噪声越小越难宣称），属安全降级"
+        }
+      ],
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0024",
+      "key": "module:silent-except:eval/memory_lifecycle_ab.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/memory_lifecycle_ab.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/memory_lifecycle_ab.py",
+        "line": 167,
+        "exceptLine": 168,
+        "fingerprint": "1ac1f1bbd693",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "eval/memory_lifecycle_ab.py",
+          "line": 167,
+          "exceptLine": 168,
+          "fingerprint": "1ac1f1bbd693",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "openOccurrences": [
+        {
+          "fromId": "L0024",
+          "status": "pending",
+          "file": "eval/memory_lifecycle_ab.py",
+          "line": 178,
+          "exceptLine": 179,
+          "fingerprint": "1ac1f1bbd693",
+          "locatedLine": 179,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L9025",
+      "key": "lifecycleNoiseGate:some-metrics-not-claimable",
+      "source": "lifecycleNoiseGate",
+      "severity": "medium",
+      "title": "生命周期对照 4/6 指标可宣称，其余须按 not-claimable 口径表述",
+      "detail": {
+        "batches": [
+          "memory-lifecycle-ab-v3.json",
+          "memory-lifecycle-ab-v3b.json"
+        ],
+        "claimable": 4,
+        "total": 6,
+        "notClaimable": {
+          "soft:recallRate": "not-claimable:direction-flips",
+          "soft:tokens": "not-claimable:direction-flips"
+        }
+      },
+      "occurrences": [
+        {
+          "batches": [
+            "memory-lifecycle-ab-v3.json",
+            "memory-lifecycle-ab-v3b.json"
+          ],
+          "claimable": 4,
+          "total": 6,
+          "notClaimable": {
+            "soft:recallRate": "not-claimable:direction-flips",
+            "soft:tokens": "not-claimable:direction-flips"
+          }
+        }
+      ],
+      "status": "done",
+      "informational": false
+    },
+    {
+      "id": "L9026",
+      "key": "module:silent-except:eval/reflection_recall_probe.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/reflection_recall_probe.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/reflection_recall_probe.py",
+        "line": 69,
+        "exceptLine": 70,
+        "fingerprint": "1ac1f1bbd693",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "eval/reflection_recall_probe.py",
+          "line": 69,
+          "exceptLine": 70,
+          "fingerprint": "1ac1f1bbd693",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "openOccurrences": [
+        {
+          "fromId": "L9026",
+          "status": "pending",
+          "file": "eval/reflection_recall_probe.py",
+          "line": 78,
+          "exceptLine": 79,
+          "fingerprint": "1ac1f1bbd693",
+          "locatedLine": 79,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ],
+      "closedReason": "reasonable-defense"
+    },
+    {
+      "id": "L0027",
+      "key": "failureStability:intermittent-failures-present",
+      "source": "failureStability",
+      "severity": "low",
+      "title": "失败稳定性：1 稳定 / 0 偶发 / 0 未复现（只有 stable 的失败才值得沉淀与修复）",
+      "detail": {
+        "artifact": "failure-stability-6.json",
+        "source": "w18subset",
+        "tasks": 1,
+        "repeats": 2,
+        "statusCounts": {
+          "stable": 0,
+          "flaky": 1,
+          "disappeared": 0,
+          "infraBlocked": 0
+        },
+        "stableTasks": []
+      },
+      "occurrences": [
+        {
+          "artifact": "failure-stability-6.json",
+          "source": "w18subset",
+          "tasks": 1,
+          "repeats": 2,
+          "statusCounts": {
+            "stable": 0,
+            "flaky": 1,
+            "disappeared": 0,
+            "infraBlocked": 0
+          },
+          "stableTasks": []
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "closedReason": "informational-finding",
+      "openOccurrences": []
+    },
+    {
+      "id": "L9028",
+      "key": "benchmarkFailures:gaia:stable-failures",
+      "source": "benchmarkFailures",
+      "severity": "medium",
+      "title": "GAIA 稳定失败 4 题（共失败 84 题，其中未检验/偶发 161 题已过滤）",
+      "detail": {
+        "tag": "gaia",
+        "failed": 84,
+        "stableCount": 4,
+        "unstableCount": 161,
+        "noMarker": 19,
+        "wrongAnswer": 127,
+        "timedOut": 19,
+        "sampleTaskIds": [
+          "cca530fc-4052-43b2-b130-b30968d8aa44",
+          "cca70ce6-1952-45d2-acd4-80c903b0bc49",
+          "c3a79cfe-8206-451f-aca8-3fec8ebe51d3",
+          "20194330-9976-4043-8632-f8485c6c71b2"
+        ]
+      },
+      "occurrences": [
+        {
+          "tag": "gaia",
+          "failed": 84,
+          "stableCount": 4,
+          "unstableCount": 161,
+          "noMarker": 19,
+          "wrongAnswer": 127,
+          "timedOut": 19,
+          "sampleTaskIds": [
+            "cca530fc-4052-43b2-b130-b30968d8aa44",
+            "cca70ce6-1952-45d2-acd4-80c903b0bc49",
+            "c3a79cfe-8206-451f-aca8-3fec8ebe51d3",
+            "20194330-9976-4043-8632-f8485c6c71b2"
+          ]
+        }
+      ],
+      "status": "done",
+      "informational": false,
+      "closedReason": "known-limitation",
+      "limitationReason": "GAIA 稳定失败均为 level 2/3 多跳网络检索/图片理解任务，prediction 为空且 folds=0——属模型/工具能力边界，改代码无法修复",
+      "openOccurrences": []
+    },
+    {
+      "id": "L0029",
+      "key": "benchmarkFailures:gaia:unstable-failures-filtered",
+      "source": "benchmarkFailures",
+      "severity": "low",
+      "title": "GAIA 失败 165 题均未通过稳定性检验——仅记录，不建工单",
+      "detail": {
+        "tag": "gaia",
+        "unstableCount": 165,
+        "note": "未经稳定性检验或判为偶发/未复现——不得据此建待修工单"
+      },
+      "occurrences": [
+        {
+          "tag": "gaia",
+          "unstableCount": 165,
+          "note": "未经稳定性检验或判为偶发/未复现——不得据此建待修工单"
+        }
+      ],
+      "status": "done",
+      "informational": true
+    },
+    {
+      "id": "L0030",
+      "key": "benchmarkFailures:hle:unstable-failures-filtered",
+      "source": "benchmarkFailures",
+      "severity": "low",
+      "title": "HLE 失败 75 题均未通过稳定性检验——仅记录，不建工单",
+      "detail": {
+        "tag": "hle",
+        "unstableCount": 75,
+        "note": "未经稳定性检验或判为偶发/未复现——不得据此建待修工单"
+      },
+      "occurrences": [
+        {
+          "tag": "hle",
+          "unstableCount": 75,
+          "note": "未经稳定性检验或判为偶发/未复现——不得据此建待修工单"
+        }
+      ],
+      "status": "done",
+      "informational": true
+    },
+    {
+      "id": "L9029",
+      "key": "module-medium:long-function",
+      "source": "module",
+      "severity": "medium",
+      "title": "模块可优化项 long-function（18 处 / 13 文件）",
+      "detail": {
+        "rule": "long-function",
+        "count": 18,
+        "files": [
+          "agents/agent.py",
+          "agents/experience_standard.py",
+          "agents/main.py",
+          "agents/online_skill_eval.py",
+          "agents/online_skill_evolution.py",
+          "agents/tools.py",
+          "eval/arch_run.py",
+          "eval/backend_contract.py",
+          "eval/evolution_experiment.py",
+          "eval/loop.py",
+          "eval/memory_eval.py",
+          "eval/module_scan.py",
+          "server/app.py"
+        ],
+        "locations": [
+          {
+            "file": "agents/agent.py",
+            "line": 271
+          },
+          {
+            "file": "agents/agent.py",
+            "line": 2357
+          },
+          {
+            "file": "agents/agent.py",
+            "line": 2680
+          },
+          {
+            "file": "agents/experience_standard.py",
+            "line": 250
+          },
+          {
+            "file": "agents/main.py",
+            "line": 169
+          },
+          {
+            "file": "agents/online_skill_eval.py",
+            "line": 333
+          },
+          {
+            "file": "agents/online_skill_eval.py",
+            "line": 1203
+          },
+          {
+            "file": "agents/online_skill_eval.py",
+            "line": 1661
+          },
+          {
+            "file": "agents/online_skill_eval.py",
+            "line": 1877
+          },
+          {
+            "file": "agents/online_skill_evolution.py",
+            "line": 569
+          },
+          {
+            "file": "agents/tools.py",
+            "line": 1342
+          },
+          {
+            "file": "eval/arch_run.py",
+            "line": 87
+          },
+          {
+            "file": "eval/backend_contract.py",
+            "line": 45
+          },
+          {
+            "file": "eval/evolution_experiment.py",
+            "line": 1115
+          },
+          {
+            "file": "eval/loop.py",
+            "line": 430
+          },
+          {
+            "file": "eval/memory_eval.py",
+            "line": 38
+          },
+          {
+            "file": "eval/module_scan.py",
+            "line": 112
+          },
+          {
+            "file": "server/app.py",
+            "line": 645
+          }
+        ]
+      },
+      "occurrences": [
+        {
+          "rule": "long-function",
+          "count": 18,
+          "files": [
+            "agents/agent.py",
+            "agents/experience_standard.py",
+            "agents/main.py",
+            "agents/online_skill_eval.py",
+            "agents/online_skill_evolution.py",
+            "agents/tools.py",
+            "eval/arch_run.py",
+            "eval/backend_contract.py",
+            "eval/evolution_experiment.py",
+            "eval/loop.py",
+            "eval/memory_eval.py",
+            "eval/module_scan.py",
+            "server/app.py"
+          ],
+          "locations": [
+            {
+              "file": "agents/agent.py",
+              "line": 271
+            },
+            {
+              "file": "agents/agent.py",
+              "line": 2357
+            },
+            {
+              "file": "agents/agent.py",
+              "line": 2680
+            },
+            {
+              "file": "agents/experience_standard.py",
+              "line": 250
+            },
+            {
+              "file": "agents/main.py",
+              "line": 169
+            },
+            {
+              "file": "agents/online_skill_eval.py",
+              "line": 333
+            },
+            {
+              "file": "agents/online_skill_eval.py",
+              "line": 1203
+            },
+            {
+              "file": "agents/online_skill_eval.py",
+              "line": 1661
+            },
+            {
+              "file": "agents/online_skill_eval.py",
+              "line": 1877
+            },
+            {
+              "file": "agents/online_skill_evolution.py",
+              "line": 569
+            },
+            {
+              "file": "agents/tools.py",
+              "line": 1342
+            },
+            {
+              "file": "eval/arch_run.py",
+              "line": 87
+            },
+            {
+              "file": "eval/backend_contract.py",
+              "line": 45
+            },
+            {
+              "file": "eval/evolution_experiment.py",
+              "line": 1115
+            },
+            {
+              "file": "eval/loop.py",
+              "line": 430
+            },
+            {
+              "file": "eval/memory_eval.py",
+              "line": 38
+            },
+            {
+              "file": "eval/module_scan.py",
+              "line": 112
+            },
+            {
+              "file": "server/app.py",
+              "line": 645
+            }
+          ]
+        }
+      ],
+      "informational": false,
+      "status": "done",
+      "closedReason": "assessed-no-split"
+    },
+    {
+      "id": "L9030",
+      "key": "backend:GET /api/skills:backend:no_secret_leak_skills",
+      "source": "backend",
+      "severity": "high",
+      "title": "后端契约失败 GET /api/skills / backend:no_secret_leak_skills",
+      "detail": {
+        "id": "backend:no_secret_leak_skills",
+        "endpoint": "GET /api/skills",
+        "kind": "security",
+        "detail": {
+          "status": 200,
+          "leaked": [
+            "sk-"
+          ],
+          "size": 18495
+        },
+        "error": ""
+      },
+      "occurrences": [
+        {
+          "id": "backend:no_secret_leak_skills",
+          "endpoint": "GET /api/skills",
+          "kind": "security",
+          "detail": {
+            "status": 200,
+            "leaked": [
+              "sk-"
+            ],
+            "size": 18495
+          },
+          "error": ""
+        }
+      ],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9031",
+      "key": "ui:starter:起始示例-浏览目录",
+      "source": "frontend",
+      "severity": "medium",
+      "title": "前端控件失效 ui:starter:起始示例-浏览目录",
+      "detail": {
+        "id": "ui:starter:起始示例-浏览目录",
+        "kind": "missing-element",
+        "detail": {
+          "selector": "button.starter[data-p^=\"浏览当前目录\"]",
+          "muts": 0,
+          "network": 0,
+          "hit": "",
+          "error": "element-not-found"
+        }
+      },
+      "occurrences": [
+        {
+          "id": "ui:starter:起始示例-浏览目录",
+          "kind": "missing-element",
+          "detail": {
+            "selector": "button.starter[data-p^=\"浏览当前目录\"]",
+            "muts": 0,
+            "network": 0,
+            "hit": "",
+            "error": "element-not-found"
+          }
+        }
+      ],
+      "informational": false,
+      "status": "done",
+      "closedReason": "fixed-verified",
+      "openOccurrences": []
+    },
+    {
+      "id": "L9032",
+      "key": "ui:starter:起始示例-记忆折叠",
+      "source": "frontend",
+      "severity": "medium",
+      "title": "前端控件失效 ui:starter:起始示例-记忆折叠",
+      "detail": {
+        "id": "ui:starter:起始示例-记忆折叠",
+        "kind": "missing-element",
+        "detail": {
+          "selector": "button.starter[data-p^=\"找到本项目里实现记忆折叠\"]",
+          "muts": 0,
+          "network": 0,
+          "hit": "",
+          "error": "element-not-found"
+        }
+      },
+      "occurrences": [
+        {
+          "id": "ui:starter:起始示例-记忆折叠",
+          "kind": "missing-element",
+          "detail": {
+            "selector": "button.starter[data-p^=\"找到本项目里实现记忆折叠\"]",
+            "muts": 0,
+            "network": 0,
+            "hit": "",
+            "error": "element-not-found"
+          }
+        }
+      ],
+      "informational": false,
+      "status": "done",
+      "closedReason": "fixed-verified",
+      "openOccurrences": []
+    },
+    {
+      "id": "L9033",
+      "key": "module:silent-except:agents/extraction_window.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ agents/extraction_window.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "agents/extraction_window.py",
+        "line": 175,
+        "exceptLine": 176,
+        "fingerprint": "bb78c3966103",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "agents/extraction_window.py",
+          "line": 175,
+          "exceptLine": 176,
+          "fingerprint": "bb78c3966103",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/extraction_window.py",
+          "line": 179,
+          "exceptLine": 180,
+          "fingerprint": "5914cebc92f9",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/extraction_window.py",
+          "line": 318,
+          "exceptLine": 319,
+          "fingerprint": "c38695b89633",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        },
+        {
+          "rule": "silent-except",
+          "file": "agents/extraction_window.py",
+          "line": 322,
+          "exceptLine": 323,
+          "fingerprint": "9aee7ec40a77",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "informational": false,
+      "status": "done",
+      "closedReason": "fixed-verified"
+    },
+    {
+      "id": "L9034",
+      "key": "module:silent-except:eval/loop_context.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/loop_context.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/loop_context.py",
+        "line": 25,
+        "exceptLine": 26,
+        "fingerprint": "ab3a19620e9a",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "eval/loop_context.py",
+          "line": 25,
+          "exceptLine": 26,
+          "fingerprint": "ab3a19620e9a",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "informational": false,
+      "status": "done",
+      "closedReason": "fixed-verified",
+      "openOccurrences": [
+        {
+          "fromId": "L9034",
+          "status": "pending",
+          "file": "eval/loop_context.py",
+          "line": 25,
+          "exceptLine": 26,
+          "fingerprint": "ab3a19620e9a",
+          "locatedLine": 26,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ]
+    },
+    {
+      "id": "L9035",
+      "key": "module:silent-except:eval/silent_triage.py",
+      "source": "module",
+      "severity": "high",
+      "title": "模块信号 silent-except @ eval/silent_triage.py",
+      "detail": {
+        "rule": "silent-except",
+        "file": "eval/silent_triage.py",
+        "line": 71,
+        "exceptLine": 72,
+        "fingerprint": "81faddd68cfe",
+        "severity": "high",
+        "detail": "except 分支只有 pass：故障对上层不可见"
+      },
+      "occurrences": [
+        {
+          "rule": "silent-except",
+          "file": "eval/silent_triage.py",
+          "line": 71,
+          "exceptLine": 72,
+          "fingerprint": "81faddd68cfe",
+          "severity": "high",
+          "detail": "except 分支只有 pass：故障对上层不可见"
+        }
+      ],
+      "informational": false,
+      "status": "done",
+      "closedReason": "fixed-verified",
+      "openOccurrences": [
+        {
+          "fromId": "L9035",
+          "status": "pending",
+          "file": "eval/silent_triage.py",
+          "line": 71,
+          "exceptLine": 72,
+          "fingerprint": "81faddd68cfe",
+          "locatedLine": 72,
+          "staleLocation": false,
+          "triage": "needs-review",
+          "triageReason": "rebuilt-by-fingerprint"
+        }
+      ]
+    },
+    {
+      "id": "L9036",
+      "key": "feishu:artifact-missing",
+      "source": "feishu",
+      "severity": "medium",
+      "title": "飞书黄金回放产物缺失，自动回复质量不可宣称",
+      "detail": {
+        "artifact": "D:\\EvoHarness\\feishu-daily-agent\\eval\\runs\\feishu-eval.json",
+        "repro": "cd feishu-daily-agent && .venv/Scripts/python.exe eval/replay.py --run"
+      },
+      "occurrences": [
+        {
+          "artifact": "D:\\EvoHarness\\feishu-daily-agent\\eval\\runs\\feishu-eval.json",
+          "repro": "cd feishu-daily-agent && .venv/Scripts/python.exe eval/replay.py --run"
+        }
+      ],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9037",
+      "key": "feishu-human:om_test_task_001",
+      "source": "feishu-human",
+      "severity": "medium",
+      "title": "飞书任务 给 frontend/index.html 的页脚加上版本号显示",
+      "detail": {
+        "message_id": "om_test_task_001",
+        "chat_id": "oc_demo",
+        "sender": "演示用户",
+        "create_time": 1794242888069,
+        "text": "给 frontend/index.html 的页脚加上版本号显示",
+        "kind": "feishu-human-task"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9038",
+      "key": "insight-de:thread-context-enrichment",
+      "source": "insight-digital-employee",
+      "severity": "high",
+      "title": "上下文零损耗派活：task_intake 派活时只传消息原文，线程讨论/相关经验未随行，交接给执行层有损耗",
+      "detail": {
+        "gap": "DE-01",
+        "ref": "docs/DIGITAL-EMPLOYEE-PLAYBOOK.md#3",
+        "fix_hint": "按 thread_id/chat_id 拉近期上下文 + find_best_match 相关经验，写进 item.detail.context"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9039",
+      "key": "insight-de:proactive-pm-nudge",
+      "source": "insight-digital-employee",
+      "severity": "high",
+      "title": "PM 主动推进：闭环 daemon 应在无人交代时主动催办 stale 待办与卡点（推飞书）",
+      "detail": {
+        "gap": "DE-02",
+        "ref": "docs/DIGITAL-EMPLOYEE-PLAYBOOK.md#2",
+        "fix_hint": "iterate.py 增加 nudge：pending 超 48h / high 未认领 / 日报草稿积压 → 摘要推送 owner"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9040",
+      "key": "insight-de:theme-tagging",
+      "source": "insight-digital-employee",
+      "severity": "medium",
+      "title": "主题模型：飞书消息支持「主题：xxx」前缀，任务与报告按主题分组",
+      "detail": {
+        "gap": "DE-03",
+        "ref": "docs/DIGITAL-EMPLOYEE-PLAYBOOK.md#4"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9041",
+      "key": "insight-de:audit-chain",
+      "source": "insight-digital-employee",
+      "severity": "medium",
+      "title": "审计链：派活/实现/闭合动作落 audit.jsonl，提交携带溯源（feishu message id）",
+      "detail": {
+        "gap": "DE-04",
+        "ref": "docs/DIGITAL-EMPLOYEE-PLAYBOOK.md#4"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9042",
+      "key": "insight-de:daemon-watchdog",
+      "source": "insight-digital-employee",
+      "severity": "medium",
+      "title": "常驻看门狗：loop daemon 崩溃自动重启，接近「云端常在」语义",
+      "detail": {
+        "gap": "DE-05",
+        "ref": "docs/DIGITAL-EMPLOYEE-PLAYBOOK.md#5"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9043",
+      "key": "insight-de:meeting-entry",
+      "source": "insight-digital-employee",
+      "severity": "high",
+      "title": "会议入口感知（最重要缺口）：会议纪要/日程进共享上下文空间",
+      "detail": {
+        "gap": "DE-06",
+        "ref": "docs/DIGITAL-EMPLOYEE-PLAYBOOK.md#3",
+        "blocked_on": "需飞书日历/纪要 API 权限扩展 + 产品形态决策，单独立项"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "blocked"
+    },
+    {
+      "id": "L9044",
+      "key": "feishu-human:om_task_theme_001",
+      "source": "feishu-human",
+      "severity": "medium",
+      "title": "飞书任务 页脚日期取服务端时间而不是浏览器时间",
+      "detail": {
+        "message_id": "om_task_theme_001",
+        "chat_id": "oc_demo",
+        "sender": "王五",
+        "create_time": 1794243573543,
+        "text": "任务：页脚日期取服务端时间而不是浏览器时间",
+        "kind": "feishu-human-task",
+        "theme": "页脚改版",
+        "context": {
+          "thread": [
+            {
+              "from": "张三",
+              "text": "这个版本号格式最好带上日期"
+            },
+            {
+              "from": "李四",
+              "text": "对，参考页脚显示 model + protocol 就够了"
+            },
+            {
+              "from": "王五",
+              "text": "主题：页脚改版 任务：页脚日期取服务端时间而不是浏览器时间"
+            }
+          ],
+          "chatRecent": [
+            {
+              "from": "李四",
+              "text": "对，参考页脚显示 model + protocol 就够了"
+            },
+            {
+              "from": "张三",
+              "text": "这个版本号格式最好带上日期"
+            }
+          ],
+          "matchedExperience": null,
+          "matchedExperienceError": "OperationalError: (sqlite3.OperationalError) unable to open database file\n(Background on this error at: https://sqlalche"
+        }
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9045",
+      "key": "insight-de:blocked-semantics-consistency",
+      "source": "insight-digital-employee",
+      "severity": "high",
+      "title": "blocked 语义一致性：iterate --status 与 loop_report 仍把 blocked 计为 actionable high（与 loop_autorun 修复不一致）",
+      "detail": {
+        "gap": "DE-R1",
+        "fix_hint": "三处统一：blocked 单列，不进 openBySeverity"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9046",
+      "key": "insight-de:feishu-preflight",
+      "source": "insight-digital-employee",
+      "severity": "high",
+      "title": "飞书连接预检：审批通过前可验证凭证格式与连通性，通过后秒级确认可用",
+      "detail": {
+        "gap": "DE-R2",
+        "fix_hint": "integration/preflight.py：.env 完整性+格式校验+可选 live tenant_token 测试；接入 iterate --status 与闭环报告"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9047",
+      "key": "insight-de:report-theme-grouping",
+      "source": "insight-digital-employee",
+      "severity": "medium",
+      "title": "闭环报告按主题分组 openItems（主题模型 v1 的展示侧）",
+      "detail": {
+        "gap": "DE-R3"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9048",
+      "key": "insight-de:feishu-watchdog",
+      "source": "insight-digital-employee",
+      "severity": "medium",
+      "title": "飞书服务看门狗：start_feishu_agent.bat 与闭环 daemon 同样的崩溃自愈",
+      "detail": {
+        "gap": "DE-R4"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9049",
+      "key": "insight-de:agent-ask-route",
+      "source": "insight-digital-employee",
+      "severity": "high",
+      "title": "「问：」路由到 EvoHarness Agent：协同层显式求助执行层大脑，答案权威走标准草稿审批链",
+      "detail": {
+        "gap": "DE-R5",
+        "ref": "文章：协同层与执行层入口不必相同，但共享同一上下文空间",
+        "fix_hint": "feishu-daily-agent 新增 agent_bridge（默认关），reply_engine 在经验匹配前分流"
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9050",
+      "key": "module-medium:module-without-tests",
+      "source": "module",
+      "severity": "medium",
+      "title": "模块可优化项 module-without-tests（1 处 / 1 文件）",
+      "detail": {
+        "rule": "module-without-tests",
+        "count": 1,
+        "files": [
+          "eval/collab_signal.py"
+        ],
+        "locations": [
+          {
+            "file": "eval/collab_signal.py",
+            "line": 0
+          }
+        ]
+      },
+      "occurrences": [
+        {
+          "rule": "module-without-tests",
+          "count": 1,
+          "files": [
+            "eval/collab_signal.py"
+          ],
+          "locations": [
+            {
+              "file": "eval/collab_signal.py",
+              "line": 0
+            }
+          ]
+        }
+      ],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9051",
+      "key": "insight-de:eval-workflow-v1",
+      "source": "insight-digital-employee",
+      "severity": "high",
+      "title": "闭环评测工作流 v1：三层+元层评测体系设计与实现（设计文档/冻结用例/第14号信号源/KPI趋势/接线）",
+      "detail": {
+        "gap": "DE-E1",
+        "ref": "docs/EVAL-WORKFLOW-DESIGN.md",
+        "deliverables": [
+          "integration/eval/golden_cases.json",
+          "integration/eval/gates.json",
+          "integration/eval/collab_eval.py",
+          "eval/collab_signal.py",
+          "integration/eval/kpi_trend.py",
+          "eval/loop.py 第14号源",
+          "integration/iterate.py 接线",
+          "integration/loop_report.py KPI段"
+        ]
+      },
+      "occurrences": [],
+      "informational": false,
+      "status": "done"
+    },
+    {
+      "id": "L9059",
+      "key": "de:DE-00-import-handoff",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-00 保全交接包、选择性导入并映射原台账",
+      "informational": false,
+      "status": "done",
+      "detail": {
+        "gap": "两树分裂：主仓库 aa0e781 与公司交接 8bc392d 无共同提交祖先，公司增量未接回",
+        "importBranch": "de/import-8bc392d",
+        "importCommit": "b53886ebb8545cb127a9549b8c20144cb40ff4d6",
+        "sourceHead": "8bc392dc08a3b6a13cf412d3ae440bd24f832279",
+        "companyBaseline": "561feed",
+        "incrementCommits": 24,
+        "keptNotAdopted": [
+          ".env.example 主仓库已有同内容文件，导入为空操作",
+          "feishu-daily-agent/eval/runs/feishu-eval.json 公司 2026-11-10 重跑产物不覆盖主仓库 2026-11-06 原始证据",
+          "start_web.bat 公司快照为损坏变体（行尾翻倍+Scripts\u0007ctivate.bat 转义丢失），保留主仓库正确版本"
+        ]
+      },
+      "occurrences": []
+    },
+    {
+      "id": "L9060",
+      "key": "de:DE-37-product-core",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-37 产品核心迁移：通用域归入 evoharness/，单事实源跨入口共用",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9061",
+      "key": "de:DE-09-channel-binding",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-09 渠道绑定显式化与迁移注册修复",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9062",
+      "key": "de:DE-04-05-intake-scope",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-04/05 派活作用域 ContextPack v2 与分页幂等入账",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9063",
+      "key": "de:DE-06-projection-scope",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-06 经验与 skill 投影权限作用域封堵",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9064",
+      "key": "de:DE-07-08-notify-lease",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-07/08 通知真实投递语义与可恢复轮次租约",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9065",
+      "key": "de:DE-10-work-state-machine",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-10 工作项统一状态机、目标澄清与合同修订",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9066",
+      "key": "de:DE-12-governance-decisions",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-12 统一委派授权、撤权与副作用身份（治理域）",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9067",
+      "key": "de:DE-13-acceptance-service",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-13 交付物登记与独立验收服务",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9068",
+      "key": "de:DE-15-budget-gateway",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-15 调用成本原子预留与归集（治理预算侧）",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9069",
+      "key": "de:DE-11-restricted-executor",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-11 受限执行器与 Run 驱动（离线全链）",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9070",
+      "key": "de:DE-14-recovery-supplements",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-14 在途补充队列、Run 显式恢复与 Later 语义",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9071",
+      "key": "de:DE-16-knowledge-claims",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-16 版本化知识主张与统一检索（中立服务）",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9072",
+      "key": "de:DE-17-reconcile-workflow",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-17 增量对账工作流与候选变更集",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9073",
+      "key": "de:DE-18-lifecycle-seams",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-18 修补原生学习、制品晋级与版本回退接缝",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9074",
+      "key": "de:DE-19-knowledge-answer-sop",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-19 内部答疑 SOP 与升级链",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9075",
+      "key": "de:DE-20-code-fix-sop",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-20 缺陷修复 SOP 与隔离代码交付",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9076",
+      "key": "de:DE-21-wakeups-routing",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-21 事件唤醒、去重催办与责任路由",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9077",
+      "key": "de:DE-22-documents-meeting-notes",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-22 文档与授权会议纪要入口",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9078",
+      "key": "de:DE-28-workbench-api-cli",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-28 工作台与统一 API/CLI 的三方体验",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9079",
+      "key": "de:DE-23-single-active-ops",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-23 常在线单活部署、健康与恢复演练",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9080",
+      "key": "de:DE-29-skill-search-manifest",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-29 绑定原技能身份、完整制品与最小Module",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9081",
+      "key": "de:DE-30-real-run-eval-adapter",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-30 扩展原候选/触发评测为真实Run适配",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9082",
+      "key": "de:DE-38-org-positions-tenure",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-38 组织、业务单元、岗位与任职生命周期",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9083",
+      "key": "de:DE-31-case-attribution-feedback",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-31 证据化逐 Case 归因与反思反馈编译",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9084",
+      "key": "de:DE-39-objectives-milestones-plans",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-39 目标、里程碑与跨单元工作计划",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9085",
+      "key": "de:DE-32-bounded-module-mutator",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-32 有界单 Module 编辑与拒绝历史",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9086",
+      "key": "de:DE-40-position-queue-handoffs",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-40 岗位队列、资源配额与跨单元交接",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9087",
+      "key": "de:DE-33-pool-selection",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-33 多代候选池、确定性活动前沿与父代抽样",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9088",
+      "key": "de:DE-41-governance-decisions",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-41 组织决策、审阅责任与统一接管",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9089",
+      "key": "de:DE-34-search-controller-budget",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-34 持久多代搜索控制器与全成本预算",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9090",
+      "key": "de:DE-42-capability-evidence",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-42 岗位能力证据与组织知识学习闭环",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9091",
+      "key": "de:DE-24-frozen-eval-experiments",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-24 冻结评测与业务效果/成本实验",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9092",
+      "key": "de:DE-43-unified-workbench-entry",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-43 EvoHarness统一组织工作台与产品入口",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9093",
+      "key": "de:DE-25-final-acceptance",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-25 基础数字员工真实影子、受限灰度与业务验收",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9094",
+      "key": "de:DE-35-certification-adoption",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-35 同制品封存认证、显式采用与原tier接线",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9095",
+      "key": "de:DE-36-search-acceptance",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-36 搜索增强独立验收与原生学习兼容证明",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    },
+    {
+      "id": "L9096",
+      "key": "de:DE-44-github-org-acceptance",
+      "source": "digital-employee-plan",
+      "severity": "high",
+      "title": "DE-44 GitHub单产品交付与完整组织验收",
+      "informational": false,
+      "status": "done",
+      "detail": {},
+      "occurrences": []
+    }
+  ],
+  "deMapping": {
+    "tasks": {
+      "DE-00": {
+        "status": "done",
+        "l": [
+          "L9059"
+        ]
+      },
+      "DE-01": {
+        "status": "blocked",
+        "l": [
+          "L9050"
+        ]
+      },
+      "DE-02": {
+        "status": "blocked",
+        "l": []
+      },
+      "DE-03": {
+        "status": "blocked",
+        "l": [
+          "L9046"
+        ]
+      },
+      "DE-04": {
+        "status": "blocked",
+        "l": [
+          "L9038",
+          "L9040",
+          "L9062"
+        ]
+      },
+      "DE-05": {
+        "status": "blocked",
+        "l": [
+          "L9041",
+          "L9062"
+        ]
+      },
+      "DE-06": {
+        "status": "blocked",
+        "l": [
+          "L9063"
+        ]
+      },
+      "DE-07": {
+        "status": "blocked",
+        "l": [
+          "L9039",
+          "L9045",
+          "L9064"
+        ]
+      },
+      "DE-08": {
+        "status": "blocked",
+        "l": [
+          "L9042",
+          "L9048",
+          "L9064"
+        ]
+      },
+      "DE-09": {
+        "status": "blocked",
+        "l": [
+          "L9061"
+        ]
+      },
+      "DE-10": {
+        "status": "blocked",
+        "l": [
+          "L9065"
+        ]
+      },
+      "DE-11": {
+        "status": "blocked",
+        "l": [
+          "L9069"
+        ]
+      },
+      "DE-12": {
+        "status": "blocked",
+        "l": [
+          "L9066"
+        ]
+      },
+      "DE-13": {
+        "status": "blocked",
+        "l": [
+          "L9067"
+        ]
+      },
+      "DE-14": {
+        "status": "blocked",
+        "l": [
+          "L9070"
+        ]
+      },
+      "DE-15": {
+        "status": "blocked",
+        "l": [
+          "L9068"
+        ]
+      },
+      "DE-16": {
+        "status": "blocked",
+        "l": [
+          "L9071"
+        ]
+      },
+      "DE-17": {
+        "status": "blocked",
+        "l": [
+          "L9072"
+        ]
+      },
+      "DE-18": {
+        "status": "done",
+        "l": [
+          "L9073"
+        ]
+      },
+      "DE-19": {
+        "status": "done",
+        "l": [
+          "L9074"
+        ]
+      },
+      "DE-20": {
+        "status": "done",
+        "l": [
+          "L9075"
+        ]
+      },
+      "DE-21": {
+        "status": "done",
+        "l": [
+          "L9076"
+        ]
+      },
+      "DE-22": {
+        "status": "done",
+        "l": [
+          "L9077"
+        ]
+      },
+      "DE-23": {
+        "status": "blocked",
+        "l": [
+          "L9079"
+        ]
+      },
+      "DE-24": {
+        "status": "blocked",
+        "l": [
+          "L9091"
+        ]
+      },
+      "DE-25": {
+        "status": "blocked",
+        "l": [
+          "L9093"
+        ]
+      },
+      "DE-26": {
+        "status": "pending",
+        "l": [
+          "L9043"
+        ]
+      },
+      "DE-27": {
+        "status": "pending",
+        "l": []
+      },
+      "DE-28": {
+        "status": "done",
+        "l": [
+          "L9078"
+        ]
+      },
+      "DE-37": {
+        "status": "blocked",
+        "l": [
+          "L9060"
+        ]
+      },
+      "DE-29": {
+        "status": "blocked",
+        "l": [
+          "L9080"
+        ]
+      },
+      "DE-30": {
+        "status": "blocked",
+        "l": [
+          "L9081"
+        ]
+      },
+      "DE-38": {
+        "status": "done",
+        "l": [
+          "L9082"
+        ]
+      },
+      "DE-31": {
+        "status": "blocked",
+        "l": [
+          "L9083"
+        ]
+      },
+      "DE-39": {
+        "status": "done",
+        "l": [
+          "L9084"
+        ]
+      },
+      "DE-32": {
+        "status": "blocked",
+        "l": [
+          "L9085"
+        ]
+      },
+      "DE-40": {
+        "status": "done",
+        "l": [
+          "L9086"
+        ]
+      },
+      "DE-33": {
+        "status": "blocked",
+        "l": [
+          "L9087"
+        ]
+      },
+      "DE-41": {
+        "status": "done",
+        "l": [
+          "L9088"
+        ]
+      },
+      "DE-34": {
+        "status": "blocked",
+        "l": [
+          "L9089"
+        ]
+      },
+      "DE-42": {
+        "status": "done",
+        "l": [
+          "L9090"
+        ]
+      },
+      "DE-43": {
+        "status": "done",
+        "l": [
+          "L9092"
+        ]
+      },
+      "DE-35": {
+        "status": "blocked",
+        "l": [
+          "L9094"
+        ]
+      },
+      "DE-36": {
+        "status": "blocked",
+        "l": [
+          "L9095"
+        ]
+      },
+      "DE-44": {
+        "status": "blocked",
+        "l": [
+          "L9096"
+        ]
+      }
+    }
+  }
+}

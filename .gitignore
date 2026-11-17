@@ -272,6 +272,10 @@ _scratch/
 # ============================================================
 .env
 .env.*
+# 例外：配置模板必须入库，否则接手方没有任何参考（2026-11-13 打包交接时发现
+# `.env.*` 把 `.env.example` 也吞了，导致交接包里没有任何配置样例）
+!.env.example
+!.env.sample
 .env.bak*
 *.key
 *.pem
@@ -304,3 +308,42 @@ ffmpeg.zip
 
 # 前端依赖（不入库）
 node_modules/
+
+# local integration runtime data
+integration/data/
+
+# 交接包内的说明文件（由 eval/package_for_handoff.py 生成）
+HANDOFF-README.md
+
+# 本地组织库（运行时生成，不属于仓库夹具）
+/data/org.db
+/data/org.db.bak-*
+
+# Local experiments, imported datasets and delivery notes
+/data/
+/paper/
+/scratch/
+/runs/
+/docs/*
+!/docs/AGENT-HANDOFF.md
+!/docs/OPERATIONS.md
+!/docs/与原版的差异.md
+!/docs/数字分身-交接文档.md
+!/docs/飞书机器人使用手册.md
+!/docs/digital-employee/
+/docs/digital-employee/*
+!/docs/digital-employee/contracts.schema.json
+!/docs/digital-employee/search-design-fixtures.json
+/eval/loop/*.json
+/eval/loop/*.bak*
+/eval/loop/*.md
+/eval/RESULTS.md
+/eval/EVIDENCE_INDEX.md
+/frontend/eval_results.json
+/feishu-daily-agent/eval/runs/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+/playwright-report/
+/test-results/

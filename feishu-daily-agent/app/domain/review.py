@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -28,6 +29,8 @@ from app.models import (
     TaskEvent,
     TaskStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ReviewError(ValueError):
@@ -102,7 +105,7 @@ def _consume(session: Session, token: ActionToken, operator_id: str, now: dateti
         raise ReviewError("action_already_used")
     if token.expires_at <= now:
         raise ReviewError("action_expired")
-    if operator_id != token.owner:
+    if not _authorize_operator(session, token, operator_id):
         raise ReviewError("operator_mismatch")
     result = session.execute(
         update(ActionToken)
@@ -111,6 +114,36 @@ def _consume(session: Session, token: ActionToken, operator_id: str, now: dateti
     )
     if result.rowcount != 1:
         raise ReviewError("action_already_used")
+
+
+def _is_group_chat(session: Session, chat_id: str) -> bool:
+    """会话是否是群聊（决定回复要不要 @ 人）。"""
+    from app.models import Chat
+
+    chat = session.get(Chat, chat_id) if chat_id else None
+    return bool(chat is not None and chat.chat_type == "group")
+
+
+def _authorize_operator(session: Session, token: ActionToken, operator_id: str) -> bool:
+    """谁能操作这条令牌。
+
+    归属模型（2026-11-11 用户明确）：**谁确认使用机器人，机器人负责他的全部
+    工作消息，批准权也归他**。所以令牌 owner 是该会话的使用者本人
+    （群里由管理员把关），管理员永远可以兜底，避免任务卡死。
+
+    明确不做的事：不按"提问者/被提问者"授权。一次协助不是一次授权，
+    而且提问者可能已离职或不在群里，会让人工审批永久卡住。
+    """
+    if not operator_id:
+        return False
+    if operator_id == (token.owner or "").strip():
+        return True
+    settings = get_settings()
+    admin_ids = {
+        (settings.feishu_owner_open_id or "").strip(),
+        (settings.feishu_owner_chat_id or "").strip(),
+    }
+    return operator_id in {value for value in admin_ids if value}
 
 
 def _log(
@@ -146,11 +179,19 @@ def _sediment_approved_answer(
     operator_id: str,
     edited: bool,
 ) -> None:
-    """一次回复审批与经验发布是两个动作：这里只沉淀候选，不自动发布。"""
+    """批准回复后沉淀经验，并**直接发布**为可复用。
+
+    产品决策（2026-11-11 用户明确）："必须发「验证 #n」很反人性，你自己复用就行"。
+    人工批准一条回复本身就是最强的质量信号——他看过了、认可了、发出去了。
+    再要求他打一条"验证"指令纯粹是流程税。
+
+    因此这里：沉淀候选 → 立即 publish。仍可「停用 #n」撤回，
+    也仍受受众/敏感级别约束（private 经验只对本人私聊生效）。
+    """
     if message is None:
         return
     if draft.experience_id is None:
-        experience_module.create_candidate(
+        candidate = experience_module.create_candidate(
             session,
             question=message.content_text,
             answer=content,
@@ -159,8 +200,19 @@ def _sediment_approved_answer(
             visibility="private",
             category="faq",
             created_by=operator_id,
-            reason="owner 批准回复后沉淀候选",
+            reason="批准回复后沉淀经验（批准即发布）",
         )
+        # 必须回写草稿→经验的关联：否则后续「纠正 #draft」找不到旧经验，
+        # 统计也看不到"这条回复沉淀成了哪条经验"（2026-11-10 实机）。
+        draft.experience_id = candidate.id
+        session.flush()
+        # 批准即发布：无需再发「验证 #n」
+        try:
+            experience_module.publish(
+                session, candidate.id, actor=operator_id, reason="批准回复后自动发布"
+            )
+        except Exception as exc:  # noqa: BLE001 — 发布失败不阻断发送
+            logger.warning("经验 #%s 自动发布失败：%s", candidate.id, exc)
         return
     previous = session.get(Experience, draft.experience_id)
     if previous is None:
@@ -298,6 +350,15 @@ def _approve_draft(
             "text": content,
             "draft_id": draft.id,
             "reply_in_thread": bool(message.thread_id) if message else False,
+            # 数字分身：带上是"谁的"分身，发送时会用它换 token 以本人身份发出。
+            # 归谁批就归谁发——这样避免"别人批准却由你的分身说出"。
+            "twin_open_id": (draft.approver_id or "").strip(),
+            # 群聊里 @ 提问者：引用回复在群里不够醒目，看不出回给谁。
+            # 私聊不加（就两个人，@ 是噪音）。
+            "mention_open_id": (message.sender_id or "") if message and _is_group_chat(
+                session, message.chat_id
+            ) else "",
+            "is_p2p": not (message and _is_group_chat(session, message.chat_id)),
         },
         policy_version=settings.policy_version,
         experience_id=draft.experience_id,
@@ -376,7 +437,19 @@ def reject_draft_direct(
             outbox_row.status = OutboxStatus.CANCELLED
             outbox_row.last_error = "draft_rejected"
     experience = session.get(Experience, draft.experience_id) if draft.experience_id else None
-    experience_module.record_reject(session, experience)
+    # 驳回是**教学信号**，不只是惩罚：把被否的问答与理由一起记下来，
+    # 否则"没有经验来源的草稿被驳回"这种最常见的情况什么都留不下。
+    message = session.scalar(
+        select(Message).where(Message.message_id == draft.message_id)
+    )
+    experience_module.record_reject(
+        session,
+        experience,
+        reason=reason,
+        question=(message.content_text if message else "") or "",
+        answer=draft.draft_content or "",
+        actor=actor,
+    )
     session.add(
         ReviewEvent(
             tenant=draft.tenant,
@@ -473,6 +546,14 @@ def handle_card_action(
         task = session.get(Task, int(token.target_id))
         if task is None:
             raise ReviewError("task_not_found")
+        if task.workflow_kind == "delegated_delivery":
+            if operator_id not in {task.owner, task.assignee_id}:
+                raise ReviewError("task_actor_not_authorized")
+            if action == "complete_task":
+                session.add(TaskEvent(task_id=task.id, event_type="acceptance_requested",
+                    actor=operator_id, detail="delivery evidence must be verified", evidence_message_ids="[]"))
+                _log(session, token=token, action=action, operator_id=operator_id, detail=reason)
+                return ReviewOutcome(action, "acceptance_requested", task.id)
         if action == "complete_task":
             task.status = TaskStatus.DONE
         elif action == "cancel_task":

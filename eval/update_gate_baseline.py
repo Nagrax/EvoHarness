@@ -20,12 +20,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 RUNS = REPO / "eval" / "runs"
-BASELINE = Path(r"D:/claudecode/.zcode/workflows/evoharness-optimize-audit/baseline.json")
+BASELINE = Path(os.environ.get("EVO_GATE_BASELINE", str(REPO / ".zcode/workflows/evoharness-optimize-audit/baseline.json")))
 
 
 def _counts(gate: dict) -> tuple[int, int]:

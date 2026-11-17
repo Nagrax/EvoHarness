@@ -20,6 +20,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from shell_commands import python_command
+
 import agents.tools as tools
 from agents.agent import utf8_tool_result
 from agents.tools import (
@@ -70,7 +72,7 @@ def test_read_result_remains_str_for_protocol_edges(tmp_path):
 
 
 def test_shell_nonzero_exit_is_failure():
-    result = asyncio.run(execute_tool("run_shell", {"command": "cmd /c exit 3"}))
+    result = asyncio.run(execute_tool("run_shell", {"command": python_command('import sys; sys.exit(3)')}))
     assert result.status == TOOL_FAILED
     assert result.ok is False
     assert result.exit_code == 3
@@ -79,14 +81,14 @@ def test_shell_nonzero_exit_is_failure():
 
 
 def test_shell_success_is_not_failure():
-    result = asyncio.run(execute_tool("run_shell", {"command": "cmd /c echo evo_w03_ok"}))
+    result = asyncio.run(execute_tool("run_shell", {"command": python_command("print('evo_w03_ok')")}))
     assert result.status == TOOL_OK and result.ok is True
     assert result.exit_code == 0
     assert "evo_w03_ok" in result
 
 
 def test_shell_timeout_has_own_status():
-    result = asyncio.run(execute_tool("run_shell", {"command": "cmd /c ping -n 6 127.0.0.1 > nul", "timeout": 300}))
+    result = asyncio.run(execute_tool("run_shell", {"command": python_command('import time; time.sleep(6)'), "timeout": 300}))
     assert result.status == TOOL_TIMEOUT
     assert result.ok is False
     assert result.error_code == "timeout"

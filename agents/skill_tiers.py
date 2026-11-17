@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -40,6 +41,7 @@ VALID_TIERS = (TIER_EXPERIMENTAL, TIER_STAGING, TIER_CORE)
 DEFAULT_TIER = TIER_CORE
 
 TIERS_FILE = "deployment_tiers.json"
+SCOPED_TIERS_FILE = "deployment_tiers_scoped.json"
 TIER_AUDIT_LOG = "tier_audit.jsonl"
 TIER_FAULT_LOG = "tier_fault.jsonl"
 
@@ -55,6 +57,20 @@ def tier_audit_path() -> Path:
 def tier_fault_path() -> Path:
     """分区元数据损坏/恢复的故障记录（可诊断：受影响 Skill + 恢复动作）。"""
     return get_evolution_dir() / TIER_FAULT_LOG
+
+
+def capability_attribution(*, position_id: str = "", objective_id: str = "",
+                           evidence_id: str = "") -> dict[str, str]:
+    """DE-42 岗位/目标归因维度（纯函数）：构造可并入评测报告 item 与晋级 evidence 的载荷。
+
+    归因只随原版本评测晋级链传递（报告 item["capability_attribution"] →
+    apply_eval_promotions → set_tier 审计行 evidence），不提供第二晋级链；
+    键契约与 evoharness.organization.capabilities.capability_attribution 一致。
+    """
+    body = {"position_id": str(position_id or "").strip(),
+            "objective_id": str(objective_id or "").strip(),
+            "evidence_id": str(evidence_id or "").strip()}
+    return {key: value for key, value in body.items() if value}
 
 
 def experimental_injection_enabled() -> bool:
@@ -254,6 +270,69 @@ def get_tier_map() -> dict[str, str]:
     return _recover_or_isolate("tiers_file_corrupt", f"{path} unreadable or invalid tier values")
 
 
+def _scope_key(scope: dict | None) -> str:
+    s = scope or {}
+    return "|".join(str(s.get(key) or "").strip() for key in
+                    ("tenant", "space", "owner"))
+
+
+def scoped_tiers_path() -> Path:
+    return get_evolution_dir() / SCOPED_TIERS_FILE
+
+
+def _read_scoped_tiers() -> dict[str, dict[str, str]]:
+    data = _read_json(scoped_tiers_path(), {})
+    tiers = data.get("tiers") if isinstance(data, dict) else {}
+    if not isinstance(tiers, dict):
+        return {}
+    return {str(scope): {str(name): str(tier) for name, tier in bucket.items()}
+            for scope, bucket in tiers.items() if isinstance(bucket, dict)}
+
+
+def get_tier_scoped(skill_name: str, scope: dict | None) -> str:
+    """作用域分区：同域覆盖存在则用之，否则回落全局 base tier。"""
+    name = str(skill_name or "").strip()
+    bucket = _read_scoped_tiers().get(_scope_key(scope)) or {}
+    tier = bucket.get(name)
+    if tier in VALID_TIERS:
+        return tier
+    return get_tier(name)
+
+
+def set_tier_scoped(skill_name: str, to_tier: str, *, scope: dict,
+                    trigger: str, actor: str = "system",
+                    producer: str = "", kind: str = "",
+                    evidence: dict[str, Any] | None = None) -> dict[str, Any]:
+    """作用域分区写入口：只覆盖该 tenant/space/owner，不动 base tier。"""
+    if skill_state_read_only():
+        return {"ok": False, "error": "holdout read-only mode: tier writes disabled"}
+    skill = str(skill_name or "").strip()
+    if not skill:
+        return {"ok": False, "error": "skill name is required"}
+    resolved_scope = {key: str((scope or {}).get(key) or "").strip()
+                      for key in ("tenant", "space", "owner")}
+    if not any(resolved_scope.values()):
+        return {"ok": False, "error": "scope_required"}
+    target = to_tier if to_tier in VALID_TIERS else DEFAULT_TIER
+    from_tier = get_tier_scoped(skill, resolved_scope)
+    key = _scope_key(resolved_scope)
+    overlay = _read_scoped_tiers()
+    bucket = dict(overlay.get(key) or {})
+    bucket[skill] = target
+    overlay[key] = bucket
+    _write_tiers_atomic(scoped_tiers_path(),
+                        {"version": 1, "generated_at": _utc_now(),
+                         "tiers": overlay})
+    _append_jsonl(tier_audit_path(), {
+        "event": "tier_change", "time": _utc_now(), "skill": skill,
+        "producer": producer, "kind": kind, "from_tier": from_tier,
+        "to_tier": target, "trigger": trigger, "actor": actor,
+        "evidence": evidence or {}, "error": "", "scope": resolved_scope,
+    })
+    return {"ok": True, "skill": skill, "scope": resolved_scope,
+            "from_tier": from_tier, "to_tier": target, "trigger": trigger}
+
+
 def get_tier(skill_name: str) -> str:
     name = str(skill_name or "").strip()
     tiers = get_tier_map()
@@ -390,7 +469,11 @@ def manual_promote_core(skill_name: str) -> dict[str, Any]:
 
 
 def rollback(skill_name: str, *, reason: str = "") -> dict[str, Any]:
-    """一键回退：staging→experimental（只作用于预发区，不降级 core/experimental）。"""
+    """一键回退：staging→experimental（只作用于预发区，不降级 core/experimental）。
+
+    注意：本函数只降 tier，绝不改文件内容——「降 tier」不等于「内容已回退」
+    （§7：内容恢复另走 history/bundle 事务，即 restore_content）。
+    """
     skill = str(skill_name or "").strip()
     if not skill:
         return {"ok": False, "error": "skill name is required"}
@@ -399,6 +482,169 @@ def rollback(skill_name: str, *, reason: str = "") -> dict[str, Any]:
         return {"ok": False, "error": f"skill '{skill}' is tier {current}, rollback applies to staging only"}
     evidence = {"reason": reason} if reason else {}
     return set_tier(skill, TIER_EXPERIMENTAL, trigger="manual_rollback", actor="user", producer="manual", evidence=evidence)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """同目录唯一 tmp + os.replace 原子写（与 _write_tiers_atomic 同款 Windows 加固）。"""
+    if skill_state_read_only():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    last_error: OSError | None = None
+    for attempt in range(5):
+        try:
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(str(tmp), str(path))
+            return
+        except PermissionError as error:  # Windows 瞬时锁：退避后重试
+            last_error = error
+            time.sleep(0.05 * (attempt + 1))
+    try:
+        if tmp.exists():
+            tmp.unlink()
+    except OSError:
+        pass
+    raise last_error if last_error is not None else RuntimeError("atomic write failed")
+
+
+def restore_content(
+    skill_name: str,
+    *,
+    expected_version: str | None = None,
+    actor: str = "user",
+    scope: dict | None = None,
+) -> dict[str, Any]:
+    """内容恢复（DE-18）：从 evolution history 最近快照恢复正文与版本元数据；tier 不动。
+
+    与 rollback 的分工（§7/§10，两条记录分开）：
+    - rollback 只降 tier（staging→experimental），不碰文件内容；
+    - restore_content 只恢复文件内容与版本元数据，不改 tier——返回值与审计行都
+      明确携带 tier 现状，恢复后随行重建检索缓存（discover/skills 缓存立即反映旧正文）。
+
+    拒绝恢复投影文件（producer-kind==projection 或 managed-by==experience.skill_sync）：
+    投影由源服务重建，恢复投影正文等于制造第二事实源（§4 单写者）。
+    expected_version 提供（CAS）时与当前 active 版本不一致则拒绝（source_changed）：
+    期间文件被在线演化/发布改过时不覆盖新用户决定。
+
+    审计行落两处：tier_audit.jsonl 记 event=content_restore（rebuild_tiers_from_audit
+    只认 tier_change，不会把内容恢复误当 tier 变更），usage.jsonl 记同款事件。
+    """
+    if skill_state_read_only():
+        return {"ok": False, "error": "holdout read-only mode: content restore disabled"}
+    skill = str(skill_name or "").strip()
+    if not skill:
+        return {"ok": False, "error": "skill name is required"}
+
+    from .frontmatter import parse_frontmatter
+    from .skill_evolution import _safe_skill_slug, history_dir, resolve_skill_file
+
+    skill_file = resolve_skill_file(skill, target="active")
+    if not skill_file:
+        return {"ok": False, "error": f"Skill not found: {skill}"}
+    raw = skill_file.read_text(encoding="utf-8-sig")
+    current_meta = parse_frontmatter(raw).meta
+    if current_meta.get("producer-kind") == "projection" or current_meta.get("managed-by") == "experience.skill_sync":
+        # 投影文件：内容由 Experience→skill_sync 投影链重建，恢复入口无权改写。
+        return {"ok": False, "error": "managed_projection_source_owned", "file": str(skill_file)}
+    current_version = str(current_meta.get("version", ""))
+    if expected_version is not None and current_version != str(expected_version):
+        return {
+            "ok": False,
+            "error": "source_changed",
+            "expected_version": str(expected_version),
+            "current_version": current_version,
+            "file": str(skill_file),
+        }
+
+    history_path = history_dir(scope) / f"{_safe_skill_slug(skill)}.jsonl"
+    snapshot: dict[str, Any] | None = None
+    if history_path.is_file():
+        for line in history_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(row, dict) or row.get("event") != "snapshot":
+                continue
+            if str(row.get("content") or "").strip() and str(row.get("skill") or "").strip() == skill:
+                snapshot = row
+    if snapshot is None:
+        return {"ok": False, "error": "no_history_snapshot", "history": str(history_path)}
+
+    restored_raw = str(snapshot["content"])
+    restored_meta = parse_frontmatter(restored_raw).meta
+    restored_version = str(restored_meta.get("version") or snapshot.get("version") or "")
+    _atomic_write_text(skill_file, restored_raw)
+    restored_sha256 = hashlib.sha256(restored_raw.encode("utf-8")).hexdigest()
+    tier_now = get_tier(skill)
+
+    audit_row = {
+        "event": "content_restore",
+        "time": _utc_now(),
+        "skill": skill,
+        "file": str(skill_file),
+        "restored_version": restored_version,
+        "previous_version": current_version,
+        "restored_from_snapshot_time": str(snapshot.get("time") or ""),
+        "restored_sha256": restored_sha256,
+        "tier_at_restore": tier_now,
+        "tier_changed": False,
+        "actor": actor,
+        "expected_version": "" if expected_version is None else str(expected_version),
+    }
+    _append_jsonl(tier_audit_path(), audit_row)
+    _append_jsonl(
+        get_evolution_dir() / "usage.jsonl",
+        {**audit_row, "event": "content_restore"},
+    )
+    try:
+        from .skills import reset_skill_cache  # 函数内延迟导入防循环
+
+        reset_skill_cache()
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "skill": skill,
+        "file": str(skill_file),
+        "restored_version": restored_version,
+        "previous_version": current_version,
+        "restored_sha256": restored_sha256,
+        "tier": tier_now,
+        "history": str(history_path),
+        "restored_at": audit_row["time"],
+    }
+
+
+def _current_active_content_hash(skill_name: str) -> str:
+    """当前 active 技能的内容指纹（skill_content_hash 口径，与评测报告同一算法定义）。
+
+    DE-18 晋级制品一致性门用：报告绑定的被评测快照 hash 必须等于当前 active 的
+    内容 hash。skill 未被发现（已归档/已改名）时返回空串——新式报告下按漂移处理。
+    """
+    try:
+        from .skills import discover_skills  # 函数内延迟导入（本模块被 skills 延迟引用）
+    except Exception:
+        return ""
+    try:
+        from .skill_evolution import skill_content_hash
+    except Exception:
+        return ""
+    wanted = str(skill_name or "").strip()
+    for skill in discover_skills():
+        if str(getattr(skill, "name", "") or "").strip() != wanted:
+            continue
+        return skill_content_hash(
+            {
+                "name": getattr(skill, "name", ""),
+                "description": getattr(skill, "description", ""),
+                "when_to_use": getattr(skill, "when_to_use", ""),
+                "instructions": getattr(skill, "prompt_template", ""),
+            }
+        )
+    return ""
 
 
 def _maybe_auto_rollback(item: dict[str, Any], name: str) -> bool:
@@ -449,6 +695,12 @@ def apply_eval_promotions(report: Any) -> dict[str, Any]:
     skills = report_dict.get("skills") if isinstance(report_dict.get("skills"), list) else []
     thresholds = report_dict.get("thresholds") if isinstance(report_dict.get("thresholds"), dict) else {}
     generated_at = str(report_dict.get("generated_at") or "")
+    # DE-35 认证接缝晋级预检（延迟导入防循环；模块缺失按无认证记录兼容旧树）：
+    # 搜索报告一律不作为晋级证据；存在认证采用记录时成绩必须绑定评测协议。
+    try:
+        from .skill_search.certification import promotion_gate as _certification_gate
+    except Exception:  # pragma: no cover - 兼容旧树（skill_search 未随行时零变化）
+        _certification_gate = None
     promoted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     rolled_back: list[str] = []
@@ -472,6 +724,24 @@ def apply_eval_promotions(report: Any) -> dict[str, Any]:
         if status != "healthy":
             skipped.append({"skill": name, "why": f"status={status or 'unknown'} (need healthy)"})
             continue
+        # DE-35 晋级接缝：搜索报告不直接晋级；有认证采用记录时成绩须绑定评测协议。
+        # 无认证记录的原生技能零变化（S5：不因搜索认证要求全局禁用）。
+        if _certification_gate is not None:
+            gate = _certification_gate(item, name)
+            if not gate.get("ok"):
+                skipped.append(
+                    {
+                        "skill": name,
+                        "why": str(gate.get("why") or "certification gate rejected"),
+                        "gate_code": str(gate.get("code") or ""),
+                        **{
+                            key: gate[key]
+                            for key in ("certificate_id", "adoption_id")
+                            if gate.get(key)
+                        },
+                    }
+                )
+                continue
         artifacts = item.get("artifacts") if isinstance(item.get("artifacts"), dict) else {}
         promotion = artifacts.get("promotion") if isinstance(artifacts.get("promotion"), dict) else {}
         if not promotion:
@@ -480,6 +750,23 @@ def apply_eval_promotions(report: Any) -> dict[str, Any]:
         if not promotion.get("promoted"):
             skipped.append({"skill": name, "why": f"champion gate rejected ({promotion.get('status') or 'rejected'})"})
             continue
+        # DE-18 制品一致性门：报告绑定了被评测制品 hash（新式报告）时，当前 active
+        # 必须仍是同一份内容——被评测的是 A、active 已漂移成 B 时，A 的成绩绝不给
+        # B 晋级（fail-closed）。旧报告无该字段时保持现行为（兼容历史报告）。
+        active_hash = str(artifacts.get("active_snapshot_hash") or "")
+        current_hash = ""
+        if active_hash:
+            current_hash = _current_active_content_hash(name)
+            if not current_hash or current_hash != active_hash:
+                skipped.append(
+                    {
+                        "skill": name,
+                        "why": "active_drift: evaluated active snapshot hash does not match current active skill content",
+                        "active_snapshot_hash": active_hash,
+                        "current_active_hash": current_hash,
+                    }
+                )
+                continue
         replay = item.get("replay") if isinstance(item.get("replay"), dict) else {}
         eval_data = item.get("eval") if isinstance(item.get("eval"), dict) else {}
         evidence = {
@@ -497,7 +784,15 @@ def apply_eval_promotions(report: Any) -> dict[str, Any]:
             "champion_gate": promotion,
             "status_map_generated_at": generated_at,
             "thresholds": thresholds,
+            "active_snapshot_hash": active_hash,
+            "candidate_snapshot_hash": str(artifacts.get("candidate_snapshot_hash") or ""),
+            "eval_protocol_fingerprint": str(artifacts.get("eval_protocol_fingerprint") or ""),
         }
+        # DE-42 组织归因：报告 item 显式携带 capability_attribution（岗位/目标引用）
+        # 时随晋级 evidence 落审计行；未携带时不注入（审计行与现网逐字节不变）。
+        attribution = item.get("capability_attribution")
+        if isinstance(attribution, dict) and attribution:
+            evidence["capability_attribution"] = dict(attribution)
         try:
             result = set_tier(
                 name,
@@ -516,20 +811,23 @@ def apply_eval_promotions(report: Any) -> dict[str, Any]:
             "rollback_errors": rollback_errors}
 
 
-def fork_blocked_reason(skill_name: str) -> str:
+def fork_blocked_reason(skill_name: str, *, scope: dict | None = None) -> str:
     """fork 禁令裁决（agent 分发点调用）：试用期状态机门 + 实验区分区门共一出口。
 
     返回禁令原因；空串=放行。运行时动态读两张表——晋升/回退发生在另一进程时，
     运行中会话的下一次 fork 请求立即按新 tier 裁决。
     """
-    from .skill_status import PROVISIONAL_STATUSES, get_effective_status_map
+    from .skill_status import (PROVISIONAL_STATUSES, get_effective_status_map,
+                               get_status_scoped_map)
 
     skill = str(skill_name or "").strip()
-    trial_status = get_effective_status_map().get(skill, "")
+    statuses = get_status_scoped_map(scope) if scope else get_effective_status_map()
+    trial_status = statuses.get(skill, "")
     if trial_status in PROVISIONAL_STATUSES:
         return f"trial period (status={trial_status})"
-    if get_tier(skill) == TIER_EXPERIMENTAL:
-        return "deployment tier experimental"
+    if get_tier_scoped(skill, scope) == TIER_EXPERIMENTAL:
+        return ("deployment tier experimental (scoped)" if scope
+                else "deployment tier experimental")
     return ""
 
 

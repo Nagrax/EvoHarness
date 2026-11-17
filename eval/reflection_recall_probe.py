@@ -48,8 +48,14 @@ def make_side_query():
     ledger = {"calls": 0, "tokens": 0, "errors": []}
 
     async def side_query(system: str, user: str) -> str:
-        client = openai.AsyncOpenAI(api_key=key or "local-no-key",
-                                    base_url="http://127.0.0.1:8326/v1")
+        from evoharness.governance import eval_budget
+        if eval_budget.enabled():
+            client = eval_budget.build_async_client(
+                api_base="http://127.0.0.1:8326/v1", api_key=key,
+                model=MODEL, use_openai=True, principal="eval-reflection")
+        else:
+            client = openai.AsyncOpenAI(api_key=key or "local-no-key",
+                                        base_url="http://127.0.0.1:8326/v1")
         try:
             resp = await client.chat.completions.create(
                 model=MODEL,
@@ -59,7 +65,10 @@ def make_side_query():
             ledger["calls"] += 1
             usage = getattr(resp, "usage", None)
             if usage:
-                ledger["tokens"] += (getattr(usage, "total_tokens", 0) or 0)
+                tokens = getattr(usage, "total_tokens", 0) or 0
+                ledger["tokens"] += tokens
+                from evoharness.governance.usage_sidecar import write_usage
+                write_usage(tokens)
             return resp.choices[0].message.content or ""
         except Exception as error:  # noqa: BLE001
             ledger["errors"].append(f"{type(error).__name__}: {error}"[:160])

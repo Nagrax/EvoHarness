@@ -623,8 +623,18 @@ async def maintain_online_skill_candidate(
     target_skill = str(decision.get("target_skill") or "").strip()
 
     if exact_target:
-        action = "merge"
-        target_skill = exact_target
+        # 裁决优先级：明确矛盾 revise（带完整替换正文）> 同名去重 merge > 相似 merge
+        # > discard > add。原缺陷：本分支无条件把 LLM 裁决的 revise 改成 merge，
+        # 丢弃 revised_instructions（merge 分支只认 merged_instructions）并把明确矛盾
+        # 偏好当补充合并。修复后 revise 仅在带完整替换正文时被尊重（旧内容由
+        # evolve_skill_file 的 history 快照保留，provenance 记 revise）；同名命中时
+        # add/discard 仍按现语义收敛为去重 merge，不产生同名双 skill。
+        revised_body = str(decision.get("revised_instructions") or "").strip()
+        if action == "revise" and revised_body:
+            target_skill = exact_target
+        else:
+            action = "merge"
+            target_skill = exact_target
     elif action == "add" and similar_hits:
         top = similar_hits[0]
         if float(top.get("score", 0.0)) >= 0.55:
@@ -702,6 +712,24 @@ async def maintain_online_skill_candidate(
     return {"action": "add", "candidate": _legacy_candidate_view(candidate), "decision": decision, **result}
 
 
+def _attach_attribution(result: dict[str, Any], attribution: dict[str, Any] | None) -> dict[str, Any]:
+    # DE-42 组织归因（岗位/目标引用）：在线反馈事件携带 capability_attribution 时
+    # 并入 result——provenance 行整体落盘 result，归因随原链路留痕（不建第二链）。
+    # attribution 为空或已带归因键时零注入，旧调用写盘逐字节不变。
+    if not attribution or not isinstance(result, dict) or "capability_attribution" in result:
+        return result
+    body = {
+        "position_id": str(attribution.get("position_id") or "").strip(),
+        "objective_id": str(attribution.get("objective_id") or "").strip(),
+        "task_id": attribution.get("task_id") or 0,
+        "evidence_id": str(attribution.get("evidence_id") or "").strip(),
+    }
+    body = {key: value for key, value in body.items() if value}
+    if body:
+        result["capability_attribution"] = body
+    return result
+
+
 async def online_ingest(
     *,
     messages: list[dict[str, Any]],
@@ -710,6 +738,7 @@ async def online_ingest(
     hint: str = "",
     confirm_write: ConfirmWrite | None = None,
     target: str = "project",
+    attribution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from .skills import record_online_provenance
 
@@ -721,7 +750,7 @@ async def online_ingest(
             hint=hint,
         )
     except Exception as exc:
-        result = {"ok": False, "action": "failed", "error": str(exc)}
+        result = _attach_attribution({"ok": False, "action": "failed", "error": str(exc)}, attribution)
         record_online_provenance(
             action="failed",
             result=result,
@@ -732,7 +761,7 @@ async def online_ingest(
         return result
 
     if candidate is None:
-        result = {"ok": True, "action": "none"}
+        result = _attach_attribution({"ok": True, "action": "none"}, attribution)
         record_online_provenance(
             action="none",
             result=result,
@@ -747,14 +776,14 @@ async def online_ingest(
     if _ir_mode() != "off":
         gate = apply_ir_gate(candidate, messages=messages)
         if gate.blocked:
-            result = {
+            result = _attach_attribution({
                 "ok": True,
                 "action": "ir_rejected",
                 "skill": candidate.name,
                 "ir_mode": gate.mode,
                 "ir_errors": list(gate.errors),
                 "ir_repairs": list(gate.repairs),
-            }
+            }, attribution)
             record_online_provenance(
                 action="ir_rejected",
                 skill_name=candidate.name,
@@ -773,9 +802,12 @@ async def online_ingest(
             target=target,
         )
     except Exception as exc:
-        result = {"ok": False, "action": "failed", "skill": candidate.name, "error": str(exc)}
+        result = _attach_attribution(
+            {"ok": False, "action": "failed", "skill": candidate.name, "error": str(exc)},
+            attribution)
 
     _attach_ir_summary(result, gate)
+    _attach_attribution(result, attribution)
 
     record_online_provenance(
         action=str(result.get("action") or "none"),

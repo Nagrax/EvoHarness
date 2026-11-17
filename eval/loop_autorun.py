@@ -25,7 +25,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 RUNS = REPO / "eval" / "runs"
 
 
@@ -49,15 +49,20 @@ def summarize_backlog() -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     items = data.get("items") or []
     open_items = [i for i in items if i.get("status") != "done"]
+    blocked_items = [i for i in open_items if i.get("status") == "blocked"]
+    # blocked-on-external 不算 actionable high（否则每次轮询 exit=3 狼来了）；
+    # 但保持可见：单独计数。
+    actionable = [i for i in open_items if i.get("status") != "blocked"]
     by_sev: dict[str, int] = {}
-    for item in open_items:
+    for item in actionable:
         sev = str(item.get("severity") or "?")
         by_sev[sev] = by_sev.get(sev, 0) + 1
     return {
         "ok": True,
         "total": len(items),
-        "open": len(open_items),
+        "open": len(actionable),
         "openBySeverity": by_sev,
+        "blocked": len(blocked_items),
         "rounds": len(data.get("rounds") or []),
     }
 

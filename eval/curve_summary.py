@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 
 
 def _usage() -> str:
@@ -14,10 +14,10 @@ def _usage() -> str:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if any(a in {"-h", "--help"} for a in sys.argv[1:]):
         print(_usage())
         return 0
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "eval" / "runs" / "evolution" / "curve.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     print("arms:", data.get("arms"))

@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "eval" / "runs" / "difficulty-ladder"
 
 

@@ -1,0 +1,48 @@
+x-product: &product
+  image: evoharness:latest
+  build: .
+  env_file: .env
+  volumes:
+    - ./data:/data
+  init: true
+  stop_grace_period: 60s
+
+x-environment: &environment
+  EVOHARNESS_DATABASE_URL: sqlite:////data/org.db
+  DATABASE_URL: sqlite:////data/org.db
+
+services:
+  init:
+    <<: *product
+    profiles: [tools]
+    environment: *environment
+    entrypoint: [python, -m, evoharness]
+    command: [init]
+
+  web:
+    <<: *product
+    environment: *environment
+    ports: ["8800:7860"]
+    restart: unless-stopped
+
+  worker:
+    <<: *product
+    environment: *environment
+    entrypoint: [python, -m, evoharness]
+    command: [worker, --daemon, --profile, live]
+    healthcheck:
+      test: [CMD, python, -m, evoharness, worker, --health]
+    restart: unless-stopped
+
+  feishu:
+    <<: *product
+    profiles: [feishu]
+    working_dir: /app/feishu-daily-agent
+    environment:
+      <<: *environment
+      EVOHARNESS_ASK_BASE_URL: http://web:7860
+    entrypoint: [python, main.py]
+    command: [run]
+    healthcheck:
+      test: [CMD, python, main.py, health]
+    restart: unless-stopped

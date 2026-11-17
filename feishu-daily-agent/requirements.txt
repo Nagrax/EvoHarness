@@ -19,3 +19,6 @@ jieba>=0.42.1
 
 # 时区
 tzdata>=2024.1
+
+# 数字分身：user_access_token 加密存储（Fernet）
+cryptography>=42.0.0

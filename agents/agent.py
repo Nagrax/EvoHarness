@@ -11,8 +11,12 @@ import uuid
 from pathlib import Path
 from typing import Callable, Awaitable, Any
 
-import anthropic
-import openai
+try:
+    import anthropic
+    import openai
+except ModuleNotFoundError:  # 离线/最小部署：SDK 缺失仅限制真实客户端构造，模块可导入
+    anthropic = None   # type: ignore[assignment]
+    openai = None      # type: ignore[assignment]
 
 from agents.mcp_client import McpManager
 from agents.memory import MemoryPrefetch, start_memory_prefetch, format_memories_for_injection
@@ -40,12 +44,25 @@ from agents.session import (
 )
 from agents import extraction_window as extraction_store
 from agents import stages as stage_fsm
-from agents.subagent import get_sub_agent_config
+from agents.subagent import get_sub_agent_config, get_work_executor_engine_config, WORK_EXECUTOR_AGENT_TYPE
 from agents.tools import ToolDef, tool_definitions, execute_tool, CONCURRENCY_SAFE_TOOLS, EDIT_TOOLS, check_permission, \
     get_active_tool_definitions
 from agents.ui import print_info, print_divider, print_assistant_text, print_sub_agent_start, print_sub_agent_end, \
     start_spinner, stop_spinner, print_cost, print_tool_call, print_tool_result, print_confirmation, print_retry, \
     print_error
+
+
+def resolve_sub_agent_config(agent_type: str) -> dict:
+    """DE-40 最小接线：工作执行引擎类型走受限工作配置，其余类型行为不变。
+
+    - work_executor：调度器选出的工作项经现有执行循环运行时使用
+      get_work_executor_engine_config（工具白名单与 evoharness.work.executor
+      一致，禁递归创建子代理），不重写执行循环；
+    - 其他类型（含 explore/plan/general 与自定义）仍走 get_sub_agent_config。
+    """
+    if agent_type == WORK_EXECUTOR_AGENT_TYPE:
+        return get_work_executor_engine_config()
+    return get_sub_agent_config(agent_type)
 
 
 # 指数退避重试
@@ -267,6 +284,15 @@ def _to_openai_tools(tools: list[ToolDef]) -> list[dict]:
     ]
 
 
+BUDGET_BYPASS_ENV = "EVOHARNESS_ORG_BUDGET_ENFORCE"
+
+
+def _budget_bypass_forbidden() -> bool:
+    """组织模式：SDK 直连旁路必须被阻断（DE-15）；调用方应注入网关感知端口。"""
+    return os.environ.get(BUDGET_BYPASS_ENV, "").strip().lower() in {
+        "1", "true", "on", "yes"}
+
+
 class Agent:
     def __init__(self,
                  *,
@@ -282,7 +308,8 @@ class Agent:
                  custom_system_prompt: str | None=None,
                  custom_tools: list[ToolDef] | None=None,
                  is_sub_agent: bool=False,
-                 loop_stages: bool=False):
+                 loop_stages: bool=False,
+                 sdk_client: Any | None=None):
         self.permission_mode = permission_mode
         self.thinking = thinking
         self.model = model
@@ -308,6 +335,9 @@ class Agent:
         self.last_save_error = ""
         self.current_turns = 0
         self.last_api_call_time = 0
+        # DE-06：受域加载（tenant/space/owner）；None = 本地/交互模式按旧行为
+        self.skill_scope: dict | None = None
+        self.skill_scope_generation: int = 0
         # 旁路查询（side query）单独记账：主循环之外的调用（记忆召回、折叠/交接、
         # 沉淀抽取与使用判定、离线评测）此前不计 token；分开之后才能把"沉淀开销"
         # 从"对话开销"里单独量出来。
@@ -336,6 +366,7 @@ class Agent:
         #子agent的输出缓存
         self._output_buffer: list[str] | None=None
         self._turn_output_buffer: list[str] | None = None
+        self._turn_skill_bindings: list[dict[str, Any]] | None = None
 
         # 编辑前读取
         self._read_file_state: dict[str, float] ={}
@@ -386,17 +417,38 @@ class Agent:
             self._system_prompt = self._base_system_prompt
 
         #初始化大模型客户端
-        if self.use_openai:
+        if sdk_client is not None:
+            # 客户端注入口（N05）：生产装配/离线回归可注入网关感知端口或假 SDK，
+            # Agent 不自行直连付费 SDK；协议档仍由 api_base 决定（use_openai）。
+            self._openai_client = sdk_client if self.use_openai else None
+            self._anthropic_client = None if self.use_openai else sdk_client
+            if self.use_openai:
+                self._openai_messages.append({"role": "system", "content": self._system_prompt})
+        elif self.use_openai:
+            if _budget_bypass_forbidden():
+                raise RuntimeError(
+                    "budget_sdk_bypass_blocked: 组织模式必须注入 sdk_client"
+                    "（经 BudgetGateway 的网关感知端口），不得直连付费 SDK")
             # openai SDK 在 api_key=None 时**直接抛 OpenAIError**（不是延迟到请求期），
             # 而本地端点（Ollama/vLLM/自建网关）常常免 key。旧代码把 None 原样传进去，
             # 结果是 Web 侧 /api/chat 的 SSE 生成器在构造 Agent 时就炸掉，用户看到的是
             # 一条 Python 异常，而不是"未配置 key"这种可操作提示。这里给本地无凭据情形
             # 一个显式占位串（多数本地端点会忽略 Authorization），并让解析层决定是否允许。
+            if openai is None:
+                raise ImportError("openai SDK 未安装：openai 协议真实客户端不可用"
+                                  "（可注入 sdk_client 或安装 openai）")
             effective_key = api_key or os.environ.get("EVOHARNESS_LOCAL_PLACEHOLDER_KEY", "local-no-key")
             self._openai_client = openai.AsyncOpenAI(base_url=api_base, api_key=effective_key)
             self._anthropic_client = None
             self._openai_messages.append({"role": "system", "content": self._system_prompt})
         else:
+            if _budget_bypass_forbidden():
+                raise RuntimeError(
+                    "budget_sdk_bypass_blocked: 组织模式必须注入 sdk_client"
+                    "（经 BudgetGateway 的网关感知端口），不得直连付费 SDK")
+            if anthropic is None:
+                raise ImportError("anthropic SDK 未安装：anthropic 协议真实客户端不可用"
+                                  "（可注入 sdk_client 或安装 anthropic）")
             kwargs : dict[str,Any] = {}
             if api_key:
                 kwargs["api_key"] = api_key
@@ -622,6 +674,8 @@ class Agent:
                 print_error(f"MCP init failed: {e}")
 
         original_user_message = _safe_utf8_text(user_message)
+        self._turn_skill_bindings = []
+        turn_scope_generation = self.skill_scope_generation
         ready_skill_extraction_window: dict[str, Any] | None = None
         self._last_retrieved_skill_reference = None
         self._last_retrieved_skill_hits = []
@@ -644,6 +698,18 @@ class Agent:
             self._current_task = None
         assistant_text = "".join(self._turn_output_buffer or []).strip()
         self._turn_output_buffer = None
+        bindings = self._turn_skill_bindings or []
+        self._turn_skill_bindings = None
+        if (not self.is_sub_agent and not self._aborted and self.permission_mode != "plan"
+                and original_user_message.strip() and assistant_text and bindings
+                and self.skill_scope_generation == turn_scope_generation):
+            try:
+                from .scoped_skill_report import record_scoped_turn
+                record_scoped_turn(bindings, user_text=original_user_message,
+                                   assistant_text=assistant_text,
+                                   scope_generation=turn_scope_generation)
+            except Exception as error:  # noqa: BLE001
+                print_error(f"record_scoped_turn failed: {type(error).__name__}: {error}")
         if not self.is_sub_agent and not self._aborted:
             self._schedule_background_skill_task(self._run_skill_usage_tracking(original_user_message, assistant_text))
             if ready_skill_extraction_window:
@@ -2143,9 +2209,26 @@ class Agent:
         )
 
 
+    def _remember_scoped_skill_binding(self, result: dict) -> None:
+        binding = result.get("binding")
+        if (not self.is_sub_agent and self.permission_mode != "plan"
+                and self._turn_skill_bindings is not None and isinstance(binding, dict)):
+            self._turn_skill_bindings.append(binding)
+
     async def _execute_skill_tool(self, inp: dict) -> str:
         from .skills import execute_skill
-        result = execute_skill(inp.get("skill_name", ""), inp.get("args", ""))
+        from .skill_scope import ScopedSkillRef, SkillScopeError
+
+        name = str(inp.get("skill_name") or "")
+        scope = getattr(self, "skill_scope", None)
+        ref = ScopedSkillRef(name=name, **(scope or {})) if scope else None
+        try:
+            if ref is None:
+                result = execute_skill(name, inp.get("args", ""))
+            else:
+                result = execute_skill(name, inp.get("args", ""), scope_ref=ref)
+        except SkillScopeError as exc:
+            return f"Skill '{name}' refused: {exc.code}"
 
         if not result:
             return f"Unknown skill: {inp.get('skill_name', '')}"
@@ -2157,7 +2240,9 @@ class Agent:
                 # 运行时动态读两张表——另一进程的晋升/回退在下一次 fork 请求即生效，不烤进 skill 缓存。
                 from .skill_tiers import fork_blocked_reason
 
-                blocked_reason = fork_blocked_reason(str(inp.get("skill_name") or ""))
+                blocked_reason = fork_blocked_reason(
+                    str(inp.get("skill_name") or ""),
+                    scope=getattr(self, "skill_scope", None))
             except Exception:
                 # fail-open：分区模块缺失时退回放行（缺省 core 可 fork），缺口由审计暴露。
                 blocked_reason = ""
@@ -2166,6 +2251,7 @@ class Agent:
                 print_info(
                     f"Skill '{inp.get('skill_name', '')}' is gated ({blocked_reason}); fork downgraded to inline."
                 )
+                self._remember_scoped_skill_binding(result)
                 return (
                     f'[Skill "{inp.get("skill_name", "")}" activated in inline trial mode ({blocked_reason}); '
                     f"fork execution is disabled until the skill is validated.]\n\n{result['prompt']}"
@@ -2197,16 +2283,20 @@ class Agent:
                 # ——EOF 时静默拒绝（工具白跑/误判失败），TTY 下阻塞事件循环。
                 confirm_fn=self.confirm_fn,
             )
+            sub_agent.skill_scope = getattr(self, "skill_scope", None)
             try:
                 sub_result = await sub_agent.run_once(inp.get("args") or "Execute this skill task.")
                 self.total_input_tokens += sub_result["tokens"]["input"]
                 self.total_output_tokens += sub_result["tokens"]["output"]
                 print_sub_agent_end("skill-fork", inp.get("skill_name", ""))
+                if sub_result["text"]:
+                    self._remember_scoped_skill_binding(result)
                 return sub_result["text"] or "(Skill produced no output)"
             except Exception as e:
                 print_sub_agent_end("skill-fork", inp.get("skill_name", ""))
                 return f"Skill fork error: {e}"
 
+        self._remember_scoped_skill_binding(result)
         return f'[Skill "{inp.get("skill_name", "")}" activated]\n\n{result["prompt"]}'
 
     async def _execute_plan_mode_tool(self, name):
@@ -2325,7 +2415,7 @@ class Agent:
         prompt = inp.get("prompt", "")
         print_sub_agent_start(agent_type, description)
 
-        config = get_sub_agent_config(agent_type)
+        config = resolve_sub_agent_config(agent_type)
 
         sub_agent = Agent(
             model=self.model,

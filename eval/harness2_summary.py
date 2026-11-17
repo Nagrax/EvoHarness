@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "eval" / "runs" / "harness2"
 
 
@@ -57,6 +57,10 @@ def main() -> int:
         "nextScaleUp": "每轴每变体 ≥30 题、≥3 轮，用 eval/roi.py pair 做 bootstrap CI",
     }
     out = OUT / "summary.json"
+    # 无可汇总产物时不能假装成功：缺目录就显式报错（tool_reachability 会据此判 broken）。
+    if not OUT.is_dir():
+        print(f"没有可汇总的 Harness² 产物：{OUT} 不存在（先跑三个轴的对照评测）")
+        return 2
     out.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary["counts"], ensure_ascii=False))
     for row in rows:

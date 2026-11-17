@@ -13,14 +13,16 @@ import json
 import re
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 # 前端是单文件 frontend/index.html（内联 JS）；server/static 留作兼容
 STATIC_DIRS = [REPO / "frontend", REPO / "server" / "static"]
 APP = REPO / "server" / "app.py"
 
 ROUTE_RE = re.compile(r'@app\.(get|post|delete|put|patch)\(\s*["\']([^"\']+)["\']')
-API_REF_RE = re.compile(r'["\'`](/api/[A-Za-z0-9/_-]*)["\'`]')
-FETCH_RE = re.compile(r'fetch\(\s*[\'"`]([^\'"`?]+)')
+# 允许查询串与模板拼接：/api/history?session_id= 也计入引用；
+# 要求 /api/ 后至少一个字符，避免 startsWith('/api/') 被误报成端点 /api。
+API_REF_RE = re.compile(r'["\'`](/api/[A-Za-z0-9/_-]+)')
+FETCH_RE = re.compile(r'(?:apiFetch|fetch)\(\s*[\'"`]([^\'"`?]+)')
 
 
 def backend_routes() -> dict[str, str]:

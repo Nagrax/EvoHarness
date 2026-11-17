@@ -16,6 +16,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from shell_commands import python_command
+
 import agents.tools as tools
 from agents.tools import TOOL_OK, TOOL_TIMEOUT, execute_tool
 
@@ -26,11 +28,14 @@ IS_WIN = os.name == "nt"
 def _slow_command(seconds: int) -> str:
     """构造约 seconds 秒的命令。
 
-    Windows 的 `ping -n N` 首包立即返回，之后每包间隔 1 秒，故 N 包约 (N-1) 秒。
+    原来用 `ping -n N 127.0.0.1` 当"睡眠"：本机 ICMP 回环被拦截
+    （`ping 127.0.0.1` 全 Request timed out、exit 非 0），命令瞬间失败，
+    测的就不再是"非阻塞"而是"ping 能不能用"。改成当前解释器自己 sleep：
+    不依赖网络栈，且顺带覆盖"带引号的命令必须正确传给 shell"这条路径。
     """
     if IS_WIN:
-        return f"cmd /c ping -n {seconds + 1} 127.0.0.1 > nul"
-    return f"sleep {seconds}"
+        return f'{sys.executable} -c "import time; time.sleep({seconds})"'
+    return f"{sys.executable} -c 'import time; time.sleep({seconds})'"
 
 
 # ─── ① 事件循环不被阻塞 ──────────────────────────────────────
@@ -149,25 +154,35 @@ def test_no_orphan_after_cancel():
     marker = f"W04ORPHAN_{int(time.time())}"
 
     def pids():
+        """按命令行标记找残留进程。
+
+        两个坑（都在本机实测到）：
+        1. `wmic` 在 Windows 11 / Server 2025 已默认移除，旧实现永远返回 []，
+           测试会在"前提：命令进程应已启动"处假失败 → 改用 PowerShell CIM。
+        2. 查询进程自己的命令行里也含 marker → 查询会匹配到自己，
+           "取消后仍有 1 个残留"永远是假失败 → 排除 powershell 自身与当前 PID。
+        """
+        script = (
+            "Get-CimInstance Win32_Process "
+            "| Where-Object { $_.CommandLine -like '*%s*' "
+            "-and $_.Name -ne 'powershell.exe' -and $_.ProcessId -ne $PID } "
+            "| ForEach-Object { $_.ProcessId }" % marker
+        )
         try:
             out = subprocess.run(
-                ["wmic", "process", "where", "name='cmd.exe'", "get", "ProcessId,CommandLine", "/format:csv"],
-                capture_output=True, text=True, timeout=20).stdout
+                ["powershell", "-NoProfile", "-Command", script],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=30).stdout
         except Exception:
             return []
-        found = []
-        for line in out.splitlines():
-            if marker in line:
-                tail = line.strip().split(",")[-1].strip()
-                if tail.isdigit():
-                    found.append(int(tail))
-        return found
+        return [int(line.strip()) for line in out.splitlines() if line.strip().isdigit()]
 
     async def scenario():
         task = asyncio.create_task(execute_tool(
             "run_shell",
-            {"command": f"cmd /c ping -n 60 127.0.0.1 > nul & rem {marker}", "timeout": 120000}))
-        await asyncio.sleep(1.2)
+            {"command": f'{sys.executable} -c "import time; time.sleep(60)" & rem {marker}',
+             "timeout": 120000}))
+        await asyncio.sleep(1.5)
         assert pids(), "前提：命令进程应已启动"
         task.cancel()
         try:
@@ -188,10 +203,10 @@ def test_no_orphan_after_cancel():
 
 
 def test_shell_success_and_nonzero_still_structured():
-    ok = asyncio.run(execute_tool("run_shell", {"command": "cmd /c echo evo_w04"}))
+    ok = asyncio.run(execute_tool("run_shell", {"command": python_command("print('evo_w04')")}))
     assert ok.status == TOOL_OK and "evo_w04" in ok
 
-    bad = asyncio.run(execute_tool("run_shell", {"command": "cmd /c exit 4"}))
+    bad = asyncio.run(execute_tool("run_shell", {"command": python_command('import sys; sys.exit(4)')}))
     assert bad.status == tools.TOOL_FAILED and bad.exit_code == 4
 
 
@@ -206,5 +221,5 @@ def test_timeout_coercion_unchanged():
 
 def test_sync_run_shell_still_available_for_tests():
     # 既有测试直接调 _run_shell 同步版，必须保留且行为一致
-    out = tools._run_shell({"command": "cmd /c echo sync_path"})
+    out = tools._run_shell({"command": python_command("print('sync_path')")})
     assert out.status == TOOL_OK and "sync_path" in out

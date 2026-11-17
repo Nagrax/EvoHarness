@@ -29,7 +29,7 @@ sys.path.insert(0, str(REPO))
 
 BACKLOG = REPO / "eval" / "loop" / "BACKLOG.json"
 SCAN = REPO / "eval" / "runs" / "module-scan.json"
-from eval.module_scan import locate_by_fingerprint  # noqa: E402
+from eval.module_scan import build_report, locate_by_fingerprint  # noqa: E402
 
 
 def group_scan(findings: list[dict]) -> dict[str, list[dict]]:
@@ -42,7 +42,9 @@ def group_scan(findings: list[dict]) -> dict[str, list[dict]]:
 
 
 def rebuild(apply: bool) -> dict:
-    scan = json.loads(SCAN.read_text(encoding="utf-8"))
+    # A fresh checkout has no cached scan. Compute it without persisting anything,
+    # so dry-run remains read-only and does not depend on test execution order.
+    scan = json.loads(SCAN.read_text(encoding="utf-8")) if SCAN.is_file() else build_report()
     current = group_scan(scan.get("findings") or [])
     backlog = json.loads(BACKLOG.read_text(encoding="utf-8"))
 

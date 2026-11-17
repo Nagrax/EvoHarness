@@ -14,6 +14,13 @@ from pathlib import Path
 # 双击运行时把工作目录锁定到项目根，保证 .env / skills / MCP 配置都能找到
 os.chdir(Path(__file__).resolve().parent)
 
+# DE-43 根入口接线：未配置业务库时，桌面默认使用本仓库 data/evoharness.db。
+# 不读凭据、不改 .env；组织工作台与个人对话同一窗口，飞书未配置不影响使用。
+if not (os.environ.get("EVOHARNESS_DATABASE_URL") or "").strip():
+    os.environ["EVOHARNESS_DATABASE_URL"] = (
+        "sqlite:///" + (Path.cwd() / "data" / "evoharness.db").resolve().as_posix()
+    )
+
 
 def _pick_port() -> int:
     """8800 被占用（比如本地服务已在跑）时自动换一个空闲端口。"""

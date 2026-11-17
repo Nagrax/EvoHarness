@@ -14,7 +14,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .skill_evolution import SKILL_USAGE_STATS, get_evolution_dir
+from .skill_evolution import (SKILL_USAGE_STATS, _append_jsonl, _utc_now,
+                              get_evolution_dir, skill_state_read_only)
 
 # 检索权重只对评测认证过的状态生效；其余状态一律 1.0（不惩罚新 skill）。
 STATUS_WEIGHTS = {"healthy": 1.25, "watch": 0.75}
@@ -22,8 +23,68 @@ STATUS_WEIGHTS = {"healthy": 1.25, "watch": 0.75}
 PROVISIONAL_STATUSES = {"incubating", "unobserved"}
 
 
+SCOPED_STATUS_FILE = "skill_status_scoped.json"
+SCOPED_STATUS_AUDIT = "skill_status_scoped_audit.jsonl"
+
+
 def status_map_path() -> Path:
     return get_evolution_dir() / "online-eval" / "status_map.json"
+
+
+def status_scoped_path() -> Path:
+    return get_evolution_dir() / SCOPED_STATUS_FILE
+
+
+def _scope_key(scope: dict | None) -> str:
+    s = scope or {}
+    return "|".join(str(s.get(key) or "").strip() for key in
+                    ("tenant", "space", "owner"))
+
+
+def get_status_scoped_map(scope: dict | None) -> dict[str, str]:
+    """作用域状态：base 有效状态 + 该 tenant/space/owner 的覆盖。"""
+    base = dict(get_effective_status_map())
+    data = _read_json(status_scoped_path(), {})
+    buckets = data.get("statuses") if isinstance(data, dict) else {}
+    bucket = buckets.get(_scope_key(scope)) if isinstance(buckets, dict) else {}
+    if isinstance(bucket, dict):
+        base.update({str(name): str(status) for name, status in bucket.items()})
+    return base
+
+
+def set_status_scoped(skill_name: str, status: str, *, scope: dict,
+                      actor: str = "system", reason: str = "") -> dict[str, Any]:
+    """作用域状态覆盖入口：只影响该 tenant/space/owner，base 状态表不动。"""
+    if skill_state_read_only():
+        return {"ok": False, "error": "holdout read-only mode: status writes disabled"}
+    skill = str(skill_name or "").strip()
+    target = str(status or "").strip()
+    if not skill or not target:
+        return {"ok": False, "error": "skill_and_status_required"}
+    resolved_scope = {key: str((scope or {}).get(key) or "").strip()
+                      for key in ("tenant", "space", "owner")}
+    if not any(resolved_scope.values()):
+        return {"ok": False, "error": "scope_required"}
+    key = _scope_key(resolved_scope)
+    data = _read_json(status_scoped_path(), {})
+    buckets = data.get("statuses") if isinstance(data, dict) else {}
+    if not isinstance(buckets, dict):
+        buckets = {}
+    bucket = dict(buckets.get(key) or {})
+    bucket[skill] = target
+    buckets[key] = bucket
+    path = status_scoped_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": 1, "statuses": buckets},
+                               ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8")
+    _append_jsonl(get_evolution_dir() / SCOPED_STATUS_AUDIT, {
+        "event": "status_change", "time": _utc_now(), "skill": skill,
+        "status": target, "scope": resolved_scope, "actor": actor,
+        "reason": str(reason or "")[:300],
+    })
+    return {"ok": True, "skill": skill, "status": target,
+            "scope": resolved_scope}
 
 
 _cached_status_map: dict[str, str] | None = None
@@ -42,6 +103,16 @@ def _read_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
+
+
+def reset_status_cache() -> None:
+    """撤权/作用域变化时清空状态缓存（下一次读取重新物化）。"""
+    global _cached_status_map, _cached_certified_map
+    global _cached_status_mtime, _cached_certified_mtime
+    _cached_status_map = None
+    _cached_certified_map = None
+    _cached_status_mtime = -1.0
+    _cached_certified_mtime = -1.0
 
 
 def get_trusted_status_map() -> dict[str, str]:

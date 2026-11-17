@@ -33,7 +33,39 @@ def skill_state_read_only() -> bool:
 
 
 def get_evolution_dir() -> Path:
+    """进化台账目录。
+
+    `EVOHARNESS_EVOLUTION_DIR` 可覆盖；否则跟随 `EVOHARNESS_SKILLS_ROOT`
+    的父级（部署期把 skill 放共享盘时，台账应跟 skill 在一起）；
+    都没有时保持历史行为：当前目录下的 `.evoharness/skill-evolution`。
+    """
+    override = os.environ.get("EVOHARNESS_EVOLUTION_DIR", "").strip()
+    if override:
+        return Path(override)
+    skills_root = os.environ.get("EVOHARNESS_SKILLS_ROOT", "").strip()
+    if skills_root:
+        return Path(skills_root).parent / ".evoharness" / "skill-evolution"
     return Path.cwd() / ".evoharness" / "skill-evolution"
+
+
+def _scope_part(value: object) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]", "_", str(value or "").strip())
+    return text or "_"
+
+
+def history_dir(scope: dict | None = None) -> Path:
+    """历史快照目录：无作用域=旧全局 history/；受域=history_scoped/<tenant>/<space>/<owner>/。
+
+    目录名只允许安全字符（Windows 不允许 ``|`` 等），空段用 ``_``。
+    """
+    base = get_evolution_dir()
+    if not scope:
+        return base / HISTORY_DIR
+    parts = [_scope_part((scope or {}).get(name)) for name in
+             ("tenant", "space", "owner")]
+    if all(part == "_" for part in parts):
+        return base / HISTORY_DIR
+    return base / "history_scoped" / Path(*parts)
 
 
 def _utc_now() -> str:
@@ -129,6 +161,8 @@ def record_skill_invocation(
     source: str,
     context: str,
     args: object = "",
+    scope: dict | None = None,
+    skill_sha256: str = "",
 ) -> None:
     row = {
         "event": "invoke",
@@ -138,6 +172,18 @@ def record_skill_invocation(
         "context": context,
         "args_preview": _preview(args),
     }
+    if isinstance(scope, dict) and scope:
+        # DE-06：使用事件携带 tenant/space/owner/producer/revision，供按域归集
+        row["scope"] = {key: scope.get(key) for key in
+                        ("tenant", "space", "owner", "producer", "source_revision")
+                        if scope.get(key) not in (None, "")}
+    if (isinstance(scope, dict) and all(isinstance(scope.get(k), str) and scope[k].strip()
+                                        for k in ("tenant", "space", "owner", "producer"))
+            and type(scope.get("source_revision")) is int and scope["source_revision"] >= 0
+            and re.fullmatch(r"[0-9a-f]{64}", skill_sha256 or "")):
+        row["ref"] = {"name": skill_name, **{k: scope[k] for k in
+                      ("tenant", "space", "owner", "producer", "source_revision")}}
+        row["skill_sha256"] = skill_sha256
     _append_jsonl(get_evolution_dir() / USAGE_LOG, row)
 
 
@@ -245,6 +291,27 @@ def _bump_patch(version: str | None) -> str:
     return ".".join(parts[:3])
 
 
+def skill_content_hash(payload: Any) -> str:
+    """技能制品内容指纹（sha256）：只哈希承载行为的四个内容字段。
+
+    评测报告用它绑定「被评测的是哪份制品」，晋级/发布用它校验「当前 active 还是
+    不是被评测的那份」。刻意不含 skill_dir/source/version 等环境字段：移动目录、
+    纯 bump 版本号不构成内容漂移，否则会造成假阳性 active_drift。
+    online_skill_eval（报告侧）与 skill_tiers（晋级门侧）共用本函数，保证两侧
+    口径一致——指纹算法只此一处定义。
+    """
+    data = payload if isinstance(payload, dict) else {}
+    normalized = {
+        "name": str(data.get("name") or ""),
+        "description": str(data.get("description") or ""),
+        "when_to_use": str(data.get("when_to_use") or data.get("when-to-use") or ""),
+        "instructions": str(data.get("instructions") or ""),
+    }
+    return hashlib.sha256(
+        json.dumps(normalized, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
 def _find_skill_file_by_name(base_dir: Path, skill_name: str) -> Path | None:
     if not base_dir.is_dir():
         return None
@@ -273,12 +340,12 @@ def resolve_skill_file(skill_name: str, *, target: str = "active", active_dir: s
             return skill_file
 
     if target in ("project", "active"):
-        found = _find_skill_file_by_name(Path.cwd() / ".evoharness" / "skills", skill_name)
+        found = _find_skill_file_by_name(_skills_root("project"), skill_name)
         if found:
             return found
 
     if target in ("user", "active"):
-        found = _find_skill_file_by_name(Path.home() / ".evoharness" / "skills", skill_name)
+        found = _find_skill_file_by_name(_skills_root("user"), skill_name)
         if found:
             return found
 
@@ -286,6 +353,15 @@ def resolve_skill_file(skill_name: str, *, target: str = "active", active_dir: s
 
 
 def _skills_root(target: str) -> Path:
+    """skill 根目录。
+
+    `EVOHARNESS_SKILLS_ROOT` 可覆盖（部署期把 skill 放到共享盘，
+    或测试期隔离到临时目录）。未设置时保持历史行为：当前目录下的
+    `.evoharness/skills` / 用户 home 下的同名目录。
+    """
+    override = os.environ.get("EVOHARNESS_SKILLS_ROOT", "").strip()
+    if override:
+        return Path(override)
     target = (target or "project").strip().lower()
     if target == "user":
         return Path.home() / ".evoharness" / "skills"
@@ -433,6 +509,8 @@ def evolve_skill_file(
     description: str = "",
     when_to_use: str = "",
     tags: list[str] | None = None,
+    expected_version: str | None = None,
+    scope: dict | None = None,
 ) -> dict[str, Any]:
     if skill_state_read_only():
         return {"ok": False, "error": "holdout read-only mode: skill evolution disabled"}
@@ -443,6 +521,20 @@ def evolve_skill_file(
     raw = skill_file.read_text(encoding="utf-8")
     parsed = parse_frontmatter(raw)
     meta = dict(parsed.meta)
+    if meta.get("producer-kind") == "projection" or meta.get("managed-by") == "experience.skill_sync":
+        return {"ok": False, "error": "managed_projection_source_owned"}
+    # DE-18 版本条件写入（CAS）：调用方声明「我看到的是 expected_version 这个版本」，
+    # 期间文件被在线演化/投影重建/搜索发布改过（版本已变）时拒绝写入并返回
+    # source_changed 语义——绝不覆盖新用户决定（§7：三个写入者用 CAS 裁决竞争）。
+    # 默认 None 保持现行为（DE-34/35 搜索采用按需传入）。
+    if expected_version is not None and str(meta.get("version", "")) != str(expected_version):
+        return {
+            "ok": False,
+            "error": "source_changed",
+            "expected_version": str(expected_version),
+            "current_version": str(meta.get("version", "")),
+            "file": str(skill_file),
+        }
     resolved_name = meta.get("name") or skill_file.parent.name
 
     snapshot = {
@@ -456,7 +548,11 @@ def evolve_skill_file(
         "rationale": _preview(rationale, 1200),
         "content": raw,
     }
-    history_path = get_evolution_dir() / HISTORY_DIR / f"{_safe_skill_slug(resolved_name)}.jsonl"
+    if scope:
+        snapshot["scope"] = {name: scope.get(name) for name in
+                             ("tenant", "space", "owner", "producer", "source_revision")
+                             if scope.get(name) not in (None, "")}
+    history_path = history_dir(scope) / f"{_safe_skill_slug(resolved_name)}.jsonl"
     _append_jsonl(history_path, snapshot)
 
     meta["name"] = resolved_name
@@ -879,6 +975,71 @@ def load_skill_stats() -> dict[str, dict[str, Any]]:
     return stats
 
 
+def _scope_key(scope: dict) -> tuple[str, ...]:
+    return tuple(str(scope.get(key) if scope.get(key) is not None else
+                     (0 if key == "source_revision" else "")) for key in
+                 ("tenant", "space", "owner", "producer", "source_revision"))
+
+
+def load_skill_stats_scoped(scope: dict) -> dict[str, dict[str, Any]]:
+    """按作用域归集 usage 事件（DE-06）；旧无 scope 行不混入受域统计。"""
+    key = _scope_key(scope or {})
+    stats: dict[str, dict[str, Any]] = {}
+    history_root = history_dir(scope)
+    path = get_evolution_dir() / USAGE_LOG
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines() if path.is_file() else []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(row, dict):
+            continue
+        row_scope = row.get("scope")
+        if not isinstance(row_scope, dict) or _scope_key(row_scope) != key:
+            continue
+        skill = str(row.get("skill") or "").strip()
+        if not skill:
+            continue
+        item = stats.setdefault(skill, {"created": 0, "invocations": 0,
+                                       "feedback": 0, "evolutions": 0})
+        event = row.get("event")
+        if event == "create":
+            item["created"] += 1
+        elif event == "invoke":
+            item["invocations"] += 1
+            item["last_invoked"] = row.get("time")
+        elif event == "feedback":
+            item["feedback"] += 1
+            item["last_feedback"] = row.get("time")
+        elif event == "evolve":
+            item["evolutions"] += 1
+            item["last_evolved"] = row.get("time")
+    if history_root.is_dir():
+        for history_file in history_root.glob("*.jsonl"):
+            count = 0
+            for line in history_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    row = json.loads(line)
+                except (ValueError, TypeError):
+                    continue
+                if (isinstance(row, dict) and isinstance(row.get("scope"), dict)
+                        and _scope_key(row["scope"]) == key
+                        and all(k in row["scope"] for k in ("producer", "source_revision")
+                                if k in scope)):
+                    count += 1
+            if count:
+                stats.setdefault(history_file.stem, {}).setdefault("snapshots", count)
+    return stats
+
+
+def reset_usage_cache() -> None:
+    """撤权/作用域变化时清空 usage 聚合缓存（下一次读取重新计算）。"""
+    global _usage_index_cache_key, _usage_index_cache
+    _usage_index_cache_key = None
+    _usage_index_cache = None
+
+
 def format_skill_stats() -> str:
     stats = load_skill_stats()
     if not stats:
@@ -908,3 +1069,77 @@ def format_skill_stats() -> str:
             parts.append("pruned=true")
         lines.append(f"  {name}: " + ", ".join(parts))
     return "\n".join(lines)
+
+
+def write_managed_projection(*, skills_root: Path, evolution_root: Path, name: str,
+                             description: str, instructions: str, when_to_use: str,
+                             scope: dict, source_revisions: list[dict], actor: str) -> dict[str, Any]:
+    """Source-owned projection writer with explicit roots; never changes process env.
+
+    This API does not publish independent SOPs or promote deployment tiers.
+    Experience remains the only authority for this replaceable representation.
+    """
+    if skill_state_read_only():
+        return {"ok": False, "error": "holdout read-only mode: projection disabled"}
+    if not scope.get("tenant") or not scope.get("owner"):
+        return {"ok": False, "error": "projection_scope_missing"}
+    slug = _safe_skill_slug(name)
+    if slug != name or not description.strip():
+        return {"ok": False, "error": "invalid_projection_name"}
+    root, state = Path(skills_root).resolve(), Path(evolution_root).resolve()
+    directory = root / slug
+    target = directory / "SKILL.md"
+    manifest = directory / ".projection.json"
+    content_hash = hashlib.sha256(instructions.strip().encode("utf-8")).hexdigest()
+    import tempfile
+    directory.mkdir(parents=True, exist_ok=True)
+    lock = directory / ".projection.lock"
+    try:
+        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return {"ok": False, "error": "projection_busy"}
+    try:
+        os.close(descriptor)
+        previous = target.read_text(encoding="utf-8") if target.is_file() else ""
+        previous_meta = parse_frontmatter(previous).meta if previous else {}
+        if previous and (previous_meta.get("managed-by") != "experience.skill_sync"
+                         or previous_meta.get("scope-json") != json.dumps(scope, sort_keys=True, ensure_ascii=False)):
+            return {"ok": False, "error": "unmanaged_projection_conflict"}
+        unchanged = previous_meta.get("projection-hash") == content_hash
+        version = previous_meta.get("version", "0.1.0")
+        if previous and not unchanged:
+            version = _bump_patch(version)
+            _append_jsonl(state / "history" / (slug + ".jsonl"), dict(
+                event="projection_snapshot", actor=actor, content=previous,
+                file=str(target), scope=scope, time=_utc_now()))
+        meta = dict(name=name, description=description, version=version,
+                    context="inline", **{"user-invocable": "false", "when-to-use": when_to_use,
+                    "producer-kind": "projection", "managed-by": "experience.skill_sync",
+                    "scope-json": json.dumps(scope, sort_keys=True, ensure_ascii=False),
+                    "projection-hash": content_hash})
+        rendered = format_frontmatter(meta, instructions.strip() + "\n")
+        def atomic_text(path: Path, text: str) -> None:
+            fd, temporary = tempfile.mkstemp(prefix=".projection-", dir=path.parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                    stream.write(text)
+                os.replace(temporary, path)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+        if not unchanged:
+            atomic_text(target, rendered)
+        descriptor = dict(producer_kind="projection", managed_by="experience.skill_sync",
+                          scope=scope, source_revisions=source_revisions, projection_hash=content_hash,
+                          domain=slug.removeprefix("feishu-"), version=version)
+        serialized = json.dumps(descriptor, sort_keys=True, ensure_ascii=False) + "\n"
+        if not manifest.is_file() or manifest.read_text(encoding="utf-8") != serialized:
+            atomic_text(manifest, serialized)
+        action = "unchanged" if unchanged else "evolved" if previous else "created"
+        if action != "unchanged":
+            _append_jsonl(state / "usage.jsonl", dict(event="managed_projection", actor=actor,
+                scope=scope, name=name, file=str(target), version=version, action=action,
+                producer_kind="projection", time=_utc_now()))
+        return {"ok": True, "action": action, "file": str(target), "version": version,
+                "projection_hash": content_hash}
+    finally:
+        lock.unlink(missing_ok=True)

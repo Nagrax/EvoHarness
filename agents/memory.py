@@ -154,9 +154,9 @@ def record_encoding_event(event: str, path: Path, detail: str) -> None:
 
 
 def _legacy_encodings() -> list[str]:
-    """旧编码候选（严格解码用）。去重保序：先本地编码，再 Windows 中文常见编码。"""
+    """旧编码候选（严格解码用）。先兼容既有中文文件，再回退读取主机的编码。"""
     out: list[str] = []
-    for enc in (locale.getpreferredencoding(False), "cp936", "gbk"):
+    for enc in ("cp936", "gbk", locale.getpreferredencoding(False)):
         if enc and enc.lower() not in [e.lower() for e in out]:
             out.append(enc)
     return out
@@ -290,13 +290,28 @@ def list_memories() -> list[MemoryEntry]:
     return entries
 
 
-def save_memory(name: str, description: str, type: str, content: str) -> str:
-    """保存一条 memory，并刷新 MEMORY.md 索引。"""
+def save_memory(name: str, description: str, type: str, content: str,
+                attribution: dict | None = None) -> str:
+    """保存一条 memory，并刷新 MEMORY.md 索引。
+
+    DE-42 组织归因：attribution 非空时把岗位/目标引用写进 frontmatter
+    （org-position-id / org-objective-id / org-evidence-id），组织事件归属可追溯；
+    未携带归因的个人记忆不写任何 org-* 键——个人私聊/凭据不会被沉淀成
+    全组织资产（个人来源与组织来源分别继承，接 DE-38 语义）。
+    """
     d = get_memory_dir()
     # Sanitize type: a value with path separators (e.g. "../") would escape the memory dir.
     safe_type = type if type in VALID_TYPES else "project"
     filename = f"{safe_type}_{_slugify(name)}.md"
-    text = format_frontmatter({"name": name, "description": description, "type": safe_type}, content)
+    meta = {"name": name, "description": description, "type": safe_type}
+    if isinstance(attribution, dict) and attribution:
+        org_meta = {
+            "org-position-id": str(attribution.get("position_id") or "").strip(),
+            "org-objective-id": str(attribution.get("objective_id") or "").strip(),
+            "org-evidence-id": str(attribution.get("evidence_id") or "").strip(),
+        }
+        meta.update({key: value for key, value in org_meta.items() if value})
+    text = format_frontmatter(meta, content)
     (d / filename).write_text(text, encoding="utf-8")
     _update_memory_index()
     return filename

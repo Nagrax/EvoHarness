@@ -94,6 +94,18 @@ def test_daily_report_is_idempotent_and_revised_on_late_data(source):
     target = date(2026, 11, 5)
     report_date = target + timedelta(days=1)
     with session_scope() as session:
+        # 空日报不投递（2026-11-11 起），先造一条待办让报告有内容；
+        # 这条测试关注的是"幂等 + 迟到数据重算"，不是投递策略。
+        session.add(
+            Task(
+                task_key="seed-task", tenant="default", owner="ou_owner",
+                chat_id="oc_1", thread_id="", title="初始任务", action="初始任务",
+                assignee_id="ou_owner", assignee_name="owner",
+                status=TaskStatus.OPEN, needs_confirmation=False,
+                evidence_json="[]", source_message_ids="[]",
+            )
+        )
+        session.flush()
         first = reports.generate_report(session, logical_date=report_date)
         assert first.created
         assert session.query(DailyReport).count() == 1
@@ -127,10 +139,12 @@ def test_daily_card_contains_required_sections_and_gaps(source, monkeypatch):
         report = result.report
         card = json.loads(session.query(Outbox).one().payload_json)["card"]
         text = json.dumps(card, ensure_ascii=False)
+        # v2 排版：有内容的节必须出现；空节不占位（不再渲染"暂无待批回复。"）
         assert "我待处理" in text
-        assert "待批回复" in text
-        assert "已发回复" in text
-        assert "经验变更" in text
+        assert "待批回复" not in text
+        assert "已发回复" not in text
+        assert "经验变更" not in text
+        assert "暂无" not in text
         db_source = session.get(Source, source.id)
         db_source.coverage_status = "partial"
         session.flush()
@@ -138,7 +152,7 @@ def test_daily_card_contains_required_sections_and_gaps(source, monkeypatch):
         card = json.loads(
             session.query(Outbox).order_by(Outbox.id.desc()).first().payload_json
         )["card"]
-        assert "采集与投递缺口" in json.dumps(card, ensure_ascii=False)
+        assert "采集与投递异常" in json.dumps(card, ensure_ascii=False)
 
 
 def test_daily_card_contains_supported_edit_instruction(source, approval_mode, monkeypatch):

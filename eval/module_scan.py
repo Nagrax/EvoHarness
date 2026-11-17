@@ -269,12 +269,8 @@ def coverage_gaps(files: list[Path], tests: list[Path],
     return gaps
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--out", default="")
-    parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
-
+def build_report() -> dict:
+    """Scan the current source without writing artifacts or changing the ledger."""
     files = py_files()
     tests = test_files()
     findings: list[dict] = []
@@ -313,13 +309,25 @@ def main() -> int:
         "top": unique[:40],
         "findings": unique,
     }
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", default="")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    report = build_report()
+    unique = report["findings"]
+    by_severity = report["bySeverity"]
+    by_rule = report["byRule"]
     out = Path(args.out) if args.out else REPO / "eval" / "runs" / "module-scan.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
-        print(f"module-scan: {len(files)} files, {len(unique)} findings -> {out}")
+        print(f"module-scan: {report['filesScanned']} files, {len(unique)} findings -> {out}")
         print("severity:", json.dumps(by_severity, ensure_ascii=False))
         print("rules:", json.dumps(by_rule, ensure_ascii=False))
         for item in unique[:15]:

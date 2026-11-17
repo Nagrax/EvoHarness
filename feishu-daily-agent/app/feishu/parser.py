@@ -15,6 +15,33 @@ _TYPE_LABELS = {
     "system": "[系统消息]",
 }
 
+# 渠道入口归一（DE-22）：文档/纪要导入类消息体的可读文本归一；
+# 既有 msg_type 的解析行为保持不变。
+_CHANNEL_ENTRY_TYPES = ("document_import", "minutes_import")
+
+
+def parse_channel_entry(msg_type: str, raw_content: str) -> dict:
+    """把文档/纪要导入类消息体归一为 {kind, title, text, ref, ...}。
+
+    只服务于 DE-22 渠道入口；返回 dict 供上层路由到
+    evoharness.channels.documents / meeting_notes，解析仍受限（纯文本优先）。
+    非 channel 类型返回空 dict，不改变既有 parse_message_content 行为。
+    """
+    data = _safe_loads(raw_content)
+    if msg_type == "document_import":
+        return {"kind": "document", "title": str(data.get("title") or ""),
+                "text": str(data.get("text") or ""),
+                "ref": str(data.get("doc_id") or ""),
+                "version": data.get("version"),
+                "attachments": data.get("attachments") or []}
+    if msg_type == "minutes_import":
+        return {"kind": "minutes", "title": str(data.get("title") or ""),
+                "text": str(data.get("text") or ""),
+                "ref": str(data.get("minutes_id") or ""),
+                "meeting_ref": str(data.get("meeting_ref") or ""),
+                "authorized_attendees": data.get("authorized_attendees") or []}
+    return {}
+
 
 def _safe_loads(raw: str) -> Any:
     try:
@@ -45,6 +72,10 @@ def parse_message_content(msg_type: str, raw_content: str) -> str:
                     elif tag == "at":
                         parts.append("@" + node.get("user_name", ""))
         return " ".join(p.strip() for p in parts if p and p.strip())
+
+    if msg_type in _CHANNEL_ENTRY_TYPES:
+        entry = parse_channel_entry(msg_type, raw_content)
+        return entry.get("text") or entry.get("title") or ""
 
     return _TYPE_LABELS.get(msg_type, f"[{msg_type}]")
 

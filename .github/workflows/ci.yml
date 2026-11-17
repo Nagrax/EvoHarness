@@ -1,3 +1,5 @@
+# One product: root runtime, Feishu channel and integration regressions.
+# Archived model evidence is checked only when explicitly supplied.
 name: CI
 
 on:
@@ -5,10 +7,37 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  syntax-and-imports:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Syntax check
+        run: python -m compileall agents server evoharness integration eval
+      - name: Parse agents/
+        run: >-
+          python -c "import ast, pathlib;
+          [ast.parse(p.read_text(encoding='utf-8'), filename=str(p))
+          for p in pathlib.Path('agents').rglob('*.py')];
+          print('agents/ parsed')"
+      - name: Product imports cleanly
+        run: python -c "import evoharness, server.app; print('imports ok')"
+
+  product-gate:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -20,22 +49,87 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Install test dependencies
-        run: pip install pytest
-      - name: Syntax check
-        run: python -m compileall agents server
-      - name: Web app imports cleanly
-        run: python -c "import ast, pathlib; [ast.parse(p.read_text(encoding='utf-8'), filename=str(p)) for p in pathlib.Path('agents').rglob('*.py')]; print('agents/ parsed')"
-      - name: Run unit tests
-        run: python -m pytest tests/ -v
-      # E-01：Windows 默认环境是本地编码（cp1252/cp936），产品层文本读写必须显式 UTF-8。
-      # 这一组刻意不设 PYTHONUTF8=1，覆盖「默认非 UTF-8 编码」路径。
-      - name: Run unit tests (Windows default non-UTF8 encoding)
+        run: >
+          pip install -r requirements.txt
+          -r feishu-daily-agent/requirements-dev.txt
+      - name: Dependency consistency
+        run: |
+          python -m pip check
+          python -m pip freeze > installed.txt
+      - name: Prepare isolated tool runtime
+        run: python eval/isolation_coverage.py prepare
+      - name: Product gate (core without evidence files + feishu + integration)
+        run: >
+          python eval/digital_employee_gate.py --jobs product
+          --output-dir "${{ runner.temp }}/evo-gate" --timeout 1800
+      - name: Require every Linux isolation scenario to execute
+        if: runner.os == 'Linux'
+        run: python eval/isolation_coverage.py verify --junit "${{ runner.temp }}/evo-gate/junit-core.xml"
+      # E-01：Windows 默认编码非 UTF-8；该步骤刻意清空 PYTHONUTF8/PYTHONIOENCODING，
+      # 覆盖产品层路径/文本读写的默认编码路径（不重复跑全量，避免第二套口径）。
+      - name: Windows default-encoding portability
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue
           Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue
-          python -m pytest tests/ -q
+          python -m pytest tests/test_de01_portability.py tests/test_dotenv_visibility.py -q
+      - name: Preserve gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evo-gate-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            ${{ runner.temp }}/evo-gate/gate-report.json
+            ${{ runner.temp }}/evo-gate/junit-*.xml
+            ${{ runner.temp }}/evo-gate/*.log
+            installed.txt
+          if-no-files-found: error
+
+  evidence-gate:
+    needs: product-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: >
+          pip install -r requirements.txt
+          -r feishu-daily-agent/requirements-dev.txt
+      - name: Detect frozen evidence archives
+        id: evidence
+        shell: bash
+        run: |
+          present=false
+          for probe in eval/runs/gaia/summary.json \
+                       eval/runs/long-function-assessment.json \
+                       eval/runs/docs-consistency.json; do
+            if [ -f "$probe" ]; then present=true; fi
+          done
+          echo "present=$present" >> "$GITHUB_OUTPUT"
+          if [ "$present" != "true" ]; then
+            echo "::notice title=missing_evidence::冻结证据包未随仓库分发；evidence 验收未执行（不是通过）"
+          fi
+      - name: Evidence gate (only with archives)
+        if: steps.evidence.outputs.present == 'true'
+        run: >
+          python eval/digital_employee_gate.py --jobs evidence
+          --output-dir "${{ runner.temp }}/evo-evidence" --timeout 1800
+      - name: Preserve evidence report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evo-evidence-${{ runner.os }}
+          path: ${{ runner.temp }}/evo-evidence
+          if-no-files-found: warn

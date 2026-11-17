@@ -30,7 +30,7 @@ import shutil
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,7 +59,7 @@ RESULTS_DIR = ROOT / "eval" / "runs" / "evolution"
 
 def _batch_tag(ws_root: Path) -> str:
     """从 workspace 目录名派生批次标识（稳定、可读、不含路径分隔符）。"""
-    name = ws_root.name or "default"
+    name = PureWindowsPath(str(ws_root)).name or "default"
     clean = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in name).strip("-")
     return clean or "default"
 
@@ -806,6 +806,13 @@ def _run_worker_task(item: dict, dataset: str, *, evolve: bool, max_turns: int, 
         agent = None
         try:
             base, key, use_openai = _resolve_api_config(None)
+            from evoharness.governance import eval_budget
+            sdk_client = None
+            if eval_budget.enabled():
+                sdk_client = eval_budget.build_async_client(
+                    api_base=base, api_key=key,
+                    model=os.environ.get("MODEL") or "", use_openai=use_openai,
+                    principal="eval-evolution")
             agent = Agent(
                 permission_mode="bypassPermissions",
                 model=os.environ.get("MODEL"),
@@ -813,12 +820,16 @@ def _run_worker_task(item: dict, dataset: str, *, evolve: bool, max_turns: int, 
                 api_base=base if use_openai else None,
                 anthropic_base_url=base if not use_openai else None,
                 api_key=key,
+                sdk_client=sdk_client,
             )
             prompt = build_gaia_prompt(item) if dataset == "gaia" else build_hle_prompt(item)
             feedback = simulated_feedback(item, dataset)
 
             async def _go() -> str:
                 r1 = await agent.run_once(prompt)
+                from evoharness.governance.usage_sidecar import write_usage
+                write_usage(getattr(agent, "total_input_tokens", 0)
+                            + getattr(agent, "total_output_tokens", 0))
                 text = str((r1 or {}).get("text") or "")
                 if evolve:
                     # 修订（首轮 pilot 证据 action=none；pilot3 证据 extract_now 静默空转）：

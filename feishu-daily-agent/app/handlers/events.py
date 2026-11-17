@@ -17,12 +17,15 @@ from app.domain import admission, intake
 from app.feishu.messages import IncomingMessage, from_event
 from app.handlers.commands import try_handle_command
 from app.models import Chat, InboxEvent, Message, ReplyDecision, Source
+from app.services import owner_bootstrap
 from app.services.reply_engine import process_incoming
 
 logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="feishu-msg")
 _COMMAND_RE = re.compile(r"^(改|验证|停用|驳回|完成|重开|纠正)\s*#?\d+")
 _replay_started = False
+# 需要给某个会话补发"已开启日报"告知（只发一次，进程内即可）
+_pending_enroll_notice: list[str] = []
 
 
 def _tenant() -> str:
@@ -37,8 +40,74 @@ def _mark_processed(event_id: str, message_id: str = "") -> None:
         logger.warning("标记事件已处理失败 %s: %s", event_id or message_id, exc)
 
 
+def _register_user(incoming: IncomingMessage) -> None:
+    """把首次**私聊**的真人登记进使用者花名册，并自动纳入日报。
+
+    产品定位（2026-11-11 用户明确）：愿意私聊机器人的人就是愿意收日报的人。
+    所以这里不是"等他说订阅"，而是**自动开通 + 明确告知一次**。
+
+    ⚠️ 安全边界（用户明确要求，不可放宽）：
+    只处理 ``chat_type == "p2p"``。**绝不允许**因为机器人被拉进某个群，
+    就推断"群里每个人都同意用这个机器人当自己的数字分身"。
+    - 群成员从未主动联系机器人，对机器人一无所知；
+    - 数字分身会以他的名义对外发言，属于代表人格的行为，
+      必须由本人显式授权（OAuth 授权），不能由"在群里"推导；
+    - 同理，群里的日报推送也不下发到任何未主动联系的个人。
+
+    这条判断写在这里而不是交给调用方，是为了让"新增入口"时无法绕过。
+    """
+    if incoming.chat_type != "p2p" or incoming.is_from_bot:
+        return
+    if not (incoming.sender_id or "").startswith("ou_"):
+        return
+    # 群/话题消息一律不触发身份开通（含群里的子线程）
+    if (incoming.thread_id or "").strip() and incoming.chat_type != "p2p":
+        return
+    try:
+        from app.services import roster, subscription
+
+        with session_scope() as session:
+            roster.register_user(
+                session,
+                open_id=incoming.sender_id,
+                chat_id=incoming.chat_id,
+                name=incoming.sender_name or "",
+            )
+            need_notice = subscription.auto_enroll(
+                session,
+                open_id=incoming.sender_id,
+                chat_id=incoming.chat_id,
+                name=incoming.sender_name or "",
+            )
+        if need_notice:
+            # 告知只发一次：把它挂到该会话的待发通知里，不额外打扰。
+            _pending_enroll_notice.append(incoming.chat_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("使用者登记失败 %s: %s", incoming.message_id[-6:], exc)
+
+
+def _enroll_notice_for(chat_id: str) -> str | None:
+    """取走该会话待发的"已开启日报"告知（只发一次）。"""
+    try:
+        _pending_enroll_notice.remove(chat_id)
+    except ValueError:
+        return None
+    from app.services.subscription import ENROLL_NOTICE
+
+    return ENROLL_NOTICE
+
+
 def persist_event(incoming: IncomingMessage, *, event_id: str = "") -> tuple[bool, str, bool]:
     """落盘准入与消息本体；返回 (accepted, reason, should_process)。"""
+    try:
+        owner_bootstrap.maybe_bootstrap_owner(incoming)
+        # 已显式配置 owner 会话时，首条消息用于学习 owner open_id
+        # （卡片审批令牌与 owner 指令都按 open_id 绑定）。
+        owner_bootstrap.learn_owner_from_message(incoming)
+        # 新使用者第一次私聊机器人时登记进花名册，否则他永远收不到日报。
+        _register_user(incoming)
+    except Exception as exc:  # noqa: BLE001 — 引导失败不能丢掉真实消息
+        logger.error("owner bootstrap 失败（消息仍按原规则准入）: %s", exc)
     with session_scope() as session:
         intake.record_event(
             session,
@@ -196,4 +265,8 @@ def handle_message_event(data) -> None:
         logger.error("指令处理失败: %s", exc)
         _mark_processed(event_id, incoming.message_id)
         return
+    # 首次私聊：把"已开启日报"的告知随草稿一起带出去，避免多发一条消息
+    notice = _enroll_notice_for(incoming.chat_id)
+    if notice:
+        incoming.enroll_notice = notice
     _executor.submit(_safe_process, incoming, event_id)

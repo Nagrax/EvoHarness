@@ -18,7 +18,7 @@ import argparse
 import json
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 RUNS = REPO / "eval" / "runs"
 
 

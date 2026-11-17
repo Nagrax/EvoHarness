@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-REPO = Path(r"D:/claudecode/EvoHarness")
+REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "eval" / "runs" / "context" / "longdoc"
 
 # 目标约 60K tokens ≈ 240K 字符（中文/英文混合按 ~4 字符/token 粗估）

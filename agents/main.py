@@ -65,8 +65,29 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Deployment tier ops (no agent, no API key): list | promote <skill> | rollback <skill> | core <skill>",
     )
+    parser.add_argument(
+        "--root",
+        nargs=argparse.REMAINDER,
+        default=None,
+        help="转发到根入口 python -m evoharness（init/serve/org/work/doctor），"
+             "例如: evoharness --root org view --org org-demo；原个人会话 CLI 不受影响",
+    )
     parser.add_argument("--help", "-h", action="store_true", help="Show help")
     return parser.parse_args()
+
+
+def _forward_to_root(root_args: list[str]) -> int:
+    """DE-43 兼容转发：组织命令走根入口；个人会话 CLI 行为保持不变。"""
+    if not root_args:
+        print("usage: evoharness --root init | serve | org | work | doctor [...]")
+        return 2
+    print("[forward] 已转发到根入口 python -m evoharness " + " ".join(root_args))
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from evoharness.__main__ import main as root_main
+
+    return root_main(root_args)
 
 
 def _run_skills_tier_command(parts: list[str]) -> None:
@@ -508,6 +529,10 @@ Examples:
         _run_skills_tier_command(args.skills_tier)
         return
 
+    if args.root is not None:
+        # 组织命令兼容转发到根入口；不创建 Agent、不需要模型 key。
+        sys.exit(_forward_to_root(args.root))
+
     # 将命令行布尔开关统一转换成 Agent 内部使用的权限模式。
     permission_mode = _resolve_permission_mode(args)
     # 模型优先使用命令行参数，其次读取 .env 中的 MODEL，最后回落到默认模型。
@@ -525,6 +550,17 @@ Examples:
         sys.exit(1)
 
     # 创建主 Agent。OpenAI-compatible 和 Anthropic 原生接口使用不同的 base URL 参数名传入。
+    # DE-15：组织模式必须经预算网关（与 Agent 直连阻断同一开关）；本地模式保持原直连。
+    sdk_client = None
+    from evoharness.governance import chat_budget
+    if chat_budget.budget_enforced():
+        try:
+            sdk_client = chat_budget.build_chat_gateway_client(
+                api_base=resolved_api_base, api_key=resolved_api_key, model=model,
+                use_openai=resolved_use_openai, principal_id="repl")
+        except Exception as error:  # noqa: BLE001 — 装配缺口必须可见且可操作
+            print_error(f"Budget gateway unavailable: {error}")
+            sys.exit(2)
     agent = Agent(
         permission_mode=permission_mode,
         model=model,
@@ -534,6 +570,7 @@ Examples:
         api_base=resolved_api_base if resolved_use_openai else None,
         anthropic_base_url=resolved_api_base if not resolved_use_openai else None,
         api_key=resolved_api_key,
+        sdk_client=sdk_client,
         # Loop 阶段状态机（改造二评审 #5）：仅 --plan CLI 显式激活；REPL /plan、
         # enter_plan_mode 与子 Agent 不激活。
         loop_stages=args.plan,

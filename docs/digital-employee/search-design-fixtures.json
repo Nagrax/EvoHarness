@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "status": "design_reference_only_product_not_implemented",
+  "epsilon": 0.000001,
+  "scope": "合成分数仅校验设计语义，不是模型/业务实验结果；安全与评测有效性硬门先于评分比较",
+  "frontier_example": {
+    "case_ids": ["case-1", "case-2", "case-3"],
+    "candidates": [
+      {"id": "A", "scores": [1.0, 0.6, 0.3], "created_sequence": 0},
+      {"id": "B", "scores": [0.7, 1.0, 0.4], "created_sequence": 1},
+      {"id": "C", "scores": [1.0, 1.0, 0.5], "created_sequence": 2},
+      {"id": "D", "scores": [0.8, 0.7, 0.9], "created_sequence": 3}
+    ],
+    "expected": {"frontier": ["C", "D"], "weights": {"C": 2, "D": 1}, "probabilities": {"C": "2/3", "D": "1/3"}, "search_champion": "C", "pool_retains": ["A", "B", "C", "D"]}
+  },
+  "admission_examples": [
+    {"id": "parent_dominates", "parent": [0.9, 0.9], "child": [0.8, 0.9], "expected": "reject_dominated"},
+    {"id": "child_dominates", "parent": [0.8, 0.9], "child": [0.9, 0.9], "expected": "admit"},
+    {"id": "complementary_lower_mean", "parent": [1.0, 1.0, 0.5], "child": [0.8, 0.7, 0.9], "expected": "admit"},
+    {"id": "equal_scores", "parent": [0.8, 0.9], "child": [0.8, 0.9], "expected": "no_effect"},
+    {"id": "epsilon_tie", "parent": [0.8, 0.9], "child": [0.8000001, 0.8999999], "expected": "no_effect"},
+    {"id": "safety_before_mean", "parent": [0.8, 0.9], "child": [1.0, 1.0], "safety_passed": false, "expected": "reject_safety"},
+    {"id": "missing_case", "parent": [0.8, 0.9], "child": [1.0], "expected": "invalid_evaluation"}
+  ],
+  "holdout_contract": {
+    "one_locked_candidate_per_search": true,
+    "feedback_may_access_splits": ["search"],
+    "holdout_failure_may_select_runner_up": false,
+    "pool_admission_grants_release": false
+  }
+}

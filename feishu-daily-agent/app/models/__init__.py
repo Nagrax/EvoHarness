@@ -1,4 +1,4 @@
-from app.models.entities import (
+﻿from app.models.entities import (
     ActionToken,
     Base,
     Category,
@@ -23,6 +23,7 @@ from app.models.entities import (
     Source,
     SourceSync,
     SystemState,
+    TwinIdentity,
     Task,
     TaskEvent,
     TaskStatus,
@@ -53,6 +54,7 @@ __all__ = [
     "Source",
     "SourceSync",
     "SystemState",
+    "TwinIdentity",
     "Task",
     "TaskEvent",
     "TaskStatus",

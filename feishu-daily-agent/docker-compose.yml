@@ -1,10 +1,26 @@
+# Compatibility entry; build the same complete EvoHarness image from the root.
 services:
   feishu-daily-agent:
-    build: .
-    image: feishu-daily-agent:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: evoharness:latest
+    working_dir: /app/feishu-daily-agent
+    entrypoint: [python, main.py]
+    command: [run]
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: .env
+    environment:
+      DATABASE_URL: ${EVOHARNESS_DATABASE_URL:-sqlite:////data/agent.db}
+      EVOHARNESS_DATABASE_URL: ${EVOHARNESS_DATABASE_URL:-sqlite:////data/agent.db}
     volumes:
-      # 持久化 SQLite 数据库，容器重建不丢经验
-      - ./data:/app/data
+      - ./data:/data
+    healthcheck:
+      test: [CMD, python, main.py, health]
+      interval: 60s
+      timeout: 30s
+      start_period: 30s
+      retries: 3
+    stop_signal: SIGTERM
+    stop_grace_period: 60s
+    init: true

@@ -36,7 +36,7 @@ def test_silent_except_not_double_counted():
 
 
 def test_real_backlog_has_medium_module_items():
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -58,7 +58,7 @@ def test_real_backlog_has_medium_module_items():
 
 def test_aggregated_item_keeps_locations():
     """聚合不能丢掉定位信息（否则无法推进）。"""
-    path = REPO / "eval" / "loop" / "BACKLOG.json"
+    path = REPO / "tests" / "fixtures" / "loop-backlog.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))
