@@ -29,6 +29,7 @@ import hashlib
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -354,7 +355,8 @@ def _write_tiers_atomic(path: Path, value: dict[str, Any]) -> None:
     if skill_state_read_only():
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    # Wall-clock resolution can repeat across threads on Windows.
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     payload = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     last_error: OSError | None = None
     for attempt in range(5):
@@ -489,7 +491,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
     if skill_state_read_only():
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     last_error: OSError | None = None
     for attempt in range(5):
         try:
