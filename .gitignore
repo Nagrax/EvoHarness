@@ -320,6 +320,7 @@ HANDOFF-README.md
 /data/org.db.bak-*
 
 # Local experiments, imported datasets and delivery notes
+*.bak-before-extract
 /data/
 /paper/
 /scratch/
