@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -89,11 +90,26 @@ def set_status_scoped(skill_name: str, status: str, *, scope: dict,
 
 _cached_status_map: dict[str, str] | None = None
 _cached_certified_map: dict[str, str] | None = None
-# 两张缓存各自独立 mtime：共享一个 mtime 时，先刷新的表（检索路径上 certified 先行）
-# 会更新共享值，令另一张表误判"没变"而返回陈旧数据——评测重新物化 status_map.json 后
-# provisional 标注/状态展示将永久停留在旧值（部署分区标注矩阵测试抓到的既有缺陷）。
-_cached_status_mtime: float = -1.0
-_cached_certified_mtime: float = -1.0
+# Each view tracks its own immutable file snapshot. Timestamps alone can collide
+# on fast rewrites and do not identify the scope when the source path changes.
+_cached_status_identity: tuple[str, bytes] | None = None
+_cached_certified_identity: tuple[str, bytes] | None = None
+
+
+def _status_snapshot(path: Path) -> tuple[tuple[str, bytes] | None, bytes]:
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None, b""
+    return (str(path.resolve()), hashlib.sha256(raw).digest()), raw
+
+
+def _decode_snapshot(raw: bytes) -> dict:
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -108,29 +124,29 @@ def _read_json(path: Path, default: Any) -> Any:
 def reset_status_cache() -> None:
     """撤权/作用域变化时清空状态缓存（下一次读取重新物化）。"""
     global _cached_status_map, _cached_certified_map
-    global _cached_status_mtime, _cached_certified_mtime
+    global _cached_status_identity, _cached_certified_identity
     _cached_status_map = None
     _cached_certified_map = None
-    _cached_status_mtime = -1.0
-    _cached_certified_mtime = -1.0
+    _cached_status_identity = None
+    _cached_certified_identity = None
 
 
 def get_trusted_status_map() -> dict[str, str]:
     """读评测物化的状态表；文件更新时自动刷新。没跑过评测时返回空 dict。"""
-    global _cached_status_map, _cached_status_mtime
+    global _cached_status_map, _cached_status_identity
     path = status_map_path()
-    if not path.is_file():
+    identity, raw = _status_snapshot(path)
+    if identity is None:
         _cached_status_map = {}
-        _cached_status_mtime = -1.0
+        _cached_status_identity = None
         return {}
-    mtime = path.stat().st_mtime
-    if _cached_status_map is None or mtime != _cached_status_mtime:
-        data = _read_json(path, {})
+    if _cached_status_map is None or identity != _cached_status_identity:
+        data = _decode_snapshot(raw)
         statuses = data.get("statuses") if isinstance(data, dict) else None
         _cached_status_map = (
             {str(k): str(v) for k, v in statuses.items()} if isinstance(statuses, dict) else {}
         )
-        _cached_status_mtime = mtime
+        _cached_status_identity = identity
     return _cached_status_map
 
 
@@ -140,20 +156,20 @@ def get_certified_status_map() -> dict[str, str]:
     无答卷 skill 的估算状态（典型是手动导入）只用于试用期待遇，
     不加权不降权：行为达标是"不惩罚"，够不上"认证奖励"。
     """
-    global _cached_certified_map, _cached_certified_mtime
+    global _cached_certified_map, _cached_certified_identity
     path = status_map_path()
-    if not path.is_file():
+    identity, raw = _status_snapshot(path)
+    if identity is None:
         _cached_certified_map = {}
-        _cached_certified_mtime = -1.0
+        _cached_certified_identity = None
         return {}
-    mtime = path.stat().st_mtime
-    if _cached_certified_map is None or mtime != _cached_certified_mtime:
-        data = _read_json(path, {})
+    if _cached_certified_map is None or identity != _cached_certified_identity:
+        data = _decode_snapshot(raw)
         certified = data.get("certified_statuses") if isinstance(data, dict) else None
         _cached_certified_map = (
             {str(k): str(v) for k, v in certified.items()} if isinstance(certified, dict) else {}
         )
-        _cached_certified_mtime = mtime
+        _cached_certified_identity = identity
     return _cached_certified_map
 
 

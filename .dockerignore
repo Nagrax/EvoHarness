@@ -1,3 +1,25 @@
+# Only product source and dependency inputs enter the build context.
+**
+!Dockerfile
+!.mcp.json
+!requirements.txt
+!requirements-organization.txt
+!README.md
+!agents/
+!agents/**
+!server/
+!server/**
+!evoharness/
+!evoharness/**
+!ops/
+!ops/**
+!frontend/
+!frontend/**
+!integration/
+!integration/**
+!feishu-daily-agent/
+!feishu-daily-agent/**
+
 .git
 .gitignore
 .env
@@ -27,3 +49,9 @@ docs
 .evoharness
 scratch
 paper
+
+**/node_modules
+**/*.key
+**/*.pem
+**/credentials*
+frontend/eval_results.json
