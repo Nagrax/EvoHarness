@@ -1117,7 +1117,7 @@ def format_skill_stats() -> str:
     return "\n".join(lines)
 
 
-def _projection_io_path(path: Path) -> Path:
+def _skill_io_path(path: Path) -> Path:
     """Keep Windows atomic tempfiles and nested audit paths outside MAX_PATH."""
     if os.name != "nt":
         return path
@@ -1145,8 +1145,8 @@ def write_managed_projection(*, skills_root: Path, evolution_root: Path, name: s
     if slug != name or not description.strip():
         return {"ok": False, "error": "invalid_projection_name"}
     original_root = Path(skills_root).resolve()
-    root = _projection_io_path(original_root)
-    state = _projection_io_path(Path(evolution_root).resolve())
+    root = _skill_io_path(original_root)
+    state = _skill_io_path(Path(evolution_root).resolve())
     directory = root / slug
     target = directory / "SKILL.md"
     display_target = original_root / slug / "SKILL.md"

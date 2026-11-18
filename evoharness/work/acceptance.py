@@ -395,7 +395,8 @@ def review(session: Session, task_id: int, *, run_id: str, reviewer: str,
             session.flush()
             return task
         session.add(TaskEvent(task_id=task_id, event_type="acceptance_passed",
-                              actor=reviewer, detail=notes[:500]))
+                              actor=reviewer, detail=notes[:500],
+                              evidence_message_ids=json.dumps([f"run:{run.id}"])))
         from evoharness.knowledge.task_learning import capture_feedback
         capture_feedback(session,task,run,reviewer=reviewer,verdict=verdict,notes=notes)
         session.flush()

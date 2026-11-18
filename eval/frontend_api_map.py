@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 # 前端是单文件 frontend/index.html（内联 JS）；server/static 留作兼容
 STATIC_DIRS = [REPO / "frontend", REPO / "server" / "static"]
 APP = REPO / "server" / "app.py"
+WORKSPACE = REPO / "server" / "workspace.py"
 
 ROUTE_RE = re.compile(r'@app\.(get|post|delete|put|patch)\(\s*["\']([^"\']+)["\']')
 # 允许查询串与模板拼接：/api/history?session_id= 也计入引用；
@@ -26,8 +27,13 @@ FETCH_RE = re.compile(r'(?:apiFetch|fetch)\(\s*[\'"`]([^\'"`?]+)')
 
 
 def backend_routes() -> dict[str, str]:
-    text = APP.read_text(encoding="utf-8")
-    return {path: method.upper() for method, path in ROUTE_RE.findall(text)}
+    routes = {path: method.upper() for method, path in ROUTE_RE.findall(APP.read_text(encoding="utf-8"))}
+    routes.update({
+        path: method.upper()
+        for method, path in ROUTE_RE.findall(WORKSPACE.read_text(encoding="utf-8"))
+        if path.startswith("/api/")
+    })
+    return routes
 
 
 def frontend_refs() -> tuple[set[str], list[dict]]:

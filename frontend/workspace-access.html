@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EvoHarness 工作区</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7fa;color:#182235;font:16px system-ui,sans-serif}
+main{max-width:440px;margin:8vh auto;padding:22px}h1{font-size:25px}h2{font-size:17px;margin-top:0}
+section{background:white;border:1px solid #dce3ed;border-radius:12px;padding:22px;margin:16px 0}
+label{display:grid;gap:6px;margin:12px 0}input,select,button{font:inherit;border:1px solid #b8c4d4;border-radius:7px;padding:9px 11px;min-width:0}
+button{cursor:pointer;background:white;color:#172337}button[type=submit]{background:#193d76;color:white}button:disabled{opacity:.6}
+nav,.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}nav{justify-content:space-between}a{color:#174786}
+#status{color:#9d2424;min-height:1.4em}#inviteCode{width:100%}[hidden]{display:none!important}
+</style>
+<main>
+  <nav><strong>EvoHarness</strong><a href="/">返回演示</a></nav>
+  <section id="auth" hidden>
+    <h1 id="authTitle">登录工作区</h1>
+    <form id="credentials">
+      <label>用户名<input name="username" autocomplete="username" required maxlength="48" autocapitalize="none"></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password" required maxlength="128"></label>
+      <label id="inviteLabel" hidden>邀请码<input name="invitation" maxlength="128" autocomplete="off"></label>
+      <div class="actions"><button type="submit" id="submitAuth">登录</button><button id="toggleAuth" type="button">邀请码注册</button></div>
+    </form>
+  </section>
+  <div id="account" hidden>
+    <nav><h1 id="accountName"></h1><button id="logout">退出登录</button></nav>
+    <section id="existing" hidden>
+      <h2>我的组织</h2>
+      <label>组织<select id="orgPicker"></select></label>
+      <div class="actions"><a id="enter" href="./">进入工作台</a><button id="invite" hidden>邀请员工</button></div>
+      <label id="invitationResult" hidden>邀请码（24 小时内有效，仅可使用一次）<input id="inviteCode" readonly></label>
+      <form id="employee" hidden>
+        <label>数字员工名称<input name="name" required maxlength="80"></label>
+        <button type="submit">添加数字员工</button>
+      </form>
+    </section>
+    <section id="bootstrap" hidden>
+      <form id="createOrg">
+        <label>组织名称<input name="name" required maxlength="80"></label>
+        <button type="submit">创建组织</button>
+      </form>
+    </section>
+  </div>
+  <p id="status" role="status" aria-live="polite"></p>
+</main>
+<script>
+const el=id=>document.getElementById(id);
+const messages={invalid_credentials:'用户名或密码有误，或登录暂被限流。',invitation_invalid:'邀请码无效、已过期或已使用。',
+  invalid_username:'用户名需为 3–48 个英文字母、数字、点、连字符或下划线。','invalid_password':'密码至少 14 个字符。',
+  username_unavailable:'用户名已被使用。',registration_conflict:'注册冲突，请核对用户名和邀请码。',
+  try_again_later:'当前请求较多，请稍后重试。',workspace_login_required:'请重新登录。',
+  organization_management_not_granted:'只有组织管理员可以执行此操作。'};
+let signup=false, organizations=[];
+async function call(route,body){
+  const init=body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+  const res=await fetch('.'+route,init), result=await res.json();
+  if(!result.ok){const failure=new Error(messages[result.reason_code]||result.reason_code||'请求未完成，请重试。');failure.status=res.status;throw failure}
+  return result.data;
+}
+async function action(button, run){
+  button.disabled=true;el('status').textContent='';
+  try{await run()}catch(error){el('status').textContent=error.message||'服务不可用，请重试。'}finally{button.disabled=false}
+}
+function currentOrg(){return organizations.find(org=>org.id===el('orgPicker').value)}
+function selectOrg(){
+  const org=currentOrg();
+  if(!org)return;
+  el('enter').href='./?org='+encodeURIComponent(org.id);
+  el('invite').hidden=el('employee').hidden=!org.manage;
+  el('invitationResult').hidden=true;el('inviteCode').value='';
+}
+async function refresh(selected){
+  try{
+    const account=await call('/api/access/me');organizations=account.organizations;
+    el('auth').hidden=true;el('account').hidden=false;
+    el('accountName').textContent=account.username;
+    el('bootstrap').hidden=!account.can_bootstrap;
+    el('existing').hidden=!organizations.length;
+    el('orgPicker').replaceChildren(...organizations.map(org=>new Option(org.name,org.id)));
+    if(organizations.some(org=>org.id===selected))el('orgPicker').value=selected;
+    selectOrg();
+    if(!organizations.length&&!account.can_bootstrap)el('status').textContent='当前账号没有有效的组织成员资格。';
+  }catch(error){if(error.status!==401)throw error;el('auth').hidden=false;el('account').hidden=true}
+}
+el('toggleAuth').onclick=()=>{
+  signup=!signup;
+  el('authTitle').textContent=signup?'注册工作区':'登录工作区';
+  el('submitAuth').textContent=signup?'注册':'登录';
+  el('toggleAuth').textContent=signup?'返回登录':'邀请码注册';
+  el('inviteLabel').hidden=!signup;
+  const form=el('credentials');form.elements.invitation.required=signup;
+  form.elements.password.autocomplete=signup?'new-password':'current-password';
+  form.elements.password.minLength=signup?14:1;
+  el('status').textContent='';
+};
+el('credentials').onsubmit=event=>{
+  event.preventDefault();const form=event.currentTarget;
+  action(event.submitter,async()=>{
+    await call(signup?'/api/access/register':'/api/access/login',Object.fromEntries(new FormData(form)));
+    form.reset();await refresh();
+    if(!signup&&organizations.length===1)location.assign(el('enter').href);
+  });
+};
+el('orgPicker').onchange=selectOrg;
+el('logout').onclick=event=>action(event.currentTarget,async()=>{await call('/api/access/logout',{});location.replace('./access')});
+el('createOrg').onsubmit=event=>{
+  event.preventDefault();const form=event.currentTarget;
+  action(event.submitter,async()=>{const data=await call('/api/access/organization',{name:form.elements.name.value});form.reset();await refresh(data.org_id)});
+};
+el('invite').onclick=event=>action(event.currentTarget,async()=>{
+  const org=currentOrg(), result=await call('/api/access/invitation',{org_id:org.id});
+  if(currentOrg()!==org)return;
+  el('invitationResult').hidden=false;el('inviteCode').value=result.invitation;el('inviteCode').select();
+});
+el('employee').onsubmit=event=>{
+  event.preventDefault();const form=event.currentTarget;
+  action(event.submitter,async()=>{await call('/api/access/employee',{org_id:currentOrg().id,name:form.elements.name.value});form.reset();el('status').textContent='数字员工已加入组织。'});
+};
+refresh().catch(error=>{el('status').textContent=error.message});
+</script>
+</html>

@@ -90,6 +90,8 @@ def execution_skill_index(
     ranked = (
         rank_corpus_for_query(f"{task.title}\n{task.goal}", corpus) if corpus else []
     )
+    if "delivery-review" in sources and sources["delivery-review"][2].producer == "workspace-starter":
+        ranked = [("delivery-review", 1), *[(name, score) for name, score in ranked if name != "delivery-review"]]
     rows = []
     for name, score in ranked:
         if score <= 0 or len(rows) >= 6:

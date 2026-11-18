@@ -54,6 +54,8 @@ def extractor(seen):
         seen.append((system, user))
         assert "task-B-private-secret" not in user
         if "Set Manager" in system:
+            assert "Never create a new Skill" in system
+            assert [skill["name"] for skill in json.loads(user)["existing_skills"]] == ["refund"]
             return json.dumps(
                 {
                     "action": "revise",
@@ -63,6 +65,8 @@ def extractor(seen):
                 },
                 ensure_ascii=False,
             )
+        assert "only source of new guidance" in system
+        assert json.loads(user)["authorized_review"] == "先核对订单，再查询权威退款规则，保留引用。"
         return json.dumps(
             {
                 "skills": [

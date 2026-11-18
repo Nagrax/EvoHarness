@@ -343,7 +343,8 @@ async def build_candidate(factory, evidence_id, *, actor, side_query=None):
 
         async def maintainer(**kwargs):
             return await maintain_online_skill_candidate(
-                **kwargs, skill_catalog=definitions, write_candidate=propose
+                **kwargs, skill_catalog=definitions, write_candidate=propose,
+                scoped_revision_only=True,
             )
 
         result = await online_ingest(
@@ -354,6 +355,7 @@ async def build_candidate(factory, evidence_id, *, actor, side_query=None):
             attribution=attribution,
             maintainer=maintainer,
             provenance_writer=lambda **kwargs: None,
+            authorized_review=True,
         )
         check()
         with factory.begin() as session:

@@ -530,6 +530,7 @@ async def extract_online_skill_candidate(
     side_query: SideQuery,
     retrieved_reference: dict[str, Any] | None = None,
     hint: str = "",
+    authorized_review: bool = False,
 ) -> OnlineSkillCandidate | None:
     system = _extract_system_prompt(_ir_mode())
     payload = {
@@ -537,14 +538,28 @@ async def extract_online_skill_candidate(
         "hint": hint,
         "retrieved_reference": retrieved_reference or None,
     }
+    if authorized_review:
+        payload["authorized_review"] = messages[-1]["content"]
+        system += (
+            "\nThis is an explicit request by an authorized task reviewer to extract a "
+            "potential revision, not passive mining of a conversation. Treat authorized_review "
+            "as the only source of new guidance. A concrete correction to an ordered workflow, "
+            "a reusable decision rule, or a new verification step qualifies even when stated once. "
+            "Generalize task-specific examples in the correction. Return an empty skills list "
+            "only if the feedback offers no reusable guidance. For a candidate, always fill "
+            "name, description, when_to_use, instructions and evidence."
+        )
     parsed = _parse_json_object(await side_query(system, json.dumps(payload, ensure_ascii=False)))
     skills = parsed.get("skills")
+    if authorized_review and not isinstance(skills, list):
+        raise ValueError("learning_extractor_invalid_response")
     if not isinstance(skills, list) or not skills:
         return None
     first = skills[0]
-    if not isinstance(first, dict):
-        return None
-    return _coerce_candidate(first)
+    candidate = _coerce_candidate(first) if isinstance(first, dict) else None
+    if authorized_review and candidate is None:
+        raise ValueError("learning_extractor_invalid_candidate")
+    return candidate
 
 
 def _exact_identity_match(candidate: OnlineSkillCandidate, skills: list[Any]) -> str:
@@ -575,10 +590,13 @@ async def maintain_online_skill_candidate(
     target: str = "project",
     skill_catalog: list | None = None,
     write_candidate=None,
+    scoped_revision_only: bool = False,
 ) -> dict[str, Any]:
     from .skills import create_skill, discover_skills, evolve_skill, retrieve_relevant_skills
 
     skills = discover_skills() if skill_catalog is None else list(skill_catalog)
+    if scoped_revision_only and (not skill_catalog or write_candidate is None):
+        raise ValueError("scoped_revision_requires_catalog_and_proposal_writer")
     exact_target = _exact_identity_match(candidate, skills)
     if skill_catalog is None:
         similar_hits = retrieve_relevant_skills(_candidate_search_text(candidate), limit=8, min_score=0.03)
@@ -607,6 +625,19 @@ async def maintain_online_skill_candidate(
         "- If merging, synthesize a complete merged instruction body, preserving useful existing guidance and adding only durable new guidance.\n"
         "- Do not preserve one-off payload, secrets, transient project facts, URLs, exact dates, or assistant-only claims.\n"
     )
+    if scoped_revision_only:
+        system = (
+            "You are EvoHarness's scoped Skill Set Manager. Propose a revision only to a Skill "
+            "that was loaded during this task. Never create a new Skill. "
+            "The candidate name is a topic, not a Skill identifier. Choose target_skill verbatim "
+            "from existing_skills[].name. Merge new durable reviewer guidance without losing "
+            "existing instructions; revise only to replace superseded guidance. "
+            "Discard only when the feedback is unrelated, transient, or already covered. "
+            "Do not copy task-specific payload or secrets. Return strict JSON only: "
+            '{"action":"merge|revise|discard","target_skill":"exact existing name",'
+            '"reason":"short reason","merged_instructions":"complete body for merge",'
+            '"revised_instructions":"complete body for revise"}.'
+        )
     payload = {
         "candidate": _legacy_candidate_view(candidate),
         "exact_identity_target": exact_target,
@@ -629,7 +660,17 @@ async def maintain_online_skill_candidate(
     action = str(decision.get("action") or "").strip().lower()
     target_skill = str(decision.get("target_skill") or "").strip()
 
-    if exact_target:
+    if scoped_revision_only:
+        if action == "discard":
+            return {"ok": True, "action": "discard", "skill": "", "decision": decision}
+        if action not in {"merge", "revise"}:
+            raise ValueError("learning_action_not_scoped_revision")
+        if target_skill not in {skill["name"] for skill in payload["existing_skills"]}:
+            raise ValueError("learning_target_not_loaded")
+        body_key = "revised_instructions" if action == "revise" else "merged_instructions"
+        if not isinstance(decision.get(body_key), str) or not decision[body_key].strip():
+            raise ValueError("learning_instructions_required")
+    elif exact_target:
         # 裁决优先级：明确矛盾 revise（带完整替换正文）> 同名去重 merge > 相似 merge
         # > discard > add。原缺陷：本分支无条件把 LLM 裁决的 revise 改成 merge，
         # 丢弃 revised_instructions（merge 分支只认 merged_instructions）并把明确矛盾
@@ -752,6 +793,7 @@ async def online_ingest(
     attribution: dict[str, Any] | None = None,
     maintainer=None,
     provenance_writer=None,
+    authorized_review: bool = False,
 ) -> dict[str, Any]:
     from .skills import record_online_provenance
     record_online_provenance = provenance_writer or record_online_provenance
@@ -763,6 +805,7 @@ async def online_ingest(
             side_query=side_query,
             retrieved_reference=retrieved_reference,
             hint=hint,
+            authorized_review=authorized_review,
         )
     except Exception as exc:
         result = _attach_attribution({"ok": False, "action": "failed", "error": str(exc)}, attribution)

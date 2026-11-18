@@ -16,6 +16,7 @@ from evoharness.models import Base, ExperienceHead, SystemState
 
 # 注册组织、Run、治理与知识表，保证 create_all 不依赖调用方恰好导入子模块。
 import evoharness.organization.models  # noqa: F401
+import evoharness.organization.access  # noqa: F401
 import evoharness.organization.capabilities  # noqa: F401  # DE-42 岗位能力证据表
 import evoharness.work.models  # noqa: F401
 import evoharness.work.intake_journal  # noqa: F401  # DE-05 产品库事务内 intake 日志
@@ -208,9 +209,11 @@ def _backup_engine_database(engine: Engine, directory: str | Path | None, *, kee
 def migrate(engine: Engine, *, backup_dir: str | Path | None = None, context: MigrationContext | None = None) -> dict:
     settings = context or MigrationContext()
     backup = _backup_engine_database(engine, backup_dir, keep=settings.backup_keep)
-    Base.metadata.create_all(bind=engine)
     report = {"fromVersion": 1, "toVersion": SCHEMA_VERSION, "backup": backup, "changes": []}
     with engine.begin() as conn:
+        if conn.dialect.name == "sqlite":
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
+        Base.metadata.create_all(bind=conn)
         version_row = None
         if _table_exists(conn, "system_state"):
             version_row = conn.execute(

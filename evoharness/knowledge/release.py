@@ -52,7 +52,9 @@ def _file_sha256(path: Path) -> str:
 
 
 def _intent_path(skill_file, release_id):
-    return (
+    from agents.skill_evolution import _skill_io_path
+
+    return _skill_io_path(
         skill_file.parent
         / ".release-receipts"
         / (hashlib.sha256(release_id.encode()).hexdigest() + ".json")

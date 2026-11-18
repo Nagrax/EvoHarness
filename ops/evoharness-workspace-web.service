@@ -1,0 +1,25 @@
+[Unit]
+Description=EvoHarness invitation-only workspace Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=evoharness-workspace
+Group=evoharness-workspace
+WorkingDirectory=/opt/evoharness-workspace/current
+EnvironmentFile=/etc/evoharness/workspace.env
+StateDirectory=evoharness-workspace
+StateDirectoryMode=0700
+Environment=HOME=/var/lib/evoharness-workspace
+ExecStart=/opt/evoharness-tools/venv/bin/python -m evoharness serve --host 127.0.0.1 --port 8880
+Restart=on-failure
+RestartSec=5s
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

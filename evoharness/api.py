@@ -414,6 +414,10 @@ class WorkApi:
             if task_org != org_id:
                 return self._fail("principal_org_mismatch",
                                   {"decision_org": org_id, "target_org": task_org})
+            if principal.get("tenant"):
+                denial = self._principal_task_denial(session, principal, task, write=True)
+                if denial is not None:
+                    return denial
             if subject and subject == str(task.owner or ""):
                 return None
             return self._fail("principal_target_not_authorized",
@@ -450,6 +454,9 @@ class WorkApi:
         if principal.get("admin"):
             return None
         subject = self._principal_subject(principal)
+        if principal.get("tenant") and (task.tenant != principal["tenant"]
+                                        or (task.org_id and task.org_id not in principal.get("org_ids", ()))):
+            return self._fail("principal_target_not_authorized")
         if subject and subject in {str(task.owner or ""), str(task.assignee_id or "")}:
             return None
         if not write:
@@ -523,6 +530,20 @@ class WorkApi:
                                            str(title).strip(), str(action).strip(), due_text)
         try:
             with self._session() as session:
+                if principal and principal.get("tenant"):
+                    from evoharness.organization.models import BusinessSpace, Membership
+                    from evoharness.organization.service import _live
+
+                    space = session.get(BusinessSpace, space_id) if space_id else None
+                    if (tenant != principal["tenant"] or not space or not space.enabled
+                            or space.org_id != org_id):
+                        return self._fail("resource_not_in_organization")
+                    if assignee_id:
+                        member = session.scalar(select(Membership).where(
+                            Membership.org_id == org_id, Membership.tenant_id == tenant,
+                            Membership.app_id == tenant, Membership.principal_id == assignee_id))
+                        if not member or not _live(member, utcnow()):
+                            return self._fail("assignee_not_available")
                 existing = session.scalar(select(Task).where(
                     Task.tenant == tenant, Task.task_key == key))
                 if existing is not None:
@@ -701,8 +722,9 @@ class WorkApi:
             return self._fail("tenant_owner_required")
         try:
             with self._session() as session:
-                query = select(Task).where(Task.tenant == tenant, Task.owner == owner,
-                                           Task.org_id == org_id)
+                query = select(Task).where(Task.tenant == tenant, Task.org_id == org_id)
+                if not (principal and principal.get("tenant") and org_id):
+                    query = query.where(Task.owner == owner)
                 rows = [self._view_row(session, t)
                         for t in session.scalars(query.order_by(Task.id))]
                 buckets = {key: [] for key in ("pending", "in_progress", "awaiting_me",
@@ -1132,6 +1154,15 @@ class WorkApi:
             return self._convert(exc)
 
     def _run_briefs(self, session, task_id: int) -> list[dict]:
+        accepted = set()
+        for evidence in session.scalars(select(TaskEvent.evidence_message_ids).where(
+                TaskEvent.task_id == task_id, TaskEvent.event_type == "acceptance_passed")):
+            try:
+                references = json.loads(evidence or "[]")
+            except ValueError:
+                continue
+            if isinstance(references, list):
+                accepted.update(reference for reference in references if isinstance(reference, str))
         rows = []
         for run in session.scalars(select(ExecutionRun).where(
                 ExecutionRun.task_id == task_id).order_by(ExecutionRun.created_at.desc())):
@@ -1140,6 +1171,7 @@ class WorkApi:
             except ValueError:
                 mode = "?"
             rows.append({"run_id": run.id, "state": run.state,
+                         "accepted": f"run:{run.id}" in accepted,
                          "generation": run.generation, "attempts": run.attempts,
                          "mode": mode, "error": (run.error or "")[:200]})
         return rows
@@ -1521,6 +1553,12 @@ class WorkApi:
             with self._session() as session:
                 viewer_scopes = None
                 if principal is not None:
+                    if principal.get("tenant"):
+                        from evoharness.organization.models import BusinessSpace
+
+                        space = session.get(BusinessSpace, space_id) if space_id else None
+                        if not space or not space.enabled or space.org_id not in principal["org_ids"]:
+                            return self._fail("space_not_authorized")
                     # R01：受信主体模式下可见性只从 Principal 派生，
                     # 查询参数 owner_scope/include_private 不再作为可见性依据。
                     subject_scope = self._principal_subject(principal)
@@ -1549,7 +1587,7 @@ class WorkApi:
         for run_id in run_ids:
             for artifact in session.scalars(select(Artifact).where(
                     Artifact.run_id == run_id)):
-                rows.append({"kind": artifact.kind, "path": artifact.path,
+                rows.append({"artifact_id": artifact.id, "kind": artifact.kind, "path": artifact.path,
                              "sha256": artifact.sha256,
                              "task_revision": artifact.task_revision,
                              "run_id": run_id})

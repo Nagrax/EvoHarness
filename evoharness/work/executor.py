@@ -303,6 +303,8 @@ def execute_run(session: Session, run_id: str, *, adapter: ExecutionAdapter,
         # R06：准备工作区移入异常处理范围——workspace 异常转 Run 失败，不裸抛。
         workdir, frozen = prepare_workspace(run, task, source_tree=source_tree)
         allowed = CODING_TOOLS if task.workflow_kind != "qa" else READ_ONLY_TOOLS
+        if task.tenant == "workspace":
+            allowed = frozenset({"skill", "read_knowledge"})
         write_roots = [str(workdir)] if allowed & {"write_file", "edit_file", "run_shell"} else []
 
         def _guard(path: str) -> str:

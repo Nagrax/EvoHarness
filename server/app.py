@@ -451,6 +451,9 @@ def _work_gate(request: Request) -> "tuple[dict | None, JSONResponse | None]":
     返回 (principal, None)：principal 为 None 表示 local 模式（无 Principal 语义）。
     返回 (None, response)：hosted 模式未认证/错误 token，调用方直接返回 response。
     """
+    managed = getattr(getattr(request, "state", None), "workspace_principal", None)
+    if managed is not None:
+        return managed, None
     principal = _hosted_principal(request)
     if not _request_is_hosted(request):
         return None, None
@@ -1360,7 +1363,7 @@ def _get_work_api():
                          artifacts_dir=config.artifacts_dir or (ROOT / "data" / "api-artifacts"),
                          # DE-13：正式组织（hosted）验收强制可信检查回执；
                          # 本地单用户保留 grace（按装配传入，不改全局环境）
-                         acceptance_policy=("strict" if DEPLOYMENT_MODE == "hosted"
+                         acceptance_policy=("strict" if DEPLOYMENT_MODE == "hosted" or WORKSPACE_MANAGED
                                             else None))
     return _WORK_API
 
@@ -1447,6 +1450,8 @@ def work_dispatch(op: str, params: dict, principal=None) -> dict:
     try:
         kwargs = {key: params[key] for key in allowed
                   if key in params and params[key] is not None}
+        if principal is not None and principal.get("tenant") and "tenant" in allowed:
+            kwargs["tenant"] = principal["tenant"]
         if principal is not None:
             kwargs["principal"] = principal
         return method(**kwargs)
@@ -1548,6 +1553,17 @@ async def work_op(req: WorkOpRequest, request: Request):
     principal, denied = _work_gate(request)
     if denied is not None:
         return denied
+    if getattr(request.state, "workspace_principal", None):
+        if req.op in {"start_run", "submit_approval", "set_budget_limit"}:
+            return JSONResponse(status_code=403, content={"ok": False, "reason_code": "workspace_use_delegation"})
+        if req.op == "create_work_item":
+            acceptance = req.params.get("acceptance")
+            if not isinstance(acceptance, list) or not acceptance or any(
+                not isinstance(item, dict) or item.get("kind") != "qa" for item in acceptance
+            ):
+                return JSONResponse(status_code=400, content={"ok": False, "reason_code": "workspace_requires_qa_acceptance"})
+            req.params = {**req.params, "workflow_kind": "delegated_delivery", "action": "answer",
+                          "chat_id": "", "source_refs": []}
     if req.op == "learning_action":
         return await asyncio.to_thread(work_dispatch,req.op,req.params or {},principal=principal)
     return work_dispatch(req.op, req.params or {}, principal=principal)
@@ -1586,6 +1602,14 @@ async def work_org_view(request: Request, org: str = ""):
 @app.get("/")
 async def index():
     return FileResponse(ROOT / "frontend" / "index.html")
+
+
+WORKSPACE_MANAGED = bool(os.getenv("EVOHARNESS_WORKSPACE_ORIGIN", "").strip())
+if WORKSPACE_MANAGED:
+    if PUBLIC_DEMO:
+        raise RuntimeError("Managed workspace and public demo must use separate instances")
+    from server.workspace import install
+    install(app, _get_work_api, ROOT / "frontend")
 
 
 # ---------------------------------------------------------------------------
