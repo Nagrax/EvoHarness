@@ -37,10 +37,9 @@ def _refs(row: KnowledgeClaim) -> list[str]:
         return []
 
 
-def _claims_for_intent(session, intent_id: str) -> list[KnowledgeClaim]:
-    prefix = f"experience:{intent_id}@"
+def _claims_for_intent(session, origin: str) -> list[KnowledgeClaim]:
     return [row for row in session.scalars(select(KnowledgeClaim))
-            if any(ref.startswith(prefix) for ref in _refs(row))]
+            if row.confidence_basis.startswith(origin + " ")]
 
 
 def _invalidate(session, claim: KnowledgeClaim, reason: str) -> None:
@@ -54,16 +53,39 @@ def _content_key(row: Experience) -> str:
     return sha256_json({"intent": row.intent_id, "version": int(row.version or 1),
                         "question": row.question_pattern, "answer": row.canonical_answer,
                         "source_ids": row.source_ids,
+                        "owner": row.owner, "tenant": row.tenant,
+                        "visibility": row.visibility, "patterns": row.patterns(),
                         "message": row.source_message_id or ""})[:24]
 
 
-def sync_experience(session, row: Experience, *, space_id: str = "") -> dict:
+def sync_experience(session, row: Experience, *, space_id: str = "", org_id: str = "") -> dict:
     """把一个 Experience 的当前事实登记为知识主张（幂等；不自动采用/召回）。"""
-    ref = experience_ref(row)
+    from .provenance import (experience_source_ref, read_experience_source,
+                             resolve_experience_binding)
+    binding = resolve_experience_binding(session, row)
+    if binding is not None:
+        if ((org_id and org_id != binding["org_id"])
+                or (space_id and space_id != binding["space_id"])):
+            raise knowledge_service.KnowledgeError("claim_source_scope_mismatch")
+        org_id, space_id = binding["org_id"], binding["space_id"]
+    elif org_id:
+        return {"ok": False, "action": "pending_binding", "reason": "experience_scope_unbound"}
+    ref = experience_source_ref(row) if binding is not None else experience_ref(row)
+    origin = "experience-origin:" + sha256_json({"tenant": row.tenant, "owner": row.owner,
+        "intent": row.intent_id, "org": org_id, "space": space_id})[:24]
     now = utcnow()
     available = (row.status in AVAILABLE_STATUSES
                  and (row.valid_until is None or row.valid_until > now))
-    siblings = _claims_for_intent(session, row.intent_id)
+    if binding is not None and row.status not in {ExperienceStatus.ASSIST, ExperienceStatus.APPROVED_AUTO}:
+        available = False
+    siblings = _claims_for_intent(session, origin)
+    # Revoke every projection of this exact source, including a binding which
+    # can no longer resolve. Another tenant's same-named intent is untouched.
+    for claim in session.scalars(select(KnowledgeClaim)):
+        if experience_source_ref(row) in _refs(claim) and claim not in siblings:
+            if (not available or binding is None
+                    or (claim.org_id, claim.space_id) != (org_id, space_id)):
+                _invalidate(session, claim, "experience_binding_unavailable")
     if not available:
         stale = []
         for claim in siblings:
@@ -79,39 +101,45 @@ def sync_experience(session, row: Experience, *, space_id: str = "") -> dict:
         if ref not in refs and claim.state in {"active", "conflicting"}:
             _invalidate(session, claim, "experience_version_superseded")
     key = _content_key(row)
-    marker = f"experience-sync:{key}"
+    marker = f"{origin} experience-sync:{key}"
     for claim in siblings:
         if ref in _refs(claim) and claim.state in {"active", "conflicting"} \
                 and marker in claim.confidence_basis:
-            session.flush()
-            return {"ok": True, "action": "unchanged", "claim_id": claim.claim_id,
-                    "ref": ref}
+            from .provenance import claim_sources_current
+            if claim_sources_current(session, claim):
+                session.flush()
+                return {"ok": True, "action": "unchanged", "claim_id": claim.claim_id,
+                        "ref": ref}
     previous = sorted(
         (claim for claim in siblings
          if claim.state in {"active", "conflicting", "stale"}),
         key=lambda claim: int(claim.source_revision or 0), reverse=True)
     previous_claim = previous[0] if previous else None
     refs = [ref]
-    if row.source_message_id:
+    if row.source_message_id and binding is None:
         refs.append(f"message:{row.source_message_id}")
     try:
         source_ids = [str(v) for v in json.loads(row.source_ids or "[]") if str(v)]
     except ValueError:
         source_ids = []
-    refs.extend(f"source:{value}" for value in source_ids)
-    owner_scope = (row.owner or "private") if row.visibility == "private" else "public"
-    claim = knowledge_service.record_claim(
-        session, space_id=space_id, owner_scope=owner_scope,
+    if binding is None:
+        refs.extend(f"source:{value}" for value in source_ids)
+    owner_scope = "public" if row.visibility == "public" else (row.owner or "private")
+    writer = knowledge_service.record_verified_claim if binding else knowledge_service.record_claim
+    extra = {"source_reader": read_experience_source} if binding else {}
+    claim = writer(
+        session, org_id=org_id, space_id=space_id, owner_scope=owner_scope,
         subject=f"experience:{row.intent_id}"[:255], predicate=PREDICATE,
+        aliases=[text for text in [row.question_pattern, *row.patterns()] if str(text).strip()],
         value=row.canonical_answer, source_refs=refs,
         source_revision=int(row.version or 1), valid_until=row.valid_until,
         confidence_basis=marker,
-        supersedes=previous_claim.claim_id if previous_claim is not None else "")
+        supersedes=previous_claim.claim_id if previous_claim is not None else "", **extra)
     session.flush()
     return {"ok": True, "action": "recorded" if previous_claim is None else "superseded",
             "claim_id": claim.claim_id,
             "superseded": previous_claim.claim_id if previous_claim else "",
-            "ref": ref}
+            "ref": ref, "binding_state": "bound" if binding else "unbound"}
 
 
 def sync_all(session, *, tenant: str = "", space_id: str = "",

@@ -160,15 +160,57 @@ def serve(*, once: bool, timeout: int = 180, expected_open_id: str | None = None
     return RESULT
 
 
+def save_authorization(result: dict, *, expected_open_id: str | None = None) -> dict:
+    """Verify the token's owner again, then store it encrypted in the product DB."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    expected = (expected_open_id or settings.feishu_owner_open_id or "").strip()
+    supplied = (result.get("user") or {}).get("openId")
+    token = result.get("accessToken")
+    if (not result.get("ok") or not expected or supplied != expected
+            or not isinstance(token, str) or not token.strip()
+            or float(result.get("expiresIn") or 0) <= 0):
+        raise ValueError("oauth_identity_or_token_invalid")
+    verified = oauth.fetch_user_info(token)
+    if not verified.get("ok") or verified.get("openId") != expected:
+        raise ValueError("oauth_identity_mismatch")
+
+    from app.core.database import engine, session_scope
+    from app.services import identity
+    from evoharness.migrations import migrate
+
+    if engine.url.get_backend_name() == "sqlite" and engine.url.database not in {
+        None, "", ":memory:"
+    }:
+        Path(engine.url.database).parent.mkdir(parents=True, exist_ok=True)
+    migrate(engine)
+    with session_scope() as session:
+        identity.save_authorization(
+            session, tenant=settings.tenant_id, app_id=settings.feishu_app_id,
+            result={**result, "user": verified},
+        )
+    return {"saved": True, "openIdLast8": expected[-8:]}
+
+
 def main(argv: list[str] | None = None) -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="收到一次授权后退出")
     parser.add_argument("--json-out", default="", help="把结果写入 JSON 文件")
+    parser.add_argument("--save", action="store_true", help="验证本人身份后直接加密落库，不生成明文 token 文件")
     parser.add_argument("--expected-open-id", default=None, help="本次授权用户；默认配置的 owner")
     args = parser.parse_args(argv)
+    if args.save and args.json_out:
+        parser.error("--save 与 --json-out 不可同时使用")
 
     result = serve(once=args.once, expected_open_id=args.expected_open_id)
+    if args.save and result.get("ok"):
+        try:
+            result = {**result, **save_authorization(
+                result, expected_open_id=args.expected_open_id)}
+        except Exception as exc:
+            result = {"ok": False, "stage": "save", "error": type(exc).__name__}
     printable = dict(result)
     if printable.get("accessToken"):
         printable["accessToken"] = "…（已省略）"

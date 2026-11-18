@@ -76,6 +76,7 @@ class TestReport:
     exit_code: int | None = None
     timed_out: bool = False
     ran: int = 0
+    evidence: dict = field(default_factory=dict)
 
 
 class FixEngine(Protocol):

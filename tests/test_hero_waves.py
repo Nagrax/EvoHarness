@@ -113,3 +113,124 @@ def test_org_view_uses_official_api_contract():
     assert f"OG_TENANT='{SEED_TENANT}'" in t
     assert f"OG_OWNER='{SEED_OWNER}'" in t
     assert "encodeURIComponent(org)" in t
+
+
+def test_ambient_renders_only_while_visible_with_a_time_based_clock():
+    """The app owns frame scheduling, visibility, context loss and reduced motion."""
+    import shutil
+    import subprocess
+
+    import pytest
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for frontend JavaScript")
+    script = r'''
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const html = fs.readFileSync(process.argv[1], 'utf8');
+const source = html.match(/<script>\s*\/\* 工作台只在可见[^]*?<\/script>/)[0].slice(8, -9);
+const frames = new Map();
+const handlers = {};
+const calls = [];
+const animationTimes = [];
+let observer, nextFrame = 0, instances = 0;
+const motion = {matches: false, addEventListener(name, fn) {handlers.motion = fn;}};
+const canvas = {
+  hidden: false,
+  addEventListener(name, fn) {handlers[name] = fn;},
+  toggleAttribute(name, hidden) {this.hidden = hidden;},
+};
+const host = {
+  parentNode: null,
+  querySelector() {return canvas;},
+  replaceChildren() {calls.push('static fallback');},
+};
+function surface() {return {prepend(node) {node.parentNode = this;}};}
+const home = surface(), chat = surface();
+home.prepend(host);
+const document = {
+  hidden: false, body: {dataset: {view: 'home'}},
+  getElementById(id) {return {ambientBg: host, homeCover: home, hero: chat}[id];},
+  addEventListener(name, fn) {handlers[name] = fn;},
+};
+const context = {
+  document, matchMedia: () => motion,
+  requestAnimationFrame(fn) {frames.set(++nextFrame, fn); return nextFrame;},
+  cancelAnimationFrame(id) {frames.delete(id);},
+  IntersectionObserver: class {
+    constructor(fn) {observer = value => fn([{isIntersecting: value}]);}
+    observe() {}
+    disconnect() {}
+  },
+  MutationObserver: class {
+    constructor(fn) {handlers.route = fn;}
+    observe() {}
+  },
+  AmbientLightBg: class {
+    constructor(options) {
+      instances++;
+      assert.equal(options.manual, true);
+      assert.equal(options.measure().w * options.measure().h, 155520);
+      assert.equal(options.textureSize, 192);
+      this.gl = {canvas, clearColor() {}};
+      this.renderer = {render(pass) {calls.push(pass.target ? 'texture' : 'screen');}};
+      this.rtt = {};
+    }
+    update() {}
+    _animate() {animationTimes.push(this.frame);}
+  },
+};
+context.window = context;
+vm.runInNewContext(source, context);
+function frame(time) {
+  assert.equal(frames.size, 1);
+  const [id, next] = frames.entries().next().value;
+  frames.delete(id);
+  next(time);
+}
+assert.equal(instances, 0);
+observer(true);
+observer(true);
+frame(10);
+frame(27);
+assert.deepEqual(animationTimes, [0, 1.02]);
+assert.deepEqual(calls, ['texture','screen','texture','screen']);
+document.body.dataset.view = 'work';
+handlers.route();
+assert.equal(frames.size, 0);
+document.body.dataset.view = 'chat';
+handlers.route();
+assert.equal(host.parentNode, chat);
+assert.equal(frames.size, 0);
+observer(true);
+frame(1000);
+assert.equal(animationTimes.at(-1), 1.02);
+document.hidden = true;
+handlers.visibilitychange();
+assert.equal(frames.size, 0);
+document.hidden = false;
+handlers.visibilitychange();
+assert.equal(frames.size, 1);
+motion.matches = true;
+handlers.motion(motion);
+assert.equal(canvas.hidden, true);
+assert.equal(frames.size, 0);
+motion.matches = false;
+handlers.motion(motion);
+assert.equal(canvas.hidden, false);
+frame(2000);
+assert.equal(animationTimes.at(-1), 1.02);
+observer(false);
+assert.equal(frames.size, 0);
+observer(true);
+handlers.webglcontextlost();
+assert.equal(calls.at(-1), 'static fallback');
+assert.equal(frames.size, 0);
+assert.equal(instances, 1);
+'''
+    result = subprocess.run(
+        [node, "-e", script, str(HTML)], capture_output=True, text=True, encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr

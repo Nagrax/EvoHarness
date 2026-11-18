@@ -285,7 +285,9 @@ class TraceStore:
 
     def add(self, trace_ref: str, events: list[dict[str, Any]]) -> None:
         self._traces[str(trace_ref)] = [_normalize_event(e, i) for i, e in enumerate(events or [])]
-        self._chunk_cache.pop((str(trace_ref), -1), None)
+        for key in list(self._chunk_cache):
+            if key[0] == str(trace_ref):
+                del self._chunk_cache[key]
 
     def resolve(self, trace_ref: str) -> list[dict[str, Any]] | None:
         return self._traces.get(str(trace_ref))
@@ -635,7 +637,8 @@ def build_attribution_input(
     else:
         listed = {str(r) for r in consumed_chunk_refs}
         consumed = [c.ref for c in chunks if c.ref in listed]
-    unconsumed = [c.ref for c in chunks if c.ref not in set(consumed)]
+    consumed_refs = set(consumed)
+    unconsumed = [c.ref for c in chunks if c.ref not in consumed_refs]
     modules = []
     if module_spec is not None:
         modules = [
@@ -649,7 +652,12 @@ def build_attribution_input(
         "question": str(case.get("question") or ""),
         "expected": str(case.get("expected") or ""),
         "score_record": _score_record_payload(evaluation),
-        "chunks": [c.to_dict() for c in chunks],
+        # Event text is transient model input; durable chunk metadata stays
+        # reference-only. Unread chunks must not be exposed as consumed evidence.
+        "chunks": [
+            {**c.to_dict(), **({"text": c.text} if c.ref in consumed_refs else {})}
+            for c in chunks
+        ],
         "consumed_chunk_refs": consumed,
         "unconsumed_chunk_refs": unconsumed,
         "modules": modules,

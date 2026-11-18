@@ -15,6 +15,9 @@ import xml.etree.ElementTree as ET
 REQUIRED_TESTS = ('tests/test_agent_feedback_loop.py::test_conditional_execution_native_delegation', 'tests/test_agent_feedback_loop.py::test_conditional_execution_provider_port', 'tests/test_agent_feedback_loop.py::test_tool_results_reach_later_model_rounds', 'tests/test_organization_acceptance.py::test_organization_eval_cli_selected_scenario_and_markdown', 'tests/test_organization_acceptance.py::test_scenario1_synthetic_org_end_to_end_without_feishu', 'tests/test_tool_isolation.py::test_adapter_routes_checker_through_isolation_channel', 'tests/test_tool_isolation.py::test_checker_runs_through_isolated_channel', 'tests/test_tool_isolation.py::test_container_has_no_network', 'tests/test_tool_isolation.py::test_directory_escape_rejected_outside_never_created', 'tests/test_tool_isolation.py::test_readonly_input_mount_rejects_writes', 'tests/test_tool_isolation.py::test_workspace_writable_and_host_env_not_passed_through', 'tests/test_worker_durability.py::test_budget_total_240_recorded_once_not_twice', 'tests/test_worker_durability.py::test_crash_after_claim_commit_durable_then_takeover', 'tests/test_worker_durability.py::test_crash_after_external_call_done_before_receipt', 'tests/test_worker_durability.py::test_crash_after_external_call_started_reconciles_unknown', 'tests/test_worker_durability.py::test_crash_after_receipt_keeps_completed_and_reconciles_pending', 'tests/test_worker_durability.py::test_crash_after_reservation_commit_reused_not_duplicated', 'tests/test_worker_durability.py::test_crash_before_acceptance_keeps_waiting_acceptance_without_replay', 'tests/test_worker_durability.py::test_escrow_mutex_no_premature_rejection', 'tests/test_worker_end_to_end.py::test_lease_heartbeat_renews_across_controlled_clock', 'tests/test_worker_end_to_end.py::test_root_entry_end_to_end_worker_execution_and_done', 'tests/test_worker_end_to_end.py::test_tool_whitelist_and_write_guard_enforced', 'tests/test_worker_end_to_end.py::test_worker_budget_exhausted_waits_then_executes_after_topup', 'tests/test_worker_end_to_end.py::test_worker_crash_recovery_takeover', 'tests/test_worker_root_entry.py::test_worker_daemon_graceful_stop_processes_queue', 'tests/test_worker_root_entry.py::test_worker_daemon_processes_two_rounds_then_stops', 'tests/test_worker_root_entry.py::test_worker_once_subprocess_completes_queued_run')
 
 
+REQUIRED_TESTS += ("tests/test_trusted_pytest_checker.py::test_real_isolated_parameter_collection_and_source_protection",)
+
+
 def verify(junit: Path, required=REQUIRED_TESTS) -> list[str]:
     if not junit.is_file():
         return ["missing_junit"]
@@ -43,7 +46,12 @@ def prepare() -> int:
     if not linux:
         print("Linux container backend unavailable; isolation is mandatory in Linux CI jobs.")
         return 0 if os.name == "nt" else 1
-    return subprocess.run(["docker", "pull", "python:3.13-slim"], check=False).returncode
+    pulled=subprocess.run(["docker", "pull", "python:3.13-slim"], check=False).returncode
+    if pulled:
+        return pulled
+    root=Path(__file__).resolve().parents[1]
+    return subprocess.run(["docker","build","-f",str(root/"ops/Dockerfile.checker"),
+                           "-t","evoharness-checker:latest",str(root)],check=False).returncode
 
 
 def main(argv=None):

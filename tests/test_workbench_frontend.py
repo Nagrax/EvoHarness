@@ -63,3 +63,155 @@ vm.createContext(context);vm.runInContext(source,context);
 '''
     result = subprocess.run([node, '-e', script, str(frontend)], capture_output=True, text=True, encoding='utf-8')
     assert result.returncode == 0, result.stderr
+
+
+def test_organization_switch_discards_old_knowledge_and_uses_current_work_identity():
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('node is required for frontend JavaScript')
+    frontend = Path(__file__).resolve().parents[1] / 'frontend' / 'index.html'
+    script = r'''
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const html = fs.readFileSync(process.argv[1], 'utf8');
+const source = html.slice(html.indexOf('const OG_TENANT='), html.indexOf('function openWorkItem('));
+const nodes = {
+  '#knSubject': {value: 'subject'},
+  '#knSpace': {
+    value: '', options: [],
+    replaceChildren(...options) {this.options = options; this.value = options[0]?.value || '';},
+    add(option) {this.options.push(option);},
+  },
+};
+const $ = id => nodes[id] ||= {value: '', addEventListener(){}};
+const requests = [];
+let org = 'alpha', releaseAlpha, releaseSearch;
+let owner = 'alpha-owner';
+const context = {
+  $, URLSearchParams,
+  Option: function(text, value) {this.text = text; this.value = value;},
+  localStorage: {getItem: () => org},
+  document: {body: {dataset: {view: 'knowledge'}}},
+  workIdentity: () => ({tenant: 'different-tenant', owner}),
+  invalidateSkills(){},
+  loadHome(){}, loadWork(){}, setView(){},
+  esc: value => String(value),
+  async fetchJson(path) {
+    requests.push(path);
+    if (path.includes('/view?')) return {ok: true, data: {buckets: {}}};
+    if (path.includes('/knowledge?')) return new Promise(resolve => {releaseSearch = resolve;});
+    if (path.endsWith('alpha')) return new Promise(resolve => {releaseAlpha = resolve;});
+    const id = path.endsWith('beta') ? 'beta' : 'gamma';
+    return {ok: true, data: {spaces: [{space_id: id, title: id+' space'}]}};
+  },
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+(async () => {
+  const old = context.loadKnowledge();
+  org = 'beta';
+  owner = 'beta-owner';
+  context.organizationScopeChanged();
+  await context.loadKnowledge();
+  releaseAlpha({ok: true, data:{spaces:[{space_id:'alpha',title:'old scope'}]}});
+  await old;
+  assert.equal(nodes['#knSpace'].value, 'beta');
+  assert.equal(nodes['#knSync'].disabled, false);
+  const oldSearch = context.searchKnowledge();
+  org = 'gamma';
+  owner = 'gamma-owner';
+  context.organizationScopeChanged();
+  await context.loadKnowledge();
+  releaseSearch({ok: true, data: {claims: [{value:'old claim'}]}});
+  await oldSearch;
+  assert.equal(nodes['#knSpace'].value, 'gamma');
+  assert.equal(nodes['#knBody'].textContent, '');
+  assert.doesNotMatch(nodes['#knBody'].innerHTML || '', /old claim/);
+  await context.loadGoals();
+  assert.ok(requests.some(path => path.includes('org=gamma&tenant=different-tenant&owner=gamma-owner')));
+})().catch(error => {console.error(error); process.exitCode = 1;});
+'''
+    result = subprocess.run(
+        [node, '-e', script, str(frontend)], capture_output=True, text=True, encoding='utf-8',
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_compact_navigation_restores_focus_and_shares_the_view_router():
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('node is required for frontend JavaScript')
+    frontend = Path(__file__).resolve().parents[1] / 'frontend' / 'index.html'
+    script = r'''
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const html = fs.readFileSync(process.argv[1], 'utf8');
+const nav = html.slice(html.indexOf('const compactNav='), html.indexOf('function saveSessions()'));
+const router = html.slice(html.indexOf('function setView('), html.indexOf('async function loadSkills('));
+const nodes = {}, events = {}, routed = [];
+let focused;
+function $(id) {
+  if(nodes[id])return nodes[id];
+  const classes = new Set(), attrs = new Map();
+  return nodes[id] = {
+    classList:{
+      contains: key=>classes.has(key),
+      toggle: (key, enabled)=>enabled?classes.add(key):classes.delete(key),
+    },
+    handlers:{},
+    addEventListener(name, handler){this.handlers[name]=handler;},
+    getAttribute:key=>attrs.get(key),
+    setAttribute:(key, val)=>attrs.set(key,val),
+    removeAttribute:key=>attrs.delete(key),
+    focus(){focused=id;},
+  };
+}
+const routes = [['#desktopChat','chat'],['#mobileChat','chat'],['#desktopOrg','org']];
+const tabs = routes.map(([id,view])=>Object.assign($(id),{dataset:{view}}));
+const compact = {matches:true,addEventListener(name,handler){events[name]=handler;}};
+const context = {
+  $, matchMedia:()=>compact,
+  addEventListener:(event, handler)=>{events[event]=handler;},
+  document:{querySelector:$, querySelectorAll:()=>tabs, body:{dataset:{view:'home'}}},
+  VIEWS:['home','work','chat','org'], HASH:{home:'',chat:'#/chat',org:'#/org'},
+  location:{hash:'',pathname:'/'}, history:{replaceState(_state,_label,hash){routed.push(hash);}},
+  loadOrg(){routed.push('org');},
+  loadHome(){},
+};
+vm.createContext(context);
+vm.runInContext(nav+'\n'+router,context);
+assert.equal($('#workspaceNav').inert,true);
+assert.equal($('.main').inert,false);
+$('#mobileMore').onclick();
+assert.equal($('#mobileMore').getAttribute('aria-expanded'),'true');
+assert.equal($('#mobileMask').hidden,false);
+assert.equal($('.main').inert,true);
+assert.equal(focused,'#mobileClose');
+$('#nav').handlers.click({target:{closest:()=>$('#desktopOrg')}});
+assert.equal(context.document.body.dataset.view,'org');
+assert.equal($('#desktopOrg').getAttribute('aria-current'),'page');
+assert.equal($('#mobileMore').classList.contains('on'),true);
+assert.equal($('.main').inert,false);
+assert.equal(focused,'#mobileMore');
+assert.deepEqual(routed,['#/org','org']);
+$('#mobileDock').handlers.click({target:{closest:()=>$('#mobileChat')}});
+assert.equal($('#desktopChat').getAttribute('aria-current'),'page');
+assert.equal($('#mobileChat').getAttribute('aria-current'),'page');
+assert.equal($('#desktopOrg').getAttribute('aria-current'),undefined);
+$('#mobileMore').onclick();
+events.keydown({key:'Escape'});
+assert.equal($('#mobileMore').getAttribute('aria-expanded'),'false');
+assert.equal(focused,'#mobileMore');
+$('#mobileMore').onclick();
+compact.matches=false;
+events.change();
+assert.equal($('#workspaceNav').inert,false);
+assert.equal($('#mobileMask').hidden,true);
+assert.equal($('.main').inert,false);
+'''
+    result = subprocess.run(
+        [node, '-e', script, str(frontend)], capture_output=True, text=True, encoding='utf-8',
+    )
+    assert result.returncode == 0, result.stderr

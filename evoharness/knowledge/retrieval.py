@@ -12,6 +12,7 @@ from sqlalchemy import select
 from evoharness.clock import utcnow
 from evoharness.ids import sha256_json
 from evoharness.knowledge.models import KnowledgeClaim
+from evoharness.knowledge.provenance import claim_sources_current
 from evoharness.models import Task
 from evoharness.work.models import ExecutionRun
 from evoharness.organization.models import Assignment, Membership
@@ -62,8 +63,7 @@ def execution_index(session, *, run_id, task_id, org_id, space_id, principal_id,
                     max_entries=12, max_chars=6000):
     """Return a bounded source index using only the persisted task's goal.
 
-    Relevant subjects must occur literally in the task title or goal. This
-    deliberately small index does not claim semantic/vector search coverage.
+    Exact subjects and source-owned aliases match the persisted task goal.
     """
     empty = {"claims": [], "conflicts": [], "expired_hint": [], "omitted": 0}
     if not all((run_id, task_id, org_id, space_id, principal_id)):
@@ -85,8 +85,8 @@ def execution_index(session, *, run_id, task_id, org_id, space_id, principal_id,
         KnowledgeClaim.owner_scope.in_(["", "public", reader_id]),
         KnowledgeClaim.state.in_(["active", "conflicting"]),
     ).order_by(KnowledgeClaim.claim_id)))
-    relevant = [row for row in rows if row.subject.strip()
-                and row.subject.casefold() in query]
+    from .matching import relevant_claims
+    relevant = relevant_claims(session,[row for row in rows if claim_sources_current(session,row)],query)
     if relevant:
         _reader(session, actor_id=principal_id, tenant=run.tenant,
                 org_id=org_id, space_id=space_id)
@@ -106,7 +106,8 @@ def execution_index(session, *, run_id, task_id, org_id, space_id, principal_id,
         entry = {"claim_id": row.claim_id, "subject": row.subject,
                  "predicate": row.predicate, "state": state,
                  "source_refs": json.loads(row.source_refs_json),
-                 "source_revision": row.source_revision}
+                 "source_revision": row.source_revision,
+                 "evidence_level": row.evidence_level}
         if (len(claims) >= max_entries or len(json.dumps(
                 claims + [entry], ensure_ascii=False)) > max_chars):
             omitted += 1
@@ -115,6 +116,7 @@ def execution_index(session, *, run_id, task_id, org_id, space_id, principal_id,
         # Detect edits to the body as well as provenance, permissions and TTL.
         fingerprints.append(sha256_json(entry | {
             "value": row.value, "owner_scope": row.owner_scope,
+            "sources": row.source_snapshots_json, "aliases": row.aliases_json,
             "valid_until": row.valid_until.isoformat() if row.valid_until else None,
         }))
     index = {"claims": claims,
@@ -130,6 +132,8 @@ def read_indexed_claim(session, *, index, claim_id, offset=0, limit=4000):
         raise RetrievalError("knowledge_claim_not_indexed")
     row = session.get(KnowledgeClaim, claim_id)
     if row is None or row.state not in {"active", "conflicting"}:
+        raise RetrievalError("knowledge_context_changed")
+    if not claim_sources_current(session, row):
         raise RetrievalError("knowledge_context_changed")
     if row.valid_until is not None and utcnow() > row.valid_until:
         raise RetrievalError("knowledge_context_changed")
@@ -160,6 +164,8 @@ def read_indexed_claim(session, *, index, claim_id, offset=0, limit=4000):
 
 def validate_run_snapshot(session, run):
     """Recheck persisted execution provenance at the acceptance boundary."""
+    from .execution_skills import validate_run_skills
+    validate_run_skills(session, run)
     checkpoint = json.loads(run.checkpoint_json or '{}')
     snapshot = checkpoint.get('knowledge')
     if snapshot is None:  # Compatibility with runs that did not retrieve knowledge.

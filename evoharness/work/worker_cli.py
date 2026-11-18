@@ -67,7 +67,11 @@ def build_adapter(application, *, profile: str, check_argv: list[str] | None = N
     # live：委派 agents.Agent 主线（provider 不注入 → 原生通道 + 网关感知端口）；
     # 检查器走隔离容器通道；模型配置缺失在 execute 期 model_not_configured 暴露。
     argv = list(check_argv or [_python_executable(), "-m", "pytest", "-q"])
-    runner = ScriptTestRunner(argv, timeout_seconds=600.0)
+    if check_argv is None:
+        from evoharness.work.checker import TrustedPytestRunner
+        runner = TrustedPytestRunner(timeout_seconds=600.0)
+    else:
+        runner = ScriptTestRunner(argv, timeout_seconds=600.0)
     return RestrictedAgentAdapter(gateway=gateway, runner=runner,
                                   checker="root_worker.live", max_turns=max_turns,
                                   proposal_sink=sink)

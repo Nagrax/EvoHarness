@@ -5,7 +5,7 @@
 也不会被扫描清空（文件里确实还有该规则命中）→ 永久挂 pending，闭环空转。
 
 做法：
-1. 读最新 `eval/runs/module-scan.json`（带 fingerprint）
+1. 只读扫描当前源码（带 fingerprint），历史扫描只作归档
 2. 按 `module:<rule>:<file>` 聚合出**当前真实位置**
 3. 对每个 backlog 项：
    - 当前仍有命中 → 用新位置重建 openOccurrences（含 fingerprint 与重定位后的行号）
@@ -42,9 +42,10 @@ def group_scan(findings: list[dict]) -> dict[str, list[dict]]:
 
 
 def rebuild(apply: bool) -> dict:
-    # A fresh checkout has no cached scan. Compute it without persisting anything,
-    # so dry-run remains read-only and does not depend on test execution order.
-    scan = json.loads(SCAN.read_text(encoding="utf-8")) if SCAN.is_file() else build_report()
+    # The cached report may refer to edited or deleted code. A rebuild must use
+    # current findings, including new hits absent from an otherwise valid cache.
+    # Keep archives immutable and dry-run read-only.
+    scan = build_report()
     current = group_scan(scan.get("findings") or [])
     backlog = json.loads(BACKLOG.read_text(encoding="utf-8"))
 

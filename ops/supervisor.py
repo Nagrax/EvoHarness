@@ -27,6 +27,7 @@ import signal
 import subprocess
 import sys
 import time
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -333,8 +334,36 @@ class Supervisor:
                   restart_backoff_seconds: float = 5.0,
                   should_continue: Callable[[], bool] | None = None) -> dict:
         """常在线主循环：停机请求/子进程退出 → 恢复 → 重启（有界）。"""
+        done, lost = threading.Event(), threading.Event()
+        interval = max(0.05, float(self.guard.lease_seconds) / 3.0)
+
+        def renew():
+            while not done.wait(interval):
+                try:
+                    valid = self.guard.renew()
+                except Exception:
+                    valid = False
+                if not valid:
+                    lost.set()
+                    return
+
+        renewer = threading.Thread(target=renew, name="supervisor-lease", daemon=True)
+        renewer.start()
+        try:
+            return self._supervise_loop(poll_interval=min(poll_interval, interval),
+                max_restarts=max_restarts, restart_backoff_seconds=restart_backoff_seconds,
+                should_continue=should_continue, lost=lost)
+        finally:
+            done.set()
+            renewer.join(timeout=5)
+
+    def _supervise_loop(self, *, poll_interval, max_restarts,
+                        restart_backoff_seconds, should_continue, lost):
         restarts = 0
         while should_continue is None or should_continue():
+            if lost.is_set():
+                self.stop(reason="single_active_lost")
+                return {"ok": False, "reason_code": "single_active_lost", "restarts": restarts}
             if self.stop_requested():
                 return self.stop(reason="stop_request")
             if self.child is not None and getattr(self.child, "poll", lambda: None)() is not None:
@@ -345,6 +374,8 @@ class Supervisor:
                     self.stop(reason=f"max_restarts:{max_restarts}")
                     return {"ok": False, "reason_code": "max_restarts", "restarts": restarts}
                 time.sleep(restart_backoff_seconds)
+                if lost.is_set():
+                    continue
                 self.child = self._spawner(self.command, self.cwd, self.env)
             time.sleep(poll_interval)
         return self.stop(reason="loop_exit")

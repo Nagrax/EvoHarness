@@ -14,6 +14,7 @@
 投影文件（producer-kind==projection / managed-by==experience.skill_sync）拒绝发布：
 投影由源服务重建，直接写投影等于制造第二事实源（§4 单写者）。
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -36,7 +37,9 @@ def _canonical_bundle_hash(bundle: dict[str, Any]) -> str:
     canonical = {
         "name": str(bundle.get("name") or ""),
         "description": str(bundle.get("description") or ""),
-        "when_to_use": str(bundle.get("when_to_use") or bundle.get("when-to-use") or ""),
+        "when_to_use": str(
+            bundle.get("when_to_use") or bundle.get("when-to-use") or ""
+        ),
         "instructions": str(bundle.get("instructions") or ""),
     }
     return hashlib.sha256(
@@ -48,6 +51,131 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _intent_path(skill_file, release_id):
+    return (
+        skill_file.parent
+        / ".release-receipts"
+        / (hashlib.sha256(release_id.encode()).hexdigest() + ".json")
+    )
+
+
+def _release_request(
+    skill_file,
+    release_id,
+    bundle,
+    expected_version,
+    expected_active_sha256,
+    actor,
+    scope,
+):
+    return dict(
+        release_id=release_id,
+        path=str(skill_file.resolve()),
+        bundle_sha256=_canonical_bundle_hash(bundle),
+        previous_version=expected_version,
+        previous_sha256=expected_active_sha256,
+        actor=actor,
+        scope=scope,
+    )
+
+
+def _read_intent(path):
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        return record if record.get("schema") == 1 else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def recover_skill_bundle(
+    *,
+    skill_name,
+    bundle,
+    expected_version,
+    expected_active_sha256,
+    actor,
+    active_dir,
+    scope,
+    release_id,
+):
+    """Read-only reconciliation of a file published before its DB commit."""
+    from agents.skill_evolution import resolve_skill_file
+    from agents.frontmatter import parse_frontmatter
+
+    file = resolve_skill_file(skill_name, target="active", active_dir=active_dir)
+    if file is None or not release_id:
+        return None
+    record = _read_intent(_intent_path(file, release_id))
+    request = _release_request(
+        file, release_id, bundle, expected_version, expected_active_sha256, actor, scope
+    )
+    if record is None or record.get("request") != request:
+        return None
+    receipt = record.get("receipt") or {}
+    if _file_sha256(file) != receipt.get("sha256") or str(
+        parse_frontmatter(file.read_text(encoding="utf-8-sig")).meta.get("version", "")
+    ) != receipt.get("version"):
+        return None
+    return receipt
+
+
+def prepared_skill_bundle(
+    *,
+    skill_name,
+    bundle,
+    expected_version,
+    expected_active_sha256,
+    actor,
+    active_dir,
+    scope,
+    release_id,
+):
+    from agents.skill_evolution import resolve_skill_file
+    from agents.frontmatter import parse_frontmatter
+
+    file = resolve_skill_file(skill_name, target="active", active_dir=active_dir)
+    if file is None or not release_id:
+        return False
+    record = _read_intent(_intent_path(file, release_id))
+    request = _release_request(
+        file, release_id, bundle, expected_version, expected_active_sha256, actor, scope
+    )
+    return bool(
+        record
+        and record.get("request") == request
+        and _file_sha256(file) == expected_active_sha256
+        and str(
+            parse_frontmatter(file.read_text(encoding="utf-8-sig")).meta.get(
+                "version", ""
+            )
+        )
+        == expected_version
+    )
+
+
+def _write_intent(path, request, receipt):
+    import tempfile
+
+    path.parent.mkdir(exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=".release-", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(
+                dict(schema=1, request=request, receipt=receipt),
+                stream,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def publish_skill_bundle(
     *,
     skill_name: str,
@@ -57,6 +185,9 @@ def publish_skill_bundle(
     actor: str = "release",
     lesson: str = "",
     reason: str = "",
+    active_dir: str = "",
+    scope: dict | None = None,
+    release_id: str = "",
 ) -> dict[str, Any]:
     """把认证/冠军候选的最终 bundle 显式发布为 active 技能制品。
 
@@ -101,7 +232,11 @@ def publish_skill_bundle(
     # ── bundle 自身完整性：bundle name 与目标一致、内容 hash 与认证材料一致 ──
     bundle_name = str(bundle.get("name") or "").strip()
     if bundle_name and bundle_name != name:
-        return {"ok": False, "error": "bundle_name_mismatch", "bundle_name": bundle_name}
+        return {
+            "ok": False,
+            "error": "bundle_name_mismatch",
+            "bundle_name": bundle_name,
+        }
     bundle_hash = _canonical_bundle_hash({**bundle, "name": bundle_name or name})
     expected_bundle_hash = str(bundle.get("sha256") or "").strip()
     if expected_bundle_hash and expected_bundle_hash != bundle_hash:
@@ -112,13 +247,54 @@ def publish_skill_bundle(
             "actual_bundle_sha256": bundle_hash,
         }
 
-    skill_file = resolve_skill_file(name, target="active")
+    skill_file = resolve_skill_file(name, target="active", active_dir=active_dir)
     if not skill_file:
         return {"ok": False, "error": "skill_not_found", "skill": name}
     raw = skill_file.read_text(encoding="utf-8-sig")
     current_meta = parse_frontmatter(raw).meta
-    if current_meta.get("producer-kind") == "projection" or current_meta.get("managed-by") == "experience.skill_sync":
-        return {"ok": False, "error": "managed_projection_source_owned", "file": str(skill_file)}
+    if scope is not None:
+        try:
+            stored_scope = json.loads(current_meta.get("scope-json") or "null")
+        except ValueError:
+            stored_scope = None
+        if stored_scope != scope:
+            return {"ok": False, "error": "skill_scope_mismatch"}
+    if (
+        current_meta.get("producer-kind") == "projection"
+        or current_meta.get("managed-by") == "experience.skill_sync"
+    ):
+        return {
+            "ok": False,
+            "error": "managed_projection_source_owned",
+            "file": str(skill_file),
+        }
+
+    request = None
+    if release_id:
+        request = _release_request(
+            skill_file,
+            release_id,
+            bundle,
+            expected_version,
+            expected_active_sha256,
+            actor,
+            scope,
+        )
+        previous_intent = _read_intent(_intent_path(skill_file, release_id))
+        if previous_intent is not None and previous_intent.get("request") != request:
+            return {"ok": False, "error": "release_id_conflict"}
+        recovered = recover_skill_bundle(
+            skill_name=name,
+            bundle=bundle,
+            expected_version=expected_version,
+            expected_active_sha256=expected_active_sha256,
+            actor=actor,
+            active_dir=active_dir,
+            scope=scope,
+            release_id=release_id,
+        )
+        if recovered:
+            return recovered
 
     # ── §8：比较当前 active hash/授权版本（fail-closed CAS） ──
     current_version = str(current_meta.get("version", ""))
@@ -131,7 +307,9 @@ def publish_skill_bundle(
             "current_version": current_version,
             "file": str(skill_file),
         }
-    if expected_active_sha256 is not None and current_sha256 != str(expected_active_sha256):
+    if expected_active_sha256 is not None and current_sha256 != str(
+        expected_active_sha256
+    ):
         return {
             "ok": False,
             "error": "source_changed",
@@ -140,14 +318,59 @@ def publish_skill_bundle(
             "file": str(skill_file),
         }
 
-    # ── 锁定目标（同目录 O_EXCL 锁，与 write_managed_projection 同款） ──
-    lock = skill_file.parent / PUBLISH_LOCK_NAME
+    # Kernel ownership is released when a publisher crashes; a leftover file
+    # cannot permanently block the next explicit adoption.
+    from agents.skill_search.store import namespace_exclusive_lock, StoreLockTimeout
+
+    lock = namespace_exclusive_lock(
+        skill_file.parent, timeout=0.1, lock_name=PUBLISH_LOCK_NAME
+    )
     try:
-        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
+        lock.__enter__()
+    except StoreLockTimeout:
         return {"ok": False, "error": "release_busy", "file": str(skill_file)}
-    os.close(descriptor)
     try:
+        if _file_sha256(skill_file) != current_sha256:
+            return {"ok": False, "error": "source_changed"}
+
+        def prepare_receipt(content, meta):
+            # Establish the conservative tier and the exact expected output
+            # before the atomic file switch. A process death cannot strand an
+            # unidentifiable new source or promote it under the previous tier.
+            from agents.skill_tiers import set_tier_scoped, register_evolution_write
+
+            evidence = {"file": str(skill_file), "version": str(meta["version"])}
+            if scope:
+                tier_result = set_tier_scoped(
+                    name,
+                    "experimental",
+                    scope=scope,
+                    actor=actor,
+                    trigger="evolution_write",
+                    producer="bundle adoption",
+                    evidence=evidence,
+                )
+            else:
+                tier_result = register_evolution_write(
+                    name, producer="bundle adoption", evidence=evidence
+                )
+            if not tier_result.get("ok"):
+                raise ValueError("release_tier_update_failed")
+            receipt = {
+                "ok": True,
+                "skill": name,
+                "path": str(skill_file),
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "version": str(meta["version"]),
+                "bundle_sha256": bundle_hash,
+                "previous_version": current_version,
+                "tier": "experimental",
+                "released_at": _utc_now(),
+                "messaging_authorization": "not_granted",
+                "certification": "unchanged",
+            }
+            _write_intent(_intent_path(skill_file, release_id), request, receipt)
+
         # ── 写版本与 history/provenance/部署意图：复用 evolve_skill_file
         # （快照先行落 history JSONL → CAS 复核 → 原子替换 → usage.jsonl evolve 行
         #   → register_evolution_write 回 experimental 并重置 tier 缓存） ──
@@ -159,8 +382,14 @@ def publish_skill_bundle(
             actor=actor,
             instructions=instructions,
             description=str(bundle.get("description") or ""),
-            when_to_use=str(bundle.get("when_to_use") or bundle.get("when-to-use") or ""),
+            when_to_use=str(
+                bundle.get("when_to_use") or bundle.get("when-to-use") or ""
+            ),
             expected_version=expected_version,
+            active_dir=active_dir,
+            scope=scope,
+            expected_active_sha256=current_sha256,
+            before_replace=prepare_receipt if release_id else None,
         )
         if not result.get("ok"):
             return {
@@ -171,13 +400,15 @@ def publish_skill_bundle(
 
         # ── 实际加载回执：写入后从磁盘重读，不信任内存字符串 ──
         receipt_sha256 = _file_sha256(skill_file)
-        published_meta = parse_frontmatter(skill_file.read_text(encoding="utf-8-sig")).meta
+        published_meta = parse_frontmatter(
+            skill_file.read_text(encoding="utf-8-sig")
+        ).meta
         published_version = str(published_meta.get("version", ""))
         tier_now = None
         try:
-            from agents.skill_tiers import get_tier
+            from agents.skill_tiers import get_tier, get_tier_scoped
 
-            tier_now = get_tier(name)
+            tier_now = get_tier_scoped(name, scope) if scope else get_tier(name)
         except Exception:
             tier_now = ""
         receipt = {
@@ -204,7 +435,9 @@ def publish_skill_bundle(
             from agents.skill_tiers import tier_audit_path
 
             _append_jsonl(tier_audit_path(), audit_row)
-            _append_jsonl(get_evolution_dir() / "usage.jsonl", {**audit_row, "event": "release"})
+            _append_jsonl(
+                get_evolution_dir() / "usage.jsonl", {**audit_row, "event": "release"}
+            )
         except Exception:
             pass
         try:
@@ -226,7 +459,4 @@ def publish_skill_bundle(
             "certification": "unchanged",
         }
     finally:
-        try:
-            lock.unlink(missing_ok=True)
-        except OSError:
-            pass
+        lock.__exit__(None, None, None)

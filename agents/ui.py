@@ -20,7 +20,11 @@ console = Console(highlight=False)
 
 
 def _safe_text(value: object) -> str:
-    return str(value).encode("utf-8", errors="replace").decode("utf-8")
+    text = str(value).encode("utf-8", errors="replace").decode("utf-8")
+    # A redirected Windows console may use GBK/ASCII. Rendering must not
+    # prevent a tool from reaching its permission check and executor.
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return text.encode(encoding, errors="replace").decode(encoding)
 
 
 def _safe_markup(value: object) -> str:
@@ -97,7 +101,7 @@ def print_tool_call(name: str, inp: dict) -> None:
     table = Table.grid(padding=(0, 1))
     table.add_column(style="bold yellow", no_wrap=True)
     table.add_column(style="white")
-    table.add_row("tool", f"{icon} {_safe_markup(name)}")
+    table.add_row("tool", f"{_safe_text(icon)} {_safe_markup(name)}")
     if summary:
         table.add_row("input", _safe_markup(summary))
     console.print(Panel(

@@ -573,12 +573,19 @@ async def maintain_online_skill_candidate(
     retrieved_reference: dict[str, Any] | None = None,
     confirm_write: ConfirmWrite | None = None,
     target: str = "project",
+    skill_catalog: list | None = None,
+    write_candidate=None,
 ) -> dict[str, Any]:
     from .skills import create_skill, discover_skills, evolve_skill, retrieve_relevant_skills
 
-    skills = discover_skills()
+    skills = discover_skills() if skill_catalog is None else list(skill_catalog)
     exact_target = _exact_identity_match(candidate, skills)
-    similar_hits = retrieve_relevant_skills(_candidate_search_text(candidate), limit=8, min_score=0.03)
+    if skill_catalog is None:
+        similar_hits = retrieve_relevant_skills(_candidate_search_text(candidate), limit=8, min_score=0.03)
+    else:
+        from .skills import build_retrieval_corpus, rank_corpus_for_query
+        similar_hits = [{"name":name,"score":score} for name,score in rank_corpus_for_query(
+            _candidate_search_text(candidate), build_retrieval_corpus(skills)) if score >= 0.03][:8]
     top_reference_name = str((retrieved_reference or {}).get("name") or "").strip()
 
     system = (
@@ -658,6 +665,10 @@ async def maintain_online_skill_candidate(
             "error": "permission denied",
             "decision": decision,
         }
+
+    if write_candidate is not None:
+        return await write_candidate(action=action, target_skill=target_skill or candidate.name,
+                                     candidate=candidate, decision=decision)
 
     if action == "revise":
         # 冲突偏好的显式处理：新经验与现有指令明确矛盾时整体替换（旧版自动存快照），
@@ -739,8 +750,12 @@ async def online_ingest(
     confirm_write: ConfirmWrite | None = None,
     target: str = "project",
     attribution: dict[str, Any] | None = None,
+    maintainer=None,
+    provenance_writer=None,
 ) -> dict[str, Any]:
     from .skills import record_online_provenance
+    record_online_provenance = provenance_writer or record_online_provenance
+    maintainer = maintainer or maintain_online_skill_candidate
 
     try:
         candidate = await extract_online_skill_candidate(
@@ -794,7 +809,7 @@ async def online_ingest(
             return result
 
     try:
-        result = await maintain_online_skill_candidate(
+        result = await maintainer(
             candidate=candidate,
             side_query=side_query,
             retrieved_reference=retrieved_reference,

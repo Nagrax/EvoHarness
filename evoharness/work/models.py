@@ -29,6 +29,26 @@ class ExecutionRun(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
+class SkillLearningEvidence(Base):
+    """Task-owned input/output of the original online learning lifecycle."""
+    __tablename__ = "task_skill_learning"
+    evidence_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("execution_runs.id"), index=True)
+    generation: Mapped[int] = mapped_column(Integer)
+    task_revision: Mapped[int] = mapped_column(Integer)
+    reviewer: Mapped[str] = mapped_column(String(128))
+    verdict: Mapped[str] = mapped_column(String(16))
+    notes: Mapped[str] = mapped_column(Text, default="")
+    skills_json: Mapped[str] = mapped_column(Text, default="[]")
+    context_sha256: Mapped[str] = mapped_column(String(64), default="")
+    state: Mapped[str] = mapped_column(String(24), default="pending")
+    claim_token: Mapped[str] = mapped_column(String(64), default="")
+    lease_until: Mapped[datetime | None] = mapped_column(nullable=True)
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class Artifact(Base):
     __tablename__ = "work_artifacts"
     __table_args__ = (UniqueConstraint("run_id", "generation", "path", name="uq_run_artifact"),)

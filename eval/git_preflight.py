@@ -19,13 +19,14 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
 # 敏感文件名/路径模式
 SENSITIVE_PATH = [
-    r"(^|/)\.env($|\.)",
+    r"(^|/)\.env(?!(?:\.example|\.sample)$)($|\.)",
     r"(^|/)\.envrc$",
     r"\.key$", r"\.pem$", r"\.p12$", r"\.pfx$",
     r"LIVE_BUDGET\.json$",
@@ -68,18 +69,28 @@ def git(*args: str) -> str:
 
 def candidate_files() -> list[Path]:
     """未跟踪 + 已修改 + 已暂存的文件。"""
+    # Enumerate files, including children of new directories. NUL-delimited
+    # names preserve whitespace, Chinese and literal arrows in real filenames.
+    raw = git("status", "--porcelain", "-z", "--untracked-files=all")
     out: set[str] = set()
-    for line in git("status", "--porcelain").splitlines():
-        if not line.strip():
-            continue
-        path = line[3:].strip()
-        if " -> " in path:  # rename
-            path = path.split(" -> ")[-1]
-        out.add(path.strip('"'))
+    if "\0" in raw:
+        records = iter(raw.split("\0"))
+        for record in records:
+            if not record:
+                continue
+            out.add(record[3:])
+            if "R" in record[:2] or "C" in record[:2]:
+                next(records, None)  # porcelain -z puts the old path second
+    else:
+        # Compatibility with line-oriented status readers.
+        for line in raw.splitlines():
+            if line.strip():
+                out.add(line[3:].strip().strip('"'))
     return [REPO / p for p in sorted(out)]
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     files = candidate_files()
     sensitive: list[dict] = []
     secrets: list[dict] = []

@@ -1,0 +1,22 @@
+[Unit]
+Description=EvoHarness workbench
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=evoharness
+Group=evoharness
+WorkingDirectory=/opt/evoharness/current
+EnvironmentFile=/etc/evoharness/runtime.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/evoharness-tools/venv/bin/python -m evoharness serve --host 127.0.0.1 --port 8800
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

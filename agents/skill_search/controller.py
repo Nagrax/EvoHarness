@@ -94,6 +94,22 @@ class FaultInjected(Exception):
     """测试注入的阶段故障：控制器不吞、直接向上抛（模拟进程在阶段边界/调用中崩溃）。"""
 
 
+@dataclass(frozen=True)
+class MeteredProposal:
+    """A provider proposal and its reported token usage, including real zero.
+
+    Plain legacy callbacks retain their configured estimates. Live adapters
+    return this receipt after durably recording the corresponding model call.
+    """
+
+    value: Any
+    used_tokens: int
+
+    def __post_init__(self):
+        if type(self.used_tokens) is not int or self.used_tokens < 0:
+            raise ValueError("proposal_usage_invalid")
+
+
 @dataclass
 class ControllerConfig:
     """控制器运行配置（预算估计/并发上限/代数上限；阈值是待试点标定的配置）。"""
@@ -316,9 +332,9 @@ class SearchController:
         config: ControllerConfig | None = None,
         store: st.SearchStore | None = None,
         base_dir: str | Path | None = None,
-        attributor: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
-        patch_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-        judge: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        attributor: Callable[[dict[str, Any]], list[dict[str, Any]] | MeteredProposal] | None = None,
+        patch_provider: Callable[[dict[str, Any]], dict[str, Any] | MeteredProposal] | None = None,
+        judge: Callable[[dict[str, Any]], dict[str, Any] | MeteredProposal] | None = None,
         isolation: Any = None,
         trace_store: fb.TraceStore | None = None,
         fault_hook: Callable[[str], None] | None = None,
@@ -793,18 +809,20 @@ class SearchController:
             return reserve_error
         handle = dict(state["open_reservations"][reservation_key])
         proposals: list[dict[str, Any]] = []
+        usage = self.config.reflection_tokens
         if self.attributor is not None:
-            proposals = list(
-                self.attributor(
-                    {
-                        "parent": dict(parent),
-                        "cases": self._cases_for_roles(("S",)),
-                        "evaluations": evaluations,
-                        "manifest": self.manifest,
-                    }
-                )
-                or []
+            raw = self.attributor(
+                {
+                    "parent": dict(parent),
+                    "cases": self._cases_for_roles(("S",)),
+                    "evaluations": evaluations,
+                    "manifest": self.manifest,
+                }
             )
+            if isinstance(raw, MeteredProposal):
+                usage = raw.used_tokens
+                raw = raw.value
+            proposals = list(raw or [])
         record = fb.compile_feedback(
             parent={"candidate_id": parent_id, "generation": int(parent.get("iteration") or 0)},
             freeze=self._derived_freeze(self.s_case_ids),
@@ -818,7 +836,6 @@ class SearchController:
         )
         path = self.store.save_artifact(f"feedback-r{round_state['index']}.json", record, subdir="feedback")
         round_state["feedback_ref"] = str(path)
-        usage = self.config.reflection_tokens
         self._settle(reservation_key, handle, usage, ok=True)
         gate = record.get("mutation_gate") or {}
         if not gate.get("allowed"):
@@ -869,15 +886,19 @@ class SearchController:
             budget=mu.freeze_budget(),
         )
         patch: dict[str, Any] | None = None
+        usage = self.config.mutation_tokens
         if self.patch_provider is not None:
             raw = self.patch_provider(brief)
+            if isinstance(raw, MeteredProposal):
+                usage = raw.used_tokens
+                raw = raw.value
             patch = raw if isinstance(raw, dict) else None
         round_state["patch"] = patch
         round_state["patch_meta"] = {
             "target_module": target,
             "base_text_sha256": _sha256_text(parent_text),
         }
-        self._settle(reservation_key, handle, self.config.mutation_tokens, ok=True)
+        self._settle(reservation_key, handle, usage, ok=True)
         round_state["phase"] = st.ROUND_PHASE_VALIDATION
         self._save_under_lock()
         return "ok"
@@ -905,6 +926,12 @@ class SearchController:
             budget=mu.freeze_budget(),
             gate_target_module=str((round_state.get("patch_meta") or {}).get("target_module") or ""),
             skill_text_sha256=str((round_state.get("patch_meta") or {}).get("base_text_sha256") or ""),
+            exam_materials=[
+                str(case.get(field) or "")
+                for case in self._cases_for_roles(("S", "V"))
+                for field in ("question", "expected")
+            ],
+            case_ids=[str(case.get("case_id") or "") for case in self.cases],
             cumulative=cumulative,
             rejection_history=self._rejections_history(),
             scope=self.manifest.search_id,
@@ -1076,7 +1103,11 @@ class SearchController:
                     "cases": dict(round_state.get("cases") or {}),
                 }
             )
-            usage = int((verdict or {}).get("used_tokens") or usage)
+            if isinstance(verdict, MeteredProposal):
+                usage = verdict.used_tokens
+                verdict = verdict.value
+            elif isinstance(verdict, dict) and "used_tokens" in verdict:
+                usage = MeteredProposal(None, verdict["used_tokens"]).used_tokens
         self._settle(reservation_key, handle, usage, ok=True)
         candidate_meta = round_state.get("candidate_meta") or {}
         decision = self.pool.admit(

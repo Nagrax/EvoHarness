@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,6 +22,7 @@ from app.feishu.parser import clean_mention_placeholders, parse_message_content
 logger = logging.getLogger(__name__)
 
 IDEMPOTENCY_WINDOW_SECONDS = 3600
+_user_send_key: ContextVar[str] = ContextVar("feishu_user_send_key", default="")
 
 
 def chat_type_of(item: Any) -> str:
@@ -214,7 +216,11 @@ class FeishuTransport:
                 return TransportResult(
                     "permanent", error="user_identity_token_unavailable"
                 )
-            return self._send_as_user(user_chat_id, text, user_access_token)
+            marker = _user_send_key.set(idempotency_key)
+            try:
+                return self._send_as_user(user_chat_id, text, user_access_token)
+            finally:
+                _user_send_key.reset(marker)
         return self._reply(
             message_id,
             "text",
@@ -245,6 +251,7 @@ class FeishuTransport:
                     "receive_id": chat_id,
                     "msg_type": "text",
                     "content": json.dumps({"text": text}, ensure_ascii=False),
+                    **({"uuid": _user_send_key.get()} if _user_send_key.get() else {}),
                 },
                 timeout=15,
             )

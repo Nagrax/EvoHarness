@@ -1,0 +1,4 @@
+FROM python:3.13-slim
+RUN python -m pip install --no-cache-dir pytest
+# Project-specific checker images can extend this image with their dependencies.
+WORKDIR /workspace

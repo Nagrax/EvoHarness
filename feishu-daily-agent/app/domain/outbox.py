@@ -33,8 +33,15 @@ def _resolve_user_token(session_factory, payload: dict) -> str:
     session = session_factory()
     try:
         from app.services import identity as identity_module
-
-        return identity_module.usable_access_token(session, open_id) or ""
+        settings = get_settings()
+        # Actual Feishu app namespaces always use cli_ IDs. Offline/legacy
+        # adapters can still inspect their explicitly unbound local fixtures.
+        app_id = settings.feishu_app_id if settings.feishu_app_id.startswith("cli_") else ""
+        tenant = str((payload.get("_delivery_scope") or {}).get("tenant")
+                     or settings.tenant_id)
+        with session.begin():
+            return identity_module.usable_access_token(
+                session, open_id, tenant=tenant, app_id=app_id) or ""
     except Exception as exc:  # noqa: BLE001 — 失败静默返回空串，可查日志
         logger.warning("分身身份解析失败（token 不可用，交身份冻结决策）：%s", exc)
         return ""

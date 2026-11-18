@@ -54,7 +54,13 @@ def check_readme_grades() -> list[str]:
     lines = text.splitlines()
     table_rows = [l for l in lines if l.startswith("| **") and l.count("|") >= 4]
     if not table_rows:
-        return ["readme-benchmark-table-not-found"]
+        # A product README may make no benchmark claim. Requiring a results
+        # table here would force historical numbers back into public copy.
+        # Numerical claims still need their evidence grade, including prose.
+        numerical_claim = re.search(
+            r"(?:GAIA|HLE|ToolBench|API.?Bank|benchmark|基准)[^\n]*?"
+            r"\d+(?:\.\d+)?\s*(?:%|pp|分)", text, re.IGNORECASE)
+        return ["readme-benchmark-claim-missing-grade"] if numerical_claim else []
     for row in table_rows:
         cells = [c.strip() for c in row.strip().strip("|").split("|")]
         if len(cells) < 3:

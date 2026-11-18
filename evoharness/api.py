@@ -150,6 +150,11 @@ API_SCHEMA = {
         "note": "dryrun/等待授权/待验收/回执未知是独立 reason_code，不得显示为已发送或已完成",
     },
     "operations": {
+        "set_budget_limit": {
+            "params": ["org_id", "space_id", "limit_tokens", "actor"],
+            "returns": ["scope_kind", "scope_id", "limit_tokens", "revision"],
+            "note": "当前组织管理员设置组织或所属空间的累计 token 限额；零额度暂停新预留",
+        },
         "skills_view": {
             "params": ["org_id", "space_id", "tenant", "owner", "legacy"],
             "returns": ["mode", "capabilities", "scope", "spaces", "has_report", "skills", "events"],
@@ -217,6 +222,16 @@ API_SCHEMA = {
             "params": ["task_id", "run_id", "reviewer", "verdict(pass|fail)", "notes"],
             "note": "hosted 模式 reviewer 只取受信主体，owner/负责人资格由验收服务复核（N01）",
             "returns": ["task_state", "verdict"],
+        },
+        "learning_action": {
+            "params": ["task_id", "evidence_id", "action(build|adopt)", "actor"],
+            "returns": ["evidence_id", "action", "result"],
+            "note": "从同一任务的验收意见生成候选；显式采用复用原技能版本与部署分区。",
+        },
+        "sync_knowledge": {
+            "params": ["org_id", "space_id", "tenant", "actor"],
+            "returns": ["completed", "revision", "build_sha256", "inputs", "processed", "changed"],
+            "note": "固定本人的已批准来源清单，经来源校验后原子发布派生视图。",
         },
         "submit_approval": {
             "params": ["org_id", "actor_id", "target_type", "target_id", "target_revision",
@@ -733,6 +748,8 @@ class WorkApi:
                 row["artifacts"] = self._artifact_refs(session, task.id)
                 row["receipts"] = self._receipts(session, task.id)
                 row["allowed_transitions"] = sorted(can_transitions(task))
+                from evoharness.knowledge.task_learning import learning_view
+                row["learning"] = learning_view(session,task.id)
                 refs = list(row["source_refs"]) + [a["path"] for a in row["artifacts"]] \
                     + [r["run_id"] for r in row["runs"]]
                 return self._ok(row, refs)
@@ -1044,7 +1061,9 @@ class WorkApi:
             return self._fail("task_not_found")
         root = Path(output_root) if output_root else (
             (self._artifacts_dir or Path.cwd()) / "runs" / f"task-{task_id}")
-        root.mkdir(parents=True, exist_ok=True)
+        if principal is not None and not root.resolve().is_relative_to(
+                (self._artifacts_dir or Path.cwd()).resolve()):
+            return self._fail("output_root_outside_artifacts")
         try:
             with self._session() as session:
                 task = session.get(Task, task_id)
@@ -1095,6 +1114,9 @@ class WorkApi:
                 elif run.state in {"cancelled", "failed"}:
                     return self._fail("run_intent_conflict", {"state": run.state,
                                                               "run_id": run.id})
+                # Preserve the successful start contract after authorization;
+                # denied requests never create caller-selected directories.
+                Path(run.output_root).mkdir(parents=True, exist_ok=True)
                 if task.status != "queued":
                     work_service.transition_to(session, task_id, to_state="queued",
                                                actor=actor_id)
@@ -1230,6 +1252,92 @@ class WorkApi:
                                  "display": self._display(session, task)},
                                 [str(run_id), str(task.id)])
         except (ValueError, AcceptanceError) as exc:
+            return self._convert(exc)
+
+    def learning_action(self, task_id, *, evidence_id, action, actor="", principal=None,
+                        _side_query=None) -> dict:
+        from evoharness.knowledge import task_learning
+        from evoharness.work.models import SkillLearningEvidence
+        if action not in {"build", "adopt"}:
+            return self._fail("learning_action_invalid")
+        if principal is not None:
+            bound = self._bind_principal_actor(principal,actor)
+            if isinstance(bound,dict):
+                return bound
+            actor = bound
+        if not str(actor or "").strip():
+            return self._fail("actor_required")
+        try:
+            task_id = int(task_id)
+            with self._session() as session:
+                task = session.get(Task,task_id)
+                row = session.get(SkillLearningEvidence,str(evidence_id))
+                if task is None or row is None or row.task_id != task_id:
+                    return self._fail("learning_evidence_not_found")
+                if principal is not None:
+                    denial = self._principal_task_denial(session,principal,task,write=True)
+                    if denial is not None:
+                        return denial
+                    from evoharness.organization.models import Membership
+                    member = session.scalar(select(Membership).where(
+                        Membership.org_id == task.org_id,
+                        Membership.principal_id == actor,
+                        Membership.tenant_id == str(principal.get("tenant_id") or ""),
+                        Membership.app_id == str(principal.get("app_id") or "")))
+                    if member is None or member.tenant_id != task.tenant:
+                        return self._fail("principal_namespace_mismatch")
+                if actor not in {task.owner,task.assignee_id}:
+                    return self._fail("learning_actor_not_authorized")
+                if action == "adopt":
+                    result = task_learning.adopt_candidate(session,str(evidence_id),actor=actor)
+                    return self._ok({"evidence_id":str(evidence_id),"action":action,"result":result},
+                                    [str(evidence_id)])
+            import asyncio
+            result = asyncio.run(task_learning.build_candidate(self._app.session_factory,
+                str(evidence_id),actor=actor,side_query=_side_query))
+            if not result.get("ok"):
+                return self._fail(str(result.get("error") or "learning_candidate_failed"))
+            return self._ok({"evidence_id":str(evidence_id),"action":action,"result":result},
+                            [str(evidence_id)])
+        except (ValueError,task_learning.LearningError) as exc:
+            return self._convert(exc)
+        except Exception as exc:
+            return self._fail("learning_model_error",{"error_type":type(exc).__name__})
+
+    def sync_knowledge(self, *, org_id, space_id, tenant="", actor="", principal=None) -> dict:
+        from evoharness.knowledge.compiler import prepare_manifest,publish_manifest,scope_key
+        from evoharness.knowledge.models import KnowledgePublication
+        from evoharness.organization.models import Membership,BusinessSpace
+        from evoharness.organization.service import _live
+        from evoharness.clock import utcnow
+        if principal is not None:
+            bound=self._bind_principal_actor(principal,actor)
+            if isinstance(bound,dict):
+                return bound
+            actor=bound
+            tenant=str(principal.get("tenant_id") or "")
+            denial=self._principal_org_denial(principal,org_id)
+            if denial is not None:
+                return denial
+        if not actor or not tenant:
+            return self._fail("actor_required")
+        try:
+            with self._session() as session:
+                members=list(session.scalars(select(Membership).where(Membership.org_id==org_id,
+                    Membership.tenant_id==tenant,Membership.principal_id==actor)))
+                space=session.get(BusinessSpace,space_id)
+                if (len(members)!=1 or not _live(members[0],utcnow())
+                        or "knowledge.read" not in json.loads(members[0].grants_json)
+                        or space is None or not space.enabled or space.org_id!=org_id):
+                    return self._fail("knowledge_not_authorized")
+                if principal is not None and principal.get("app_id") and principal["app_id"]!=members[0].app_id:
+                    return self._fail("principal_namespace_mismatch")
+                manifest=prepare_manifest(session,org_id=org_id,space_id=space_id,tenant=tenant,owner=actor)
+                publication=session.get(KnowledgePublication,scope_key(org_id,space_id,actor))
+                result=publish_manifest(session,org_id=org_id,space_id=space_id,tenant=tenant,owner=actor,
+                    manifest=manifest,expected_revision=publication.revision if publication else 0)
+                return self._ok(result,[result["build_sha256"]])
+        except ValueError as exc:
             return self._convert(exc)
 
     # ── 批准 / 撤回 ──
@@ -1489,6 +1597,46 @@ class WorkApi:
         except ValueError as exc:
             return self._convert(exc)
 
+    def set_budget_limit(self, *, org_id, limit_tokens, space_id="", actor="", principal=None) -> dict:
+        from evoharness.organization.models import BusinessSpace, Membership, Organization
+        from evoharness.organization.service import _live
+
+        if type(limit_tokens) is not int or limit_tokens < 0:
+            return self._fail("invalid_budget_limit")
+        if principal is not None:
+            actor = self._bind_principal_actor(principal, actor)
+            if isinstance(actor, dict):
+                return actor
+            denial = self._principal_org_denial(principal, org_id)
+            if denial is not None:
+                return denial
+        if not actor:
+            return self._fail("actor_required")
+        try:
+            with self._session() as session:
+                organization = session.get(Organization, org_id)
+                if organization is None or not organization.enabled:
+                    return self._fail("organization_not_available")
+                members = list(session.scalars(select(Membership).where(
+                    Membership.org_id == org_id, Membership.principal_id == actor)))
+                if principal is not None:
+                    members = [m for m in members
+                               if m.tenant_id == str(principal.get("tenant_id") or "")
+                               and m.app_id == str(principal.get("app_id") or "")]
+                if (len(members) != 1 or not _live(members[0], utcnow())
+                        or "organization.manage" not in json.loads(members[0].grants_json)):
+                    return self._fail("organization_management_not_granted")
+                if space_id:
+                    space = session.get(BusinessSpace, space_id)
+                    if space is None or not space.enabled or space.org_id != org_id:
+                        return self._fail("resource_not_in_organization")
+                row = budget.set_limit(session, scope_kind="space" if space_id else "org",
+                                       scope_id=space_id or org_id, limit_tokens=limit_tokens)
+                return self._ok({"scope_kind": row.scope_kind, "scope_id": row.scope_id,
+                                 "limit_tokens": row.limit_tokens, "revision": row.revision}, [])
+        except ValueError as exc:
+            return self._convert(exc)
+
     def view_cost(self, *, org_id="", space_id="", principal_id="", principal=None) -> dict:
         if principal is not None:
             # N01：成本口径按主体收敛——成员只能看自己的用量与所在组织的限额，
@@ -1509,9 +1657,20 @@ class WorkApi:
             with self._session() as session:
                 summary = budget.usage_summary(session, org_id=org_id, space_id=space_id,
                                                principal_id=principal_id)
+                limit_query = select(BudgetLimit)
+                if principal is not None and not principal.get("admin"):
+                    from sqlalchemy import or_, and_
+                    from evoharness.organization.models import BusinessSpace
+                    allowed_orgs = list(principal.get("org_ids") or [])
+                    allowed_spaces = select(BusinessSpace.space_id).where(
+                        BusinessSpace.org_id.in_(allowed_orgs))
+                    limit_query = limit_query.where(or_(
+                        and_(BudgetLimit.scope_kind == "org", BudgetLimit.scope_id.in_(allowed_orgs)),
+                        and_(BudgetLimit.scope_kind == "space", BudgetLimit.scope_id.in_(allowed_spaces)),
+                        and_(BudgetLimit.scope_kind == "principal", BudgetLimit.scope_id == subject)))
                 limits = [{"scope_kind": l.scope_kind, "scope_id": l.scope_id,
                            "limit_tokens": l.limit_tokens, "revision": l.revision}
-                          for l in session.scalars(select(BudgetLimit))]
+                          for l in session.scalars(limit_query)]
                 data = dict(summary)
                 data["limits"] = limits
                 # 未知项如实列出：没有配置限额的空间不假装有额度口径

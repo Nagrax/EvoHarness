@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # 用户显式授权后，机器人才能以该用户身份发言（im:message.send_as_user）。
     # 重定向 URL 必须先在开放平台「安全设置」登记，否则拿不到授权码。
     feishu_redirect_uri: str = Field("", alias="FEISHU_REDIRECT_URI")
+    feishu_token_secret: str = Field("", alias="FEISHU_TOKEN_SECRET", repr=False)
     feishu_oauth_scopes: str = Field("", alias="FEISHU_OAUTH_SCOPES")
     # OAuth 回调监听端口（与重定向 URL 的端口一致）
     oauth_callback_port: int = Field(8791, alias="FEISHU_OAUTH_CALLBACK_PORT")

@@ -1,0 +1,23 @@
+[Unit]
+Description=EvoHarness Feishu channel
+After=network-online.target evoharness-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=evoharness
+Group=evoharness
+WorkingDirectory=/opt/evoharness/current
+EnvironmentFile=/etc/evoharness/runtime.env
+Environment=PATH=/opt/evoharness-tools/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/evoharness-tools/venv/bin/python -m ops.supervisor start --cwd /opt/evoharness/current/feishu-daily-agent --lock-dir /var/lib/evoharness/run
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=60
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

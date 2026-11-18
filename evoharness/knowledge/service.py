@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from evoharness.clock import utcnow
@@ -27,36 +28,86 @@ def record_claim(session: Session, *, org_id: str = "", space_id: str = "",
                  owner_scope: str = "private", subject: str, predicate: str = "",
                  value: str, source_refs: list[str] | None = None,
                  source_revision: int = 1, valid_until: datetime | None = None,
-                 confidence_basis: str = "", supersedes: str = "") -> KnowledgeClaim:
+                 confidence_basis: str = "", supersedes: str = "",
+                 aliases: list[str] | None = None) -> KnowledgeClaim:
     """登记主张；来源引用必须显式（不捏造权威）。"""
     if not subject.strip():
         raise KnowledgeError("claim_subject_required")
     if not source_refs:
         raise KnowledgeError("claim_source_required")
+    if (not isinstance(source_refs, list)
+            or any(not isinstance(ref, str) or not ref.strip() for ref in source_refs)):
+        raise KnowledgeError("claim_source_invalid")
+    source_refs = list(dict.fromkeys(ref.strip() for ref in source_refs))
+    subject = subject.strip()
+    if type(source_revision) is not int or source_revision < 1:
+        raise KnowledgeError("claim_source_revision_invalid")
+    if aliases is not None and (not isinstance(aliases, list) or any(
+            not isinstance(alias, str) or not alias.strip() for alias in aliases)):
+        raise KnowledgeError("claim_alias_invalid")
     if supersedes:
         previous = session.get(KnowledgeClaim, supersedes)
         if previous is None:
             raise KnowledgeError("superseded_claim_not_found")
-        if previous.subject != subject or previous.predicate != predicate:
+        if ((previous.org_id, previous.space_id, previous.owner_scope,
+             previous.subject, previous.predicate)
+                != (org_id, space_id, owner_scope, subject, predicate)):
             raise KnowledgeError("supersede_scope_mismatch")
-        previous.state = "superseded"
+        # One predecessor has one current successor, even across sessions.
+        changed = session.execute(update(KnowledgeClaim).where(
+            KnowledgeClaim.claim_id == supersedes,
+            KnowledgeClaim.state.in_(["active", "conflicting", "stale"]),
+            KnowledgeClaim.source_revision == previous.source_revision,
+        ).values(state="superseded"), execution_options={"synchronize_session": False})
+        if changed.rowcount != 1:
+            raise KnowledgeError("superseded_claim_not_current")
+        session.expire(previous)
     row = KnowledgeClaim(claim_id=uuid4().hex, org_id=org_id, space_id=space_id,
                          owner_scope=owner_scope, subject=subject.strip(),
                          predicate=predicate, value=value,
                          source_refs_json=json.dumps(source_refs, ensure_ascii=False),
+                         aliases_json=json.dumps(list(dict.fromkeys(aliases or [])), ensure_ascii=False),
                          source_revision=source_revision, valid_until=valid_until,
                          confidence_basis=confidence_basis, supersedes=supersedes)
     session.add(row)
     session.flush()
     # 同主体同谓词的活跃主张 value 不同 → 两者标 conflicting（保留各自来源）
     peers = [c for c in session.scalars(select(KnowledgeClaim).where(
+        KnowledgeClaim.org_id == org_id, KnowledgeClaim.owner_scope == owner_scope,
         KnowledgeClaim.space_id == space_id, KnowledgeClaim.subject == subject.strip(),
-        KnowledgeClaim.predicate == predicate, KnowledgeClaim.state == "active"))
+        KnowledgeClaim.predicate == predicate,
+        KnowledgeClaim.state.in_(["active", "conflicting"])))
         if c.claim_id != row.claim_id]
     if any(c.value != value for c in peers):
         for peer in peers:
             peer.state = "conflicting"
         row.state = "conflicting"
+    session.flush()
+    return row
+
+
+def record_verified_claim(session: Session, *, source_reader, **fields) -> KnowledgeClaim:
+    """Dereference sources before writing; a citation string alone is declared evidence.
+
+    The reader is an owning-service port supplied by the application, never a
+    model payload. A failed read creates no active claim and changes no history.
+    """
+    refs = fields.get("source_refs")
+    if not isinstance(refs, list) or not refs:
+        raise KnowledgeError("claim_source_required")
+    scope = {key: fields.get(key, "") for key in ("org_id", "space_id", "owner_scope")}
+    snapshots = []
+    for ref in refs:
+        snapshot = source_reader(session, ref, **scope)
+        if (not isinstance(snapshot, dict) or snapshot.get("ref") != ref
+                or not re.fullmatch(r"[0-9a-f]{64}", str(snapshot.get("sha256") or ""))
+                or type(snapshot.get("revision")) is not int or snapshot["revision"] < 1
+                or any(snapshot.get(key) != value for key, value in scope.items())):
+            raise KnowledgeError("claim_source_unverified")
+        snapshots.append(snapshot)
+    row = record_claim(session, **fields)
+    row.source_snapshots_json = json.dumps(snapshots, ensure_ascii=False, sort_keys=True)
+    row.evidence_level = "source_verified"
     session.flush()
     return row
 
@@ -91,14 +142,15 @@ def search(session: Session, *, space_id: str, subject: str,
     if viewer_scopes is not None:
         scopes = frozenset(str(s) for s in viewer_scopes if str(s))
         rows = [row for row in session.scalars(select(KnowledgeClaim).where(
-            KnowledgeClaim.space_id == space_id,
-            KnowledgeClaim.subject == subject.strip()))
+            KnowledgeClaim.space_id == space_id))
             if _visible_to_viewer(row, viewer_scopes=scopes)]
     else:
         rows = [row for row in session.scalars(select(KnowledgeClaim).where(
-            KnowledgeClaim.space_id == space_id,
-            KnowledgeClaim.subject == subject.strip()))
+            KnowledgeClaim.space_id == space_id))
             if _visible(row, owner_scope=owner_scope, include_private=include_private)]
+    from .matching import relevant_claims
+    from .provenance import claim_sources_current
+    rows = relevant_claims(session,[row for row in rows if claim_sources_current(session,row)],subject.strip())
     live = [row for row in rows
             if row.state in {"active", "conflicting"}
             and (row.valid_until is None or now <= row.valid_until)]
@@ -111,6 +163,7 @@ def search(session: Session, *, space_id: str, subject: str,
             "source_revision": row.source_revision,
             "supersedes": row.supersedes,
             "confidence_basis": row.confidence_basis,
+            "evidence_level": row.evidence_level,
         } for row in live],
         # 冲突保留显示：新旧/两源规则并存，由上层决定澄清，不自动裁决
         "conflicts": [row.claim_id for row in live if row.state == "conflicting"],

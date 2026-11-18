@@ -1,0 +1,21 @@
+[Unit]
+Description=EvoHarness task Worker
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=evoharness
+Group=evoharness
+WorkingDirectory=/opt/evoharness/current
+EnvironmentFile=/etc/evoharness/runtime.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/evoharness-tools/venv/bin/python -m evoharness worker --daemon --profile live
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=180
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -435,11 +435,34 @@ def dispatch_outbox(
             send_identity = "bot"
             if kind in {"reply", "correction"}:
                 if user_token_resolver:
+                    # Persist the claim and release SQLite's writer before a
+                    # resolver rotates tokens in its own short transaction.
+                    # Recheck the claim and all authority after that network IO.
+                    claimed_id = row.id
+                    trusted_tenant = row.tenant
+                    session.commit()
                     try:
-                        token_for_user = str(user_token_resolver(session_factory, payload) or "")
+                        token_for_user = str(user_token_resolver(session_factory,
+                            {**payload, "_delivery_scope": {"tenant": trusted_tenant}}) or "")
                     except Exception as exc:  # noqa: BLE001 — resolver 异常 = token 不可用
                         logger.warning("user token resolver failed: %s", exc)
                         token_for_user = ""
+                    session.expire_all()
+                    row = session.get(Outbox, claimed_id)
+                    if (row is None or row.claim_token != token
+                            or row.status != OutboxStatus.SENDING):
+                        session.rollback()
+                        results.append(DispatchResult(claimed_id, "claim_lost", error="claim_lost"))
+                        continue
+                    ok, reason = precheck(session, row)
+                    if not ok:
+                        row.status = OutboxStatus.CANCELLED
+                        row.last_error = f"precheck:{reason}"
+                        row.claim_token = ""
+                        row.lease_until = None
+                        session.commit()
+                        results.append(DispatchResult(row.id, OutboxStatus.CANCELLED, error=reason))
+                        continue
                 disposition, identity, gate_reason = _governance.resolve_send_identity(
                     session, row, payload=payload, user_token_valid=bool(token_for_user))
                 if disposition == _governance.SEND_IDENTITY_WAITING:

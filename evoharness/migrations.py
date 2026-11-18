@@ -28,7 +28,7 @@ import evoharness.knowledge.skill_scope_events  # noqa: F401  # DE-06 撤权事�
 import evoharness.channels.documents  # noqa: F401
 import evoharness.channels.meeting_notes  # noqa: F401
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
@@ -415,6 +415,13 @@ def migrate(engine: Engine, *, backup_dir: str | Path | None = None, context: Mi
             ),
             {"version": str(SCHEMA_VERSION), "now": utcnow().isoformat(sep=" ")},
         )
+        if _table_exists(conn, "knowledge_claims"):
+            for column, ddl in {
+                "aliases_json": "TEXT NOT NULL DEFAULT '[]'",
+                "source_snapshots_json": "TEXT NOT NULL DEFAULT '[]'",
+                "evidence_level": "VARCHAR(24) NOT NULL DEFAULT 'declared'",
+            }.items():
+                _add(conn, "knowledge_claims", column, ddl)
         report["changes"].append("migrated")
     report["ok"] = True
     return report

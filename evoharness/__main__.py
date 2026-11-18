@@ -565,6 +565,16 @@ def build_parser() -> argparse.ArgumentParser:
                                help="按 ID 查看工作项证据")
     w_ev.add_argument("--id", required=True, type=int)
 
+    budget_p = sub.add_parser("budget", parents=[common], help="查看用量或设置累计 token 限额")
+    budget_sub = budget_p.add_subparsers(dest="budget_cmd", required=True)
+    for name in ("view", "set"):
+        bp = budget_sub.add_parser(name, parents=[common])
+        bp.add_argument("--org", default=SEED_ORG_ID)
+        bp.add_argument("--space", default="")
+        if name == "set":
+            bp.add_argument("--actor", required=True)
+            bp.add_argument("--tokens", type=int, required=True)
+
     doctor_p = sub.add_parser("doctor", parents=[common],
                               help="健康与配置检查（分项事实）")
     doctor_p.add_argument("--org", default="")
@@ -612,6 +622,12 @@ def main(argv=None, *, stdout=None) -> int:
             result = _dispatch_work(api, args)
         elif args.command == "doctor":
             result = doctor_view(api, org_id=args.org)
+        elif args.command == "budget":
+            if args.budget_cmd == "set":
+                result = api.set_budget_limit(org_id=args.org, space_id=args.space,
+                                              limit_tokens=args.tokens, actor=args.actor)
+            else:
+                result = api.view_cost(org_id=args.org, space_id=args.space)
         elif args.command == "worker":
             return _worker(api, args, out=out)
         elif args.command == "serve":
@@ -683,5 +699,16 @@ def _serve(api: WorkApi, args, *, out) -> int:
     return 0
 
 
+def _load_runtime_environment(env_file=None):
+    """CLI processes share the root .env; offline tests never open real credentials."""
+    if any(os.environ.get(key,"0").strip().lower() in {"1","true","yes","on"}
+           for key in ("EVOHARNESS_TEST_MODE","FEISHU_TEST_MODE")):
+        return
+    from pathlib import Path
+    from dotenv import load_dotenv
+    load_dotenv(env_file or Path(__file__).resolve().parents[1]/".env",override=False)
+
+
 if __name__ == "__main__":
+    _load_runtime_environment()
     raise SystemExit(main())

@@ -180,7 +180,7 @@ class DockerShellRunner:
 
     def __init__(self, *, image: str = "", user: str = "",
                  timeout_seconds: float = 30.0):
-        self.image = image or DEFAULT_IMAGE
+        self.image = image or os.environ.get("EVOHARNESS_TOOL_IMAGE", "").strip() or DEFAULT_IMAGE
         self.user = user or _default_user()
         self.timeout_seconds = float(timeout_seconds)
 

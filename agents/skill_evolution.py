@@ -192,6 +192,9 @@ def record_skill_feedback(
     skill_name: str,
     rating: str,
     note: str = "",
+    scope: dict | None = None,
+    skill_sha256: str = "",
+    source_event_id: str = "",
 ) -> None:
     row = {
         "event": "feedback",
@@ -200,6 +203,11 @@ def record_skill_feedback(
         "rating": str(rating or "").strip(),
         "note": _preview(note, 1200),
     }
+    if scope:
+        row["scope"] = dict(scope)
+        row["ref"] = {"name":skill_name,**scope}
+        row["skill_sha256"] = skill_sha256
+        row["source_event_id"] = source_event_id
     _append_jsonl(get_evolution_dir() / USAGE_LOG, row)
 
 
@@ -497,6 +505,23 @@ def _append_evolution_note(body: str, lesson: str, rationale: str = "") -> str:
     return body + "\n\n" + marker + "\n\n" + bullet + "\n"
 
 
+def _serialize_skill_mutation(method):
+    from functools import wraps
+    @wraps(method)
+    def serialized(*args, **kwargs):
+        if skill_state_read_only():
+            return method(*args, **kwargs)
+        file = resolve_skill_file(kwargs.get("skill_name", ""),
+            target=kwargs.get("target", "active"), active_dir=kwargs.get("active_dir", ""))
+        if file is None:
+            return method(*args, **kwargs)
+        from agents.skill_search.store import namespace_exclusive_lock
+        with namespace_exclusive_lock(file.parent):
+            return method(*args, **kwargs)
+    return serialized
+
+
+@_serialize_skill_mutation
 def evolve_skill_file(
     *,
     skill_name: str,
@@ -511,6 +536,8 @@ def evolve_skill_file(
     tags: list[str] | None = None,
     expected_version: str | None = None,
     scope: dict | None = None,
+    expected_active_sha256: str | None = None,
+    before_replace=None,
 ) -> dict[str, Any]:
     if skill_state_read_only():
         return {"ok": False, "error": "holdout read-only mode: skill evolution disabled"}
@@ -519,6 +546,10 @@ def evolve_skill_file(
         return {"ok": False, "error": f"Skill not found: {skill_name}"}
 
     raw = skill_file.read_text(encoding="utf-8")
+    if expected_active_sha256 is not None:
+        import hashlib
+        if hashlib.sha256(skill_file.read_bytes()).hexdigest() != expected_active_sha256:
+            return {"ok": False, "error": "source_changed"}
     parsed = parse_frontmatter(raw)
     meta = dict(parsed.meta)
     if meta.get("producer-kind") == "projection" or meta.get("managed-by") == "experience.skill_sync":
@@ -580,7 +611,20 @@ def evolve_skill_file(
             new_body = new_body.rstrip() + "\n\n" + note + "\n"
     else:
         new_body = _append_evolution_note(parsed.body, lesson, rationale)
-    skill_file.write_text(format_frontmatter(meta, new_body), encoding="utf-8")
+    # Readers see a complete source version; a failed write keeps the old one.
+    import tempfile
+    descriptor, temporary = tempfile.mkstemp(prefix=".skill-",suffix=".tmp",dir=str(skill_file.parent))
+    try:
+        with os.fdopen(descriptor,"w",encoding="utf-8",newline="") as stream:
+            stream.write(format_frontmatter(meta,new_body))
+            stream.flush()
+            os.fsync(stream.fileno())
+        if before_replace is not None:
+            before_replace(Path(temporary).read_bytes(), meta)
+        os.replace(temporary,skill_file)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
     event = {
         "event": "evolve",
@@ -594,17 +638,19 @@ def evolve_skill_file(
         "rationale": _preview(rationale, 1200),
         "history": str(history_path),
     }
+    if scope:
+        event["scope"] = dict(scope)
     _append_jsonl(get_evolution_dir() / USAGE_LOG, event)
     try:
         # 部署分区：修改过的 skill（re）进实验区（设计契约，偏离已在评审存档）；
         # 审计行记录 from_tier 变迁，修复类写入（repair）不改 tier 是另一条路径。
-        from .skill_tiers import register_evolution_write
-
-        register_evolution_write(
-            resolved_name,
-            producer="evolve_skill_file",
-            evidence={"file": str(skill_file), "version": meta["version"], "actor": actor},
-        )
+        from .skill_tiers import register_evolution_write, set_tier_scoped
+        evidence = {"file": str(skill_file), "version": meta["version"], "actor": actor}
+        if scope:
+            set_tier_scoped(resolved_name,"experimental",scope=scope,
+                            actor=actor,trigger="evolution_write",producer="evolve_skill_file",evidence=evidence)
+        else:
+            register_evolution_write(resolved_name,producer="evolve_skill_file",evidence=evidence)
     except Exception:
         pass
     return {"ok": True, **event}
@@ -1071,6 +1117,18 @@ def format_skill_stats() -> str:
     return "\n".join(lines)
 
 
+def _projection_io_path(path: Path) -> Path:
+    """Keep Windows atomic tempfiles and nested audit paths outside MAX_PATH."""
+    if os.name != "nt":
+        return path
+    value = str(path.resolve())
+    if value.startswith("\\\\?\\"):
+        return path
+    if value.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + value[2:])
+    return Path("\\\\?\\" + value)
+
+
 def write_managed_projection(*, skills_root: Path, evolution_root: Path, name: str,
                              description: str, instructions: str, when_to_use: str,
                              scope: dict, source_revisions: list[dict], actor: str) -> dict[str, Any]:
@@ -1086,9 +1144,12 @@ def write_managed_projection(*, skills_root: Path, evolution_root: Path, name: s
     slug = _safe_skill_slug(name)
     if slug != name or not description.strip():
         return {"ok": False, "error": "invalid_projection_name"}
-    root, state = Path(skills_root).resolve(), Path(evolution_root).resolve()
+    original_root = Path(skills_root).resolve()
+    root = _projection_io_path(original_root)
+    state = _projection_io_path(Path(evolution_root).resolve())
     directory = root / slug
     target = directory / "SKILL.md"
+    display_target = original_root / slug / "SKILL.md"
     manifest = directory / ".projection.json"
     content_hash = hashlib.sha256(instructions.strip().encode("utf-8")).hexdigest()
     import tempfile
@@ -1111,7 +1172,7 @@ def write_managed_projection(*, skills_root: Path, evolution_root: Path, name: s
             version = _bump_patch(version)
             _append_jsonl(state / "history" / (slug + ".jsonl"), dict(
                 event="projection_snapshot", actor=actor, content=previous,
-                file=str(target), scope=scope, time=_utc_now()))
+                file=str(display_target), scope=scope, time=_utc_now()))
         meta = dict(name=name, description=description, version=version,
                     context="inline", **{"user-invocable": "false", "when-to-use": when_to_use,
                     "producer-kind": "projection", "managed-by": "experience.skill_sync",
@@ -1137,9 +1198,9 @@ def write_managed_projection(*, skills_root: Path, evolution_root: Path, name: s
         action = "unchanged" if unchanged else "evolved" if previous else "created"
         if action != "unchanged":
             _append_jsonl(state / "usage.jsonl", dict(event="managed_projection", actor=actor,
-                scope=scope, name=name, file=str(target), version=version, action=action,
+                scope=scope, name=name, file=str(display_target), version=version, action=action,
                 producer_kind="projection", time=_utc_now()))
-        return {"ok": True, "action": action, "file": str(target), "version": version,
+        return {"ok": True, "action": action, "file": str(display_target), "version": version,
                 "projection_hash": content_hash}
     finally:
         lock.unlink(missing_ok=True)

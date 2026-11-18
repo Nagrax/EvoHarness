@@ -172,7 +172,8 @@ def _fernet():
     """
     from cryptography.fernet import Fernet
 
-    raw = (os.environ.get("FEISHU_TOKEN_SECRET") or "").strip()
+    raw = (os.environ.get("FEISHU_TOKEN_SECRET")
+           or getattr(_settings(), "feishu_token_secret", "") or "").strip()
     if raw:
         key = raw.encode() if len(raw) == 44 else base64.urlsafe_b64encode(
             __import__("hashlib").sha256(raw.encode()).digest()

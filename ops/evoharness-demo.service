@@ -1,0 +1,27 @@
+[Unit]
+Description=EvoHarness public read-only demo
+After=network.target
+
+[Service]
+User=evoharness-demo
+Group=evoharness-demo
+WorkingDirectory=/opt/evoharness/current
+Environment=HOME=/var/lib/evoharness-demo
+Environment=EVOHARNESS_PUBLIC_DEMO=1
+Environment=EVOHARNESS_DATABASE_URL=sqlite:////var/lib/evoharness-demo/org.db
+Environment=DATABASE_URL=sqlite:////var/lib/evoharness-demo/org.db
+Environment=EVOHARNESS_ALLOW_SERVER_KEY=0
+Environment=EVOHARNESS_AUTO_CONFIRM=0
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/evoharness-tools/venv/bin/python -m evoharness serve --host 127.0.0.1 --port 8820
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/evoharness-demo
+
+[Install]
+WantedBy=multi-user.target

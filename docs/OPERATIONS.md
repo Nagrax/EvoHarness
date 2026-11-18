@@ -6,6 +6,16 @@
 
 使用根 README 的初始化命令，启动 Web，再运行 `worker --daemon --profile live`。模型配置来自自己的环境或 `.env`。Web 的浏览器模型设置仅作用于对应请求，后台 Worker 需独立可读的模型配置。
 
+组织与执行空间分别通过 `python -m evoharness budget set --org <组织> --space <空间> --actor <管理员> --tokens <限额>` 设置累计 token 限额；省略 `--space` 设置组织限额。`budget view` 查看预留和结算，调整限额不会清空历史用量。
+
+代码任务的 Worker 在宿主启动，通过 Docker 执行工具与检查器：
+
+```sh
+docker build -f ops/Dockerfile.checker -t evoharness-checker:latest .
+```
+
+默认工具镜像为 `python:3.13-slim`，默认检查镜像为 `evoharness-checker:latest`。可分别通过 `EVOHARNESS_TOOL_IMAGE`、`EVOHARNESS_CHECKER_IMAGE` 指定有项目依赖的镜像。检查控制器从工作区外只读挂载，记录完整 pytest 收集与 JUnit；shell 容器关闭网络、限制资源，只能写当前任务工作区，不接收宿主凭据或 Docker socket。
+
 ## Docker
 
 ```sh
@@ -30,6 +40,38 @@ docker compose --profile feishu up -d
 ```
 
 所有服务挂载根 `data/`，共同使用 `/data/org.db` 与产物目录。`feishu-daily-agent/docker-compose.yml` 保留旧入口兼容，构建同一根镜像；日常部署使用根 Compose 文件。
+
+## Linux 常驻服务
+
+`ops/evoharness-{web,worker,feishu}.service` 是使用同一产品代码的 systemd 模板。模板约定专用用户 `evoharness`、代码链接 `/opt/evoharness/current`、Python 环境 `/opt/evoharness-tools/venv`、配置 `/etc/evoharness/runtime.env` 和数据 `/var/lib/evoharness`。按目标机路径调整后安装所需服务。
+
+配置文件至少包括以下字段；飞书启用时再加入渠道模板里的应用配置与独立保管的 token 加密密钥：
+
+```dotenv
+EVOHARNESS_DATABASE_URL=sqlite:////var/lib/evoharness/org.db
+DATABASE_URL=sqlite:////var/lib/evoharness/org.db
+EVOHARNESS_ACCEPTANCE_RECEIPTS=strict
+API=https://your-provider.example/v1
+APIKEY=your-api-key
+MODEL=your-model-id
+```
+
+配置由 systemd 读取，权限设为 `0600`；代码目录不保存 `.env`。宿主 Worker 的服务用户需要能连接 Docker，容器内任务不挂载 socket。Web 模板只监听回环地址，可通过 SSH 转发访问；对外开放前配置主体令牌与反向代理。
+
+```sh
+sudo cp ops/evoharness-web.service ops/evoharness-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now evoharness-web evoharness-worker
+systemctl status evoharness-web evoharness-worker
+```
+
+飞书另装 `ops/evoharness-feishu.service`，其 supervisor 使用进程锁和数据库租约拒绝第二个渠道实例。升级时先停止这些服务，完成一致备份与迁移，再切换 `current` 链接。
+
+## 公网演示与正式工作区
+
+公网演示使用独立系统用户和合成数据库。用根 CLI 的 init 命令初始化演示数据后，设置 EVOHARNESS_PUBLIC_DEMO=1 启用只读接口清单。演示实例独立监听回环地址，省略模型密钥、Worker 和飞书进程。
+
+反向代理在 HTTPS 上把首页和普通 API 路由到演示实例。把 /workspace/ 及其所有子路径设为已认证入口，去掉 /workspace 前缀后转给私有 Web 实例。正式实例的直连监听保持在回环地址，反向代理验证每个请求。访问密码及其哈希保存在部署机，放在源码之外。
 
 ## 升级与恢复
 

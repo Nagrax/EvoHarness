@@ -94,18 +94,23 @@ MISSING_EVIDENCE_MARKERS = [
 # ---------------------------------------------------------------------------
 PROTECTED_GLOBS = [
     ".env",
+    "*.db",
+    "*.db-*",
+    "*.db.*",
+    "data/**/*",
     "feishu-daily-agent/.env",
     "feishu-daily-agent/token_key*",
     "feishu-daily-agent/*.db",
     "feishu-daily-agent/*.db-*",
-    "feishu-daily-agent/data/**",
-    "integration/data/**",
+    "feishu-daily-agent/data/**/*",
+    "integration/data/**/*",
     "eval/loop/*.json",
     "eval/loop/*.json.*",
 ]
 
 # 离线假凭据：覆盖而非透传，子进程拿不到真实密钥（也不记录任何真实值）。
 FAKE_ENV = {
+    "EVOHARNESS_TEST_MODE": "1",
     "FEISHU_TEST_MODE": "1",
     "FEISHU_DEPLOYMENT_MODE": "offline",
     "FEISHU_AUTO_REPLY_ENABLED": "0",
@@ -271,12 +276,16 @@ def isolated_env(repo_root: Path, sandbox_home: Path) -> dict:
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     sandbox_home.mkdir(parents=True, exist_ok=True)
+    sandbox_tmp = sandbox_home / "tmp"
+    sandbox_tmp.mkdir(parents=True, exist_ok=True)
     for var in ("TMP", "TEMP", "TMPDIR"):
-        value = os.environ.get(var)
-        if value:
-            sandbox_tmp = sandbox_home / Path(value).name
-            sandbox_tmp.mkdir(parents=True, exist_ok=True)
-            env[var] = str(sandbox_tmp)
+        env[var] = str(sandbox_tmp)
+    # Both product entrances can load deployment dotenv files. Explicit fake
+    # URLs prevent inherited/default configuration from opening the real DB.
+    database_url = "sqlite:///" + (sandbox_tmp / "org.db").resolve().as_posix()
+    env["EVOHARNESS_DATABASE_URL"] = database_url
+    env["DATABASE_URL"] = database_url
+    env["FEISHU_TEST_DB_PREFIX"] = str(sandbox_tmp.resolve())
     return env
 
 

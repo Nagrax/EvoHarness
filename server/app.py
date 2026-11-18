@@ -467,6 +467,22 @@ def _work_gate(request: Request) -> "tuple[dict | None, JSONResponse | None]":
     return principal, None
 
 
+PUBLIC_DEMO = _env_flag("EVOHARNESS_PUBLIC_DEMO")
+_PUBLIC_DEMO_READS = frozenset({
+    "/", "/api/health", "/api/work/schema", "/api/work/view", "/api/work/item",
+    "/api/work/evidence", "/api/work/approvals", "/api/work/health",
+    "/api/work/skills", "/api/work/knowledge", "/api/work/org",
+    "/api/eval/report", "/api/daily/latest",
+})
+
+
+@app.middleware("http")
+async def _public_demo_gate(request: Request, call_next):
+    if PUBLIC_DEMO and (request.method not in {"GET", "HEAD"} or request.url.path not in _PUBLIC_DEMO_READS):
+        return JSONResponse(status_code=403, content={"ok": False, "reason_code": "public_demo_read_only"})
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def _shared_runtime_gate(request: Request, call_next):
     """旧聊天/技能/评测共用宿主状态，hosted 时只允许管理员访问。
@@ -1199,6 +1215,7 @@ async def health():
         "model": MODEL,
         "protocol": "openai-compatible" if USE_OPENAI else "anthropic",
         "sessions": len(AGENTS),
+        "public_demo": PUBLIC_DEMO,
         # 服务端是否自带模型配置（false = 纯 BYOK 部署，要求用户在前端填 key）
         "server_configured": bool(API_KEY),
         # 服务端共享额度是否「默认」可用（false = 有配置但不回落，用户仍须自带 key）。
@@ -1350,6 +1367,7 @@ def _get_work_api():
 
 # op → (WorkApi 方法, 允许透传的参数名)；白名单外参数丢弃，不透传任意 kwargs
 _WORK_OPS = {
+    "set_budget_limit": ("set_budget_limit", ("org_id", "space_id", "limit_tokens", "actor")),
     "skills_view": ("skills_view", ("org_id", "space_id", "tenant", "owner", "legacy")),
     "schema": ("schema", ()),
     "work_view": ("work_view", ("tenant", "owner", "org_id")),
@@ -1376,6 +1394,8 @@ _WORK_OPS = {
     "request_acceptance": ("request_acceptance", ("task_id", "run_id", "requester")),
     "review_acceptance": ("review_acceptance",
                           ("task_id", "run_id", "reviewer", "verdict", "notes")),
+    "learning_action": ("learning_action", ("task_id", "evidence_id", "action", "actor")),
+    "sync_knowledge": ("sync_knowledge", ("org_id", "space_id", "tenant", "actor")),
     "submit_approval": ("submit_approval",
                         ("org_id", "actor_id", "target_type", "target_id",
                          "target_revision", "payload", "actions", "grantee_id",
@@ -1528,6 +1548,8 @@ async def work_op(req: WorkOpRequest, request: Request):
     principal, denied = _work_gate(request)
     if denied is not None:
         return denied
+    if req.op == "learning_action":
+        return await asyncio.to_thread(work_dispatch,req.op,req.params or {},principal=principal)
     return work_dispatch(req.op, req.params or {}, principal=principal)
 
 

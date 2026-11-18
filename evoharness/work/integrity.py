@@ -101,6 +101,23 @@ def test_node_digests(snapshot: dict[str, str]) -> dict[str, str]:
             for node_id, node in _walk_test_nodes(snapshot)}
 
 
+def test_support_digests(snapshot: dict[str,str]) -> dict[str,str]:
+    """Protect fixtures, parameter constants, helpers and pytest selection too."""
+    protected = {}
+    for relative,text in sorted(snapshot.items()):
+        path = Path(relative)
+        if not (_is_test_file(relative) or 'tests' in path.parts or path.name in
+                {'conftest.py','pytest.ini','pyproject.toml','setup.cfg','tox.ini'}):
+            continue
+        if path.suffix == '.py':
+            try:
+                text = ast.dump(ast.parse(text))
+            except (SyntaxError,ValueError):
+                pass
+        protected['test-source:'+relative] = sha256_text(text)
+    return protected
+
+
 def run_workspace(checkpoint_json: str) -> Path | None:
     """从 Run 检查点取冻结工作区；不存在/不可解析返回 None（不伪造）。"""
     try:

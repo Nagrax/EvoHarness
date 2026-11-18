@@ -386,6 +386,8 @@ def execute_run(session: Session, run_id: str, *, adapter: ExecutionAdapter,
                   "frozen": frozen}
     if "knowledge" in result.checkpoint:
         checkpoint["knowledge"] = result.checkpoint["knowledge"]
+    if "skills" in result.checkpoint:
+        checkpoint["skills"] = result.checkpoint["skills"]
     _fresh_task(session, run.task_id)   # 终态转换前重读：执行期取消不被旧事实骗过
     execution.transition(session, run_id, worker=worker, generation=run.generation,
                          state="waiting_acceptance", validate_context=validate_context,

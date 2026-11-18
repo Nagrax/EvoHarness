@@ -396,6 +396,8 @@ def review(session: Session, task_id: int, *, run_id: str, reviewer: str,
             return task
         session.add(TaskEvent(task_id=task_id, event_type="acceptance_passed",
                               actor=reviewer, detail=notes[:500]))
+        from evoharness.knowledge.task_learning import capture_feedback
+        capture_feedback(session,task,run,reviewer=reviewer,verdict=verdict,notes=notes)
         session.flush()
         return service.transition_to(session, task_id, to_state=TaskStatus.DONE,
                                      actor=reviewer, reason=notes,
@@ -404,6 +406,8 @@ def review(session: Session, task_id: int, *, run_id: str, reviewer: str,
                           actor=reviewer,
                           detail=(notes or "rework")[:500] + (
                               f" | missing={missing}" if missing else "")))
+    from evoharness.knowledge.task_learning import capture_feedback
+    capture_feedback(session,task,run,reviewer=reviewer,verdict=verdict,notes=notes)
     session.flush()
     return service.transition_to(session, task_id, to_state="running", actor=reviewer,
                                  reason=f"验收退回：{notes or '未满足验收'}")
