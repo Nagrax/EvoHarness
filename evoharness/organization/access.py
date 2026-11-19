@@ -277,16 +277,27 @@ def ensure_delivery_skill(employee, space_id):
     root = Path(configured) if configured else Path.home() / ".evoharness" / "skills"
     directory = root / f"delivery-{employee}-{space_id}"
     directory.mkdir(parents=True, exist_ok=True)
+    target = directory / "SKILL.md"
+    if target.is_file():
+        return
     scope = json.dumps({"tenant": NAMESPACE, "space": space_id, "owner": employee,
                         "producer": "workspace-starter", "source_revision": 1})
+    staged = directory / f".delivery-{uuid4().hex}.tmp"
+    stream = staged.open("x", encoding="utf-8")
     try:
-        with (directory / "SKILL.md").open("x", encoding="utf-8") as target:
-            target.write("---\nname: delivery-review\ndescription: 执行组织交付任务前读取的交付 SOP。\n"
+        with stream:
+            stream.write("---\nname: delivery-review\ndescription: 执行组织交付任务前读取的交付 SOP。\n"
                          f"version: 1.0.0\nscope-json: {scope}\n---\n"
                          "核对任务目标和验收标准。使用可核实的来源；区分已核实事实与假设。"
                          "输出可验收的答复并说明依据和缺口。\n")
-    except FileExistsError:
-        pass
+        # Publish the complete file only if no other writer has installed it.
+        try:
+            os.link(staged, target)
+        except FileExistsError:
+            if not target.is_file():
+                raise
+    finally:
+        staged.unlink(missing_ok=True)
 
 
 def main():
