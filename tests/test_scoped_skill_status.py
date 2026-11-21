@@ -40,6 +40,17 @@ def test_scoped_status_overrides_only_its_scope(evolution):
     assert status.get_effective_status_map()["deploy"] == "healthy"
 
 
+def test_scoped_overlay_accessor_exposes_only_its_scope(evolution):
+    """EVO-01：作用域视图读取端只用覆盖层条目，base 状态不混入（无 base 回落）。"""
+    status.set_status_scoped("deploy", "incubating", scope=SCOPE_A)
+    assert status.get_status_scoped_overlay(SCOPE_A) == {"deploy": "incubating"}
+    assert status.get_status_scoped_overlay(SCOPE_B) == {}
+    assert status.get_status_scoped_overlay(None) == {}
+    # base 表里同名 skill 的 healthy 不得经覆盖层读取端外泄
+    assert status.get_effective_status_map()["deploy"] == "healthy"
+    assert status.get_status_scoped_overlay(SCOPE_A) == {"deploy": "incubating"}
+
+
 def test_fork_gate_uses_scoped_status(evolution):
     status.set_status_scoped("deploy", "unobserved", scope=SCOPE_A)
     assert "trial period" in tiers.fork_blocked_reason("deploy", scope=SCOPE_A)

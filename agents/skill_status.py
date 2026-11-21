@@ -42,14 +42,25 @@ def _scope_key(scope: dict | None) -> str:
                     ("tenant", "space", "owner"))
 
 
-def get_status_scoped_map(scope: dict | None) -> dict[str, str]:
-    """作用域状态：base 有效状态 + 该 tenant/space/owner 的覆盖。"""
-    base = dict(get_effective_status_map())
+def get_status_scoped_overlay(scope: dict | None) -> dict[str, str]:
+    """只取该 tenant/space/owner 的覆盖层条目（EVO-01/DE-06）。
+
+    与 get_status_scoped_map 同一 skill_status_scoped.json、同一 _scope_key，
+    但不含 base 状态表——作用域视图读取端用它展示技能状态，
+    无覆盖条目即如实为空，绝不回落 base/全局评测产物。
+    """
     data = _read_json(status_scoped_path(), {})
     buckets = data.get("statuses") if isinstance(data, dict) else {}
     bucket = buckets.get(_scope_key(scope)) if isinstance(buckets, dict) else {}
-    if isinstance(bucket, dict):
-        base.update({str(name): str(status) for name, status in bucket.items()})
+    if not isinstance(bucket, dict):
+        return {}
+    return {str(name): str(value) for name, value in bucket.items()}
+
+
+def get_status_scoped_map(scope: dict | None) -> dict[str, str]:
+    """作用域状态：base 有效状态 + 该 tenant/space/owner 的覆盖。"""
+    base = dict(get_effective_status_map())
+    base.update(get_status_scoped_overlay(scope))
     return base
 
 

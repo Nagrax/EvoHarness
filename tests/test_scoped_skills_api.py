@@ -186,6 +186,57 @@ def test_restored_scope_does_not_reuse_previous_generation_report(scoped):
     assert api.skills_view(**query)['data']['has_report']
 
 
+def test_member_eval_report_and_status_stay_scoped_no_global_fallback(scoped):
+    """EVO-01（DE-06 剩余）：评测报告与技能状态按主体作用域，覆盖层优先、不回落全局。
+
+    主体 A（alice/t1/org-one）有 scoped 报告与覆盖层状态 incubating；base 状态表与
+    全局评测报告都被毒化成 healthy + poison 标记。A 必须显示覆盖层状态；B
+    （bob/t2/org-two）必须看到自己的（空/无报告），全局/base 毒数据零出现。
+    """
+    import hashlib
+    from agents.scoped_skill_report import write_scoped_skill_report
+    from agents.skill_scope import ScopedSkillRef
+    from agents.skill_status import set_status_scoped
+    api, principal, put, tmp = scoped
+    file, scope = put('owned')
+    ref = ScopedSkillRef(name='same-name', **scope)
+    write_scoped_skill_report(ref, file,
+        skill_sha256=hashlib.sha256(file.read_bytes()).hexdigest(),
+        protocol_id='test-protocol', run_id='run-alice',
+        outcomes=[{'sample_id': 's1', 'rule_id': 'r1', 'passed': True}])
+    set_status_scoped('same-name', 'incubating',
+        scope={'tenant': 't1', 'space': 'one-space', 'owner': 'alice'}, reason='trial')
+    # 毒化全局/base 产物：若读取端回落 base 或全局报告，这里必然泄漏
+    evolution = tmp / 'evolution'
+    (evolution / 'online-eval').mkdir(exist_ok=True)
+    (evolution / 'online-eval' / 'status_map.json').write_text(
+        json.dumps({'statuses': {'same-name': 'healthy'}}), encoding='utf-8')
+    (evolution / 'online_eval_report.json').write_text(json.dumps(
+        {'skills': [{'skill': 'same-name', 'status': 'healthy',
+                     'lineage_id': 'poison-global-lineage'}]}), encoding='utf-8')
+    # 主体 A：scoped 覆盖层状态优先于 base/全局（healthy 被覆盖为 incubating）
+    mine = api.skills_view(org_id='one', space_id='one-space', principal=principal)
+    assert mine['ok'], mine
+    row = mine['data']['skills'][0]
+    assert row['status'] == 'incubating'
+    assert mine['data']['has_report']
+    assert row['evaluation']['run_id'] == 'run-alice'
+    assert 'healthy' not in str(mine) and 'poison' not in str(mine)
+    # 主体 B：看不到 A 的报告/状态，也不回落 base/全局——如实显示空
+    other = {'subject': 'bob', 'org_ids': ['two'], 'admin': False}
+    put('bobs', tenant='t2', space='two-space', owner='bob')
+    theirs = api.skills_view(org_id='two', space_id='two-space', principal=other)
+    assert theirs['ok'], theirs
+    other_row = theirs['data']['skills'][0]
+    assert other_row['skill'] == 'same-name'
+    assert other_row['status'] == ''
+    assert theirs['data']['has_report'] is False
+    assert other_row['evaluation'] is None
+    leaked = str(theirs)
+    for marker in ('healthy', 'incubating', 'run-alice', 'poison'):
+        assert marker not in leaked, marker
+
+
 def test_hosted_http_and_operation_share_member_scope(scoped, monkeypatch):
     from fastapi.testclient import TestClient
     import server.app as web

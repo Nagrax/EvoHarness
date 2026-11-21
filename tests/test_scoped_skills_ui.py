@@ -41,6 +41,51 @@ vm.createContext(ctx);vm.runInContext(state+functions,ctx);
     assert result.returncode == 0, result.stderr
 
 
+def test_scoped_status_column_renders_own_subject_and_discards_stale_responses():
+    """EVO-01：技能状态列按当前主体渲染（无 scoped 状态如实显示 —），旧主体响应丢弃。"""
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('node is required for frontend JavaScript')
+    frontend = Path(__file__).resolve().parents[1] / 'frontend' / 'index.html'
+    script = r'''
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const html=fs.readFileSync(process.argv[1],'utf8');
+const state=html.slice(html.indexOf('const STAGE_LABEL='),html.indexOf('function setView('));
+const functions=html.slice(html.indexOf('async function loadSkills()'),html.indexOf('function gateBar('));
+const elements={};function $(selector){return elements[selector] ||= {value:'',hidden:false,innerHTML:'',textContent:'',style:{},classList:{add(){},remove(){},contains(){return false}},addEventListener(name,fn){this[name]=fn}}}
+const calls=[];let pending;let reply;
+const response=data=>({ok:true,json:async()=>({ok:true,data})});
+const scoped=(report,skills)=>response({mode:'scoped',capabilities:{legacy_tools:false},
+ scope:{org_id:'org-b',space_id:'s'},spaces:[{space_id:'s',title:'空间'}],
+ has_report:report,skills,events:[]});
+const ctx={$,URLSearchParams,closeDrawer(){},addEventListener(){},workIdentity:()=>({tenant:'local',owner:'user'}),
+ esc2:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),
+ apiFetch:url=>{calls.push(url);if(!reply)return new Promise(r=>pending=r);return Promise.resolve(reply)},renderSkills(){throw Error('legacy must not render')}};
+vm.createContext(ctx);vm.runInContext(state+functions,ctx);
+(async()=>{
+ $('#skOrg').value='org-a';const old=ctx.loadSkills();
+ $('#skOrg').value='org-b';$('#skOrg').input();
+ reply=scoped(false,[{skill:'Own',description:'',status:'incubating',counts:{invocations:2,feedback:0,evolutions:0,snapshots:0},evaluation:null}]);
+ await ctx.loadSkills();
+ const view=()=>$('#skScopedView').innerHTML;
+ assert(view().includes('<th>状态</th>'));
+ assert(view().includes('<td><span class="badge b-incubating"><i></i>孵化中</span></td>'));
+ assert(view().includes('尚无该范围评测'));
+ reply=scoped(true,[{skill:'Own',description:'',status:'',counts:{invocations:3,feedback:0,evolutions:0,snapshots:0},evaluation:{protocol_id:'p',run_id:'r',samples:2,checks:5,passed:4,pass_rate:.8}}]);
+ await ctx.loadSkills();
+ assert(!view().includes('badge')&&!view().includes('incubating'));
+ assert(view().includes('<td>—</td>')&&view().includes('4 / 5'));
+ pending(scoped(true,[{skill:'Leak',description:'',status:'healthy',counts:{},evaluation:null}]));
+ await old;
+ assert(view().includes('Own')&&view().includes('4 / 5'));
+ assert(!view().includes('Leak')&&!view().includes('healthy'));
+})().catch(e=>{console.error(e);process.exitCode=1});
+'''
+    result = subprocess.run([node, '-e', script, str(frontend)], capture_output=True,
+                            text=True, encoding='utf-8')
+    assert result.returncode == 0, result.stderr
+
+
 def test_mobile_skills_heading_does_not_overlap_navigation():
     node = shutil.which('node')
     chromium = Path('C:/Users/lenovo/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe')

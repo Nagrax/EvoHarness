@@ -1761,11 +1761,12 @@ function renderScopedSkills(data){
   const box=$('#skScopedView');box.hidden=false;box.style.display='block';
   if(!data.scope){box.textContent=spaces.length?'请选择空间。':'暂无可用空间。';return}
   const skills=Array.isArray(data.skills)?data.skills:[];
-  box.innerHTML=(!data.has_report?'<p>尚无该范围评测</p>':'')+(skills.length?'<table class="sk-table"><thead><tr><th>Skill</th><th>调用</th><th>反馈</th><th>进化</th><th>快照</th><th>规则检查</th></tr></thead><tbody>'+skills.map(s=>{
+  box.innerHTML=(!data.has_report?'<p>尚无该范围评测</p>':'')+(skills.length?'<table class="sk-table"><thead><tr><th>Skill</th><th>状态</th><th>调用</th><th>反馈</th><th>进化</th><th>快照</th><th>规则检查</th></tr></thead><tbody>'+skills.map(s=>{
     const c=s.counts||{},e=s.evaluation;
     const score=e?esc2(String(e.passed))+' / '+esc2(String(e.checks)):'—';
     const sampleTitle=e?' title="独立样本：'+esc2(String(e.samples))+'"':'';
-    return '<tr><td class="sk-name"><b>'+esc2(s.skill)+'</b><span>'+esc2(s.description||'')+'</span></td><td>'+esc2(c.invocations??0)+'</td><td>'+esc2(c.feedback??0)+'</td><td>'+esc2(c.evolutions??0)+'</td><td>'+esc2(c.snapshots??0)+'</td><td'+sampleTitle+'>'+score+'</td></tr>';
+    const badge=s.status?'<span class="badge b-'+esc2(s.status)+'"><i></i>'+esc2(STAGE_LABEL[s.status]||s.status)+'</span>':'—';
+    return '<tr><td class="sk-name"><b>'+esc2(s.skill)+'</b><span>'+esc2(s.description||'')+'</span></td><td>'+badge+'</td><td>'+esc2(c.invocations??0)+'</td><td>'+esc2(c.feedback??0)+'</td><td>'+esc2(c.evolutions??0)+'</td><td>'+esc2(c.snapshots??0)+'</td><td'+sampleTitle+'>'+score+'</td></tr>';
   }).join('')+'</tbody></table>':'<p>暂无 Skill</p>');
 }
 
@@ -2501,16 +2502,19 @@ function updateSrvModel(){
 }
 
 /* ═══════════ 考核视图 ═══════════ */
-let evLoaded=false;
+let evLoaded=false,evalRequest=0;
 const EV_COLORS={ours:'#4EE0B5',base:'rgba(255,255,255,.22)'};
 
 async function loadEval(){
-  try{ await renderBenchmark() }catch{}
+  const scope=organizationScopeVersion,request=++evalRequest;
+  $('#evBenchmark').innerHTML='';$('#evBenchMeta').textContent='';
+  try{ await renderBenchmark(scope,request) }catch{}
   evLoaded=true;
 }
 
-async function renderBenchmark(){
+async function renderBenchmark(scope,request){
   const r=await apiFetch('/api/eval/report');const d=await r.json();
+  if(scope!==organizationScopeVersion||request!==evalRequest)return;
   state.evCache=d;
   const box=$('#evBenchmark');
   box.innerHTML='';
@@ -2670,10 +2674,12 @@ let organizationScopeVersion=0;
 let organizationRequest=0, goalRequest=0, knowledgeRequest=0, knowledgeSearch=0;
 function organizationScopeChanged(){
   organizationScopeVersion++;
+  evLoaded=false;
   invalidateSkills();skInitialized=false;
   const readers={home:loadHome,work:loadWork,org:loadOrg,goals:loadGoals,
     knowledge:loadKnowledge,skills:()=>setView('skills')};
   readers[document.body.dataset.view]?.();
+  if(document.body.dataset.view==='eval')loadEval();
 }
 function scopedWorkQuery(org){
   const id=workIdentity()||{};

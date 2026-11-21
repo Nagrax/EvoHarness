@@ -125,6 +125,11 @@ def skills_view(session, *, org_id="", space_id="", tenant="", owner="",
     data["scope"] = {"org_id": org_id, "space_id": space_id, "tenant": tenant,
                      "owner": owner, "app_id": member.app_id}
     from agents.scoped_skill_report import read_scoped_skill_report
+    # EVO-01/DE-06：技能状态只读本域覆盖层（skill_status_scoped.json），
+    # 不回落 base/全局评测产物——无覆盖条目如实为空。
+    from agents.skill_status import get_status_scoped_overlay
+    statuses = get_status_scoped_overlay({"tenant": tenant, "space": space_id,
+                                          "owner": owner})
     for file, meta, ref in _sources(tenant, space_id, owner):
         if scope_denial(session, skill_name=ref.name, tenant=tenant,
                         space=space_id, owner=owner, revision=ref.source_revision):
@@ -148,6 +153,7 @@ def skills_view(session, *, org_id="", space_id="", tenant="", owner="",
             data["has_report"] = True
         data["skills"].append({"skill": ref.name,
             "description": str(meta.get("description") or ""),
+            "status": statuses.get(ref.name, ""),
             "scope_ref": {"name": ref.name, **scope},
             "counts": {key: stats.get(key, 0) for key in
                        ("invocations", "feedback", "evolutions", "snapshots")},

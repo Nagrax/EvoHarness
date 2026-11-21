@@ -138,6 +138,52 @@ vm.runInContext(source, context);
     assert result.returncode == 0, result.stderr
 
 
+def test_eval_report_discards_stale_subject_response():
+    """EVO-01：考核视图主体切换后旧响应丢弃，只渲染当前主体的评测报告（11-18 同模式）。"""
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('node is required for frontend JavaScript')
+    frontend = Path(__file__).resolve().parents[1] / 'frontend' / 'index.html'
+    script = r'''
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(process.argv[1],'utf8');
+const source=html.slice(html.indexOf('let evLoaded=false'),html.indexOf('/* ═══════════ 日报视图'));
+const nodes={};
+function $(id){return nodes[id] ||= {value:'',textContent:'',innerHTML:'',appendChild(){},classList:{add(){},remove(){},contains(){return false}},style:{}}}
+const context={$,state:{evCache:null},esc:s=>String(s??''),organizationScopeVersion:0,
+ document:{createElement:()=>({innerHTML:'',appendChild(){}})}};
+let releases=[];
+const payload=date=>({
+ has_data:true,
+ meta:{date,baseline:date+' (x)'},
+ full_run_1540:{
+  minimem_baseline:{overall:{judge_accuracy:53},tokens:{avg_input_tokens:100,avg_retrieved:15},categories:{}},
+  bearcode_top5:{overall:{judge_accuracy:51},tokens:{avg_input_tokens:30,avg_retrieved:3},categories:{}}
+ }
+});
+const report=date=>({json:async()=>payload(date)});
+context.apiFetch=async()=>new Promise(resolve=>{releases.push(resolve)});
+vm.createContext(context);vm.runInContext(source,context);
+(async()=>{
+ const stale=context.loadEval();
+ context.organizationScopeVersion=1;
+ const fresh=context.loadEval();
+ const [,resolveFresh]=releases;resolveFresh(report('B-report'));
+ await fresh;
+ assert.match(nodes['#evBenchMeta'].textContent,/B-report/);
+ assert.equal(context.state.evCache.meta.date,'B-report');
+ const [resolveStale]=releases;resolveStale(report('A-report'));
+ await stale;
+ assert.doesNotMatch(nodes['#evBenchMeta'].textContent,/A-report/);
+ assert.equal(context.state.evCache.meta.date,'B-report');
+})().catch(e=>{console.error(e);process.exitCode=1});
+'''
+    result = subprocess.run(
+        [node, '-e', script, str(frontend)], capture_output=True, text=True, encoding='utf-8',
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_compact_navigation_restores_focus_and_shares_the_view_router():
     node = shutil.which('node')
     if not node:
