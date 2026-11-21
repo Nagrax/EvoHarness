@@ -23,7 +23,14 @@ class Application:
         if (url.get_backend_name() == "sqlite" and url.database
                 and url.database != ":memory:" and not url.database.startswith("file:")):
             Path(url.database).parent.mkdir(parents=True, exist_ok=True)
-        engine = create_engine(database_url, future=True)
+        connect_args: dict = {}
+        if url.get_backend_name() == "sqlite":
+            # migrate() 用 BEGIN IMMEDIATE 串行化建表，SQLite 默认 5s 忙等扛不住
+            # 新库并发初始化：第二个连接在对方建表期间拿不到写锁，直接报
+            # "database is locked"（2026-11-19 门禁基线复现）。放宽忙等，
+            # 让并发初始化排队而不是失败；对单连接路径无影响。
+            connect_args = {"timeout": 30}
+        engine = create_engine(database_url, future=True, connect_args=connect_args)
         try:
             migrate(engine, context=context or MigrationContext())
         except BaseException:
