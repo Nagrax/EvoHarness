@@ -179,7 +179,7 @@ class DockerShellRunner:
     kind = "docker"
 
     def __init__(self, *, image: str = "", user: str = "",
-                 timeout_seconds: float = 30.0):
+                 timeout_seconds: float = 60.0):
         self.image = image or os.environ.get("EVOHARNESS_TOOL_IMAGE", "").strip() or DEFAULT_IMAGE
         self.user = user or _default_user()
         self.timeout_seconds = float(timeout_seconds)
@@ -187,16 +187,20 @@ class DockerShellRunner:
     # ── 可用性 ──────────────────────────────────────────────────────────────
 
     def available(self) -> bool:
+        # 探测预算 40s（原 15s）：Docker Desktop 后端在容器频繁启停后 CLI 单次
+        # 调用可达 12~16s（2026-11-21 实测 docker info 16.2s），15s 预算会把
+        # 瞬时变慢误判成"环境不可用"（waiting_environment），Docker 套件假红。
+        # fail-closed 语义不变：超时仍判不可用，只是预算贴近现实。
         try:
             proc = subprocess.run(
                 ["docker", "info", "--format", "{{.OSType}}"],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True, text=True, timeout=40,
                 shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if proc.returncode != 0 or proc.stdout.strip() != "linux":
                 return False
             image = subprocess.run(
                 ["docker", "image", "inspect", "--format", "{{.Os}}", self.image],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True, text=True, timeout=40,
                 shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             return image.returncode == 0 and image.stdout.strip() == "linux"
         except (OSError, subprocess.SubprocessError):
