@@ -140,6 +140,15 @@ def _bind_checker_receipt(session: Session, run: ExecutionRun, kind: str,
     if not isinstance(modified_node_ids, list):
         raise AcceptanceError("invalid_checker_receipt")
     modified_node_ids = [str(v) for v in modified_node_ids][:200]
+    # EVO-03：真实收集的基线 node 全集（含参数化变体）与来源。legacy 回执缺省
+    # 为空集，严格策略下不参与真实收集差集（保持既有回执兼容）。
+    baseline_node_ids = checker_receipt.get("baseline_node_ids") or []
+    if not isinstance(baseline_node_ids, list):
+        raise AcceptanceError("invalid_checker_receipt")
+    baseline_node_ids = [str(v) for v in baseline_node_ids][:integrity.TEST_NODE_LIMIT]
+    baseline_node_source = str(checker_receipt.get("baseline_node_source") or "").strip().lower()
+    if baseline_node_source not in {"", "pytest", "static"}:
+        raise AcceptanceError("invalid_checker_receipt")
     try:
         baseline_tests = max(0, int(checker_receipt.get("baseline_tests") or 0))
         current_tests = max(0, int(checker_receipt.get("current_tests") or 0))
@@ -155,7 +164,9 @@ def _bind_checker_receipt(session: Session, run: ExecutionRun, kind: str,
                        "baseline_tests": baseline_tests,
                        "current_tests": current_tests,
                        "removed_node_ids": removed_node_ids,
-                       "modified_node_ids": modified_node_ids},
+                       "modified_node_ids": modified_node_ids,
+                       "baseline_node_ids": baseline_node_ids,
+                       "baseline_node_source": baseline_node_source},
                       sort_keys=True)
     receipt_id = sha256_text(body)[:32]
     if session.get(ArtifactReceipt, receipt_id) is None:
@@ -168,7 +179,9 @@ def _bind_checker_receipt(session: Session, run: ExecutionRun, kind: str,
             node_ids_json=json.dumps(node_ids, ensure_ascii=False),
             baseline_tests=baseline_tests, current_tests=current_tests,
             removed_node_ids_json=json.dumps(removed_node_ids, ensure_ascii=False),
-            modified_node_ids_json=json.dumps(modified_node_ids, ensure_ascii=False)))
+            modified_node_ids_json=json.dumps(modified_node_ids, ensure_ascii=False),
+            baseline_node_ids_json=json.dumps(baseline_node_ids, ensure_ascii=False),
+            baseline_node_source=baseline_node_source))
         session.flush()
 
 
@@ -286,6 +299,30 @@ def _receipt_problem(session: Session, row: Artifact, run: ExecutionRun,
         return f"checker_bundle_unavailable:{label}"
     if integrity.workspace_bundle_digest(workspace) != receipt.bundle_sha256:
         return f"checker_bundle_changed:{label}"
+    # EVO-03：真实收集复核——用实际收集器（pytest --collect-only）对冻结工作区
+    # 重新收集 node 全集，与回执记录的基线 node 集做差集。参数化变体缩减
+    # （pytest_generate_tests / parametrize 常量被改）时函数 AST 不变，静态
+    # 清点漏报，只有真实 node 集可见；收集失败 fail-closed，不静默放行。
+    # bundle 已核验一致：此处收集执行的代码与检查期隔离检查器执行过的一致。
+    try:
+        baseline_nodes = json.loads(receipt.baseline_node_ids_json or "[]")
+    except ValueError:
+        return f"checker_baseline_unreadable:{label}"
+    if isinstance(baseline_nodes, list) and baseline_nodes:
+        collection = integrity.collect_test_nodes(workspace)
+        if not collection.get("ok"):
+            return f"checker_collection_failed:{label}"
+        fresh = set(collection.get("nodes") or [])
+        if str(receipt.baseline_node_source or "") == "pytest":
+            gone = set(baseline_nodes) - fresh
+        else:
+            gone = set(baseline_nodes) - {integrity.base_node_id(n) for n in fresh}
+        if gone:
+            gone = sorted(str(node) for node in gone)
+            parametrized = any("[" in node.rpartition("::")[2] for node in gone)
+            if parametrized:
+                return f"checker_variant_reduction:{label}:{len(gone)}"
+            return f"checker_tests_removed:{label}:{len(gone)}"
     return None
 
 

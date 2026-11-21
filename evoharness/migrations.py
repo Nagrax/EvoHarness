@@ -29,7 +29,7 @@ import evoharness.knowledge.skill_scope_events  # noqa: F401  # DE-06 撤权事�
 import evoharness.channels.documents  # noqa: F401
 import evoharness.channels.meeting_notes  # noqa: F401
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
@@ -409,6 +409,9 @@ def migrate(engine: Engine, *, backup_dir: str | Path | None = None, context: Mi
                 "current_tests": "INTEGER NOT NULL DEFAULT 0",
                 "removed_node_ids_json": "TEXT NOT NULL DEFAULT '[]'",
                 "modified_node_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+                # v16（EVO-03 参数化变体保护）：真实收集的基线 node 全集及其来源。
+                "baseline_node_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+                "baseline_node_source": "VARCHAR(16) NOT NULL DEFAULT ''",
             }.items():
                 _add(conn, "work_artifact_receipts", column, ddl)
         conn.execute(

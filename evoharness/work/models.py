@@ -92,6 +92,10 @@ class ArtifactReceipt(Base):
     current_tests: Mapped[int] = mapped_column(Integer, default=0)
     removed_node_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     modified_node_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    # EVO-03：真实收集的基线 node 全集（含参数化变体）。source：pytest=实际
+    # 收集器结果 / static=静态 AST 清点（无变体信息）/ 空=legacy 未记录。
+    baseline_node_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    baseline_node_source: Mapped[str] = mapped_column(String(16), default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 

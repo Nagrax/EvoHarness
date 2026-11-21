@@ -464,6 +464,8 @@ class RestrictedAgentAdapter:
         self.run_scope: dict = {}
         self.last_usage_tokens = 0
         self.last_receipts: dict[str, dict] = {}
+        # EVO-03：执行前真实收集的基线 node 集（无 prepare 能力的检查器）。
+        self.last_baseline_collection: dict = {}
         self.last_refusals: list[str] = []
         # BP-02：本 Run 是否 dryrun 边界（execute 期按 context.mode 判定）
         self.dryrun: bool = False
@@ -647,12 +649,18 @@ class RestrictedAgentAdapter:
         # BP-02：dryrun 边界在 worker/adapter 层生效（不是显示标签）
         self.dryrun = DryrunPolicy.is_dryrun(context)
         base_snapshot = _snapshot_workdir(workdir)
+        self.last_baseline_collection = {}
         prepare_check = getattr(self.runner,"prepare",None)
         if self._acceptance_kind(context) != "qa" and callable(prepare_check):
             baseline_check = prepare_check(workdir)
             if not baseline_check.evidence.get("valid"):
                 return AdapterResult(ok=False,error=str(baseline_check.evidence.get("error")
                     or "checker_baseline_invalid"),checkpoint={"phase":"check_baseline"})
+        elif self._acceptance_kind(context) != "qa":
+            # EVO-03：注入检查器无基线能力（ScriptTestRunner/隔离通道）时，基线
+            # node 集仍须来自真实收集器——参数化变体缩减只有真实 node 集可见。
+            # 收集失败不阻断执行：回落静态清点（strict 验收侧对收集失败 fail-closed）。
+            self.last_baseline_collection = integrity.collect_test_nodes(workdir)
         try:
             if self.provider is not None:
                 final_text = self._execute_provider_loop(context, allowed_tools, tools,
@@ -915,6 +923,22 @@ class RestrictedAgentAdapter:
                 removed_nodes = sorted(set(removed_nodes) | set(evidence.get("removed_node_ids",[])))
                 modified_nodes = sorted(set(modified_nodes) | set(evidence.get("modified_node_ids",[]))
                     | {"skipped:"+node for node in evidence.get("unexpected_skips",[])})
+            # EVO-03：回执记录真实收集的基线 node 全集（含参数化变体）。
+            # 检查器证据（TrustedPytestRunner prepare 的真实收集）优先，其次
+            # 适配器在执行前对无 prepare 能力检查器的真实收集；都没有时回落
+            # 静态清点并标记 static（strict 验收侧按来源选择差集口径）。
+            evidence_baseline = evidence.get("baseline_nodes") if evidence.get("valid") else None
+            collected_baseline = (self.last_baseline_collection or {})
+            if evidence_baseline:
+                baseline_node_ids = [str(node) for node in evidence_baseline][:integrity.TEST_NODE_LIMIT]
+                baseline_source = "pytest"
+            elif collected_baseline.get("ok") and collected_baseline.get("nodes"):
+                baseline_node_ids = [str(node) for node in collected_baseline["nodes"]][:integrity.TEST_NODE_LIMIT]
+                baseline_source = "pytest"
+            else:
+                baseline_node_ids = sorted(
+                    integrity.test_node_inventory(base_snapshot))[:integrity.TEST_NODE_LIMIT]
+                baseline_source = "static" if baseline_node_ids else ""
             report_ok = bool(report.ok)
             head = ("timeout: runner exceeded time limit" if report.timed_out
                     else f"exit_code={report.exit_code}")
@@ -935,10 +959,15 @@ class RestrictedAgentAdapter:
                 "ran": evidence["ran"] if evidence.get("valid") else _check_ran(report.output or ""),
                 "node_ids": evidence["node_ids"] if evidence.get("valid") else _check_nodes(report.output or ""),
                 "bundle_sha256": bundle_digest,
-                "baseline_tests": len(evidence.get("baseline_nodes",baseline_digests)),
+                "baseline_tests": len(baseline_node_ids) if baseline_source == "pytest"
+                                  else len(evidence.get("baseline_nodes", baseline_digests)),
                 "current_tests": len(evidence.get("node_ids",current_digests)),
                 "removed_node_ids": removed_nodes,
                 "modified_node_ids": modified_nodes,
+                # EVO-03：真实收集基线 node 全集与来源，strict 验收据此用实际
+                # 收集器重收集做差集（整条删除/参数化变体缩减都拒绝）。
+                "baseline_node_ids": baseline_node_ids,
+                "baseline_node_source": baseline_source,
             }
 
         claimed_done = bool(final_text) and bool(artifacts) and report_ok

@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import ast
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from evoharness.ids import sha256_json, sha256_text
@@ -129,3 +132,51 @@ def run_workspace(checkpoint_json: str) -> Path | None:
         return None
     path = Path(raw)
     return path if path.is_dir() else None
+
+
+# ── EVO-03（DE-13）：参数化变体保护接入真实 pytest 全量 node 集 ────────────────
+
+
+def base_node_id(node_id: str) -> str:
+    """参数化变体 node 归一到基础 node：剥掉末段 ``[param]`` 后缀。
+
+    ``tests/test_a.py::test_x[p1]`` → ``tests/test_a.py::test_x``；
+    静态清点基线只有基础 node，与真实收集结果比对前先归一，避免把
+    变体误判成整条删除。
+    """
+    head, sep, last = str(node_id).rpartition("::")
+    if sep and last.endswith("]") and "[" in last:
+        return head + sep + last[: last.rindex("[")]
+    return str(node_id)
+
+
+def collect_test_nodes(root: str | Path, *, timeout_seconds: float = 120.0) -> dict:
+    """真实 pytest --collect-only（实际收集器）的测试 node 全集（含参数化变体）。
+
+    strict 验收用它对冻结工作区重新收集，与回执记录的基线 node 集做差集：
+    整条测试被删、参数化变体缩减据此明确拒绝（静态 AST 清点看不见变体，
+    pytest_generate_tests / parametrize 常量被改时函数摘要不变）。
+
+    - exit 0 → 收集成功；exit 5 → 工作区确无测试（空集是合法结论）；
+    - 其余退出码（收集错误）/超时/子进程异常 → ``ok=False``，调用方
+      fail-closed 拒绝，不静默放行；
+    - ``-p no:cacheprovider`` 不写缓存，保持冻结工作区字节不变。
+    调用前 bundle 摘要已核验一致：此处执行的收集代码与隔离检查器在检查期
+    执行过的是同一份内容，不引入新的宿主执行面。
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "--collect-only", "-q",
+             "-p", "no:cacheprovider", "--continue-on-collection-errors", "."],
+            cwd=str(Path(root).resolve()), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=float(timeout_seconds),
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+                 "PYTHONIOENCODING": "utf-8"},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "nodes": [], "error": f"collect_error:{exc}"[:200]}
+    if proc.returncode not in {0, 5}:
+        return {"ok": False, "nodes": [],
+                "error": f"collect_failed_exit_{proc.returncode}"[:200]}
+    nodes = [line.strip() for line in (proc.stdout or "").splitlines() if "::" in line]
+    return {"ok": True, "nodes": nodes[:TEST_NODE_LIMIT], "error": ""}
