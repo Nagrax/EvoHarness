@@ -330,9 +330,13 @@ def test_daemon_force_killed_then_real_worker_takeover_recovers(env):
         final = _snapshot(env, run_id)
         assert final["state"] == "waiting_acceptance"
         # generation：受害认领 +1 → 过期回收 +1 → 接管认领 +1 = 3；
-        # attempts：两个真实执行代各 +1 = 2（跨进程两代都真实跑过）。
+        # attempts：取决于外力终止落在 victim 的哪个执行相位——
+        #   claimed（执行相位未启动）→ 接管续跑即第 1 次执行尝试；
+        #   running（执行相位已启动）→ 接管续跑是第 2 次。
+        # 两种顺序都是产品正确行为（外力 kill 与相位推进天然竞争），
+        # 期望值由观测到的卡住相位确定性推导；核心不变量是账目恰好一次（下方断言）。
         assert final["generation"] == 3
-        assert final["attempts"] == 2
+        assert final["attempts"] == (2 if stalled["state"] == "running" else 1)
         # 等待类状态释放执行租约（LeaseRelease），接管期租约事实由观测点留证
         assert final["lease_owner"] == "" and final["lease_until"] is None
         # envelope 复用不双预留：被害前预留的那一份被接管相 A 幂等复用并结算
