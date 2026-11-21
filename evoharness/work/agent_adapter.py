@@ -627,6 +627,10 @@ class RestrictedAgentAdapter:
             - 任务取消/暂停/完成或 Run 不再在执行 → 拒绝继续（管理员取消可
               并发提交，下一工具/模型调用前即生效）；
             - 授权撤销 → AuthorizationError（fail-closed）；
+            - 批准对应任务版本已变更（revision 前进，EVO-02/DE-12）→
+              work_revision_changed：批准绑定任务版本，旧版本批准不授权
+              新版本的工具调用（与 execution._validate 同码同口径），漂移
+              窗口内不再等到下一次租约转换才拦截；
             - 返回观测到的 run generation / grant_revision 供动作意图留痕。
             """
             if not scope.get("run_id") or self.gateway.session_factory is None:
@@ -639,11 +643,15 @@ class RestrictedAgentAdapter:
                 if task_row is not None and task_row.status in {"cancelled", "done", "paused"}:
                     raise AgentAdapterError("run_cancelled")
                 self._validate_authorization(scoped, context)
+                if task_row is not None and task_row.revision != run_row.task_revision:
+                    # EVO-02：批准/Run 绑定 task_revision；revision 前进后工作合同
+                    # 已按新版本重签，旧批准不得继续驱动副作用工具（下一调用前即拒）。
+                    raise AgentAdapterError("work_revision_changed")
                 _check_knowledge(scoped)
                 return {"generation": int(run_row.generation or 0),
                         "grant_revision": int(scope.get("grant_revision") or 0)}
 
-        # N02×N03：同一重验通道接到工具层——执行中取消/撤权 → 下一工具调用被拒
+        # N02×N03：同一重验通道接到工具层——执行中取消/撤权/版本前进 → 下一工具调用被拒
         tools.pre_check = _pre_check
 
         # BP-02：dryrun 边界在 worker/adapter 层生效（不是显示标签）
