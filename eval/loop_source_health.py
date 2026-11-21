@@ -44,8 +44,11 @@ def check_script(paths: list[str]) -> tuple[bool, str]:
         if not (REPO / rel).is_file():
             return False, f"缺少脚本 {rel}"
     try:
+        # 300s 而非 180s：module_scan 空闲实测 34s（145 文件 AST 扫描），正常单门禁
+        # 下余量充足；2026-11-19 两轮门禁并发把机器拖慢 5 倍以上导致 180s 超时、
+        # module 源被误判 broken。放宽到 300s 只影响诊断预算，不改变判定语义。
         proc = subprocess.run([sys.executable, *scripts, *args], cwd=str(REPO),
-                              capture_output=True, timeout=180)
+                              capture_output=True, timeout=300)
     except subprocess.TimeoutExpired:
         return False, "脚本超时"
     if proc.returncode != 0:
