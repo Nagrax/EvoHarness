@@ -1,0 +1,16 @@
+[Unit]
+Description=EvoHarness Dreaming nightly knowledge reconciliation (oneshot, candidates only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=evoharness
+Group=evoharness
+WorkingDirectory=/opt/evoharness/current
+EnvironmentFile=/etc/evoharness/runtime.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/evoharness-tools/venv/bin/python -m ops.dreaming_nightly --db ${EVOHARNESS_DATABASE_URL} --space support --report-dir eval/runs/dreaming
+TimeoutStartSec=600
+UMask=0077
+NoNewPrivileges=true

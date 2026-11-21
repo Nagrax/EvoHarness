@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly trigger for EvoHarness Dreaming knowledge reconciliation (02:30 local)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=evoharness-dreaming.service
+
+[Install]
+WantedBy=timers.target
