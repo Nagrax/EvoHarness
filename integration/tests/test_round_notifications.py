@@ -108,17 +108,29 @@ def test_two_threads_share_single_round_capacity(tmp_path):
 
 def test_two_processes_cannot_claim_the_same_capacity(tmp_path):
     path = tmp_path / "round.sqlite3"
-    code = (
-        "from pathlib import Path; from integration.round_lease import RoundLease; import sys,time; "
-        "lease=RoundLease.acquire(Path(sys.argv[1])); print('claimed' if lease else 'locked',flush=True); "
-        "time.sleep(0.3)"
+    # 持有者等显式释放信号，而不是固定 sleep：慢机器上解释器冷启动可能超过
+    # sleep 窗口，持有者先退出、竞争者合法接管（死进程接管是产品语义），
+    # 回归就退化成时序抽奖（2026-11-19 门禁两轮都踩中）。信号文件让
+    # "持有期间竞争者必须 locked" 变成确定性断言，断言本身不变。
+    holder_code = (
+        "from pathlib import Path; from integration.round_lease import RoundLease; import sys,time\n"
+        "lease=RoundLease.acquire(Path(sys.argv[1])); print('claimed' if lease else 'locked',flush=True)\n"
+        "release=Path(sys.argv[2]); deadline=time.monotonic()+10\n"
+        "while lease and not release.is_file() and time.monotonic() < deadline:\n"
+        "    time.sleep(0.02)\n"
     )
-    first = subprocess.Popen([sys.executable, "-c", code, str(path)], cwd=ROOT, stdout=subprocess.PIPE, text=True)
+    contender_code = (
+        "from pathlib import Path; from integration.round_lease import RoundLease; import sys; "
+        "lease=RoundLease.acquire(Path(sys.argv[1])); print('claimed' if lease else 'locked',flush=True)"
+    )
+    release = tmp_path / "release.holder"
+    first = subprocess.Popen([sys.executable, "-c", holder_code, str(path), str(release)], cwd=ROOT, stdout=subprocess.PIPE, text=True)
     try:
         assert first.stdout.readline().strip() == "claimed"
-        second = subprocess.run([sys.executable, "-c", code, str(path)], cwd=ROOT, capture_output=True, text=True, timeout=10)
+        second = subprocess.run([sys.executable, "-c", contender_code, str(path)], cwd=ROOT, capture_output=True, text=True, timeout=10)
         assert second.stdout.strip() == "locked"
     finally:
+        release.write_text("release", encoding="ascii")
         first.wait(timeout=10)
     # Dead-worker takeover ignores the unexpired monotonic deadline.
     lease = RoundLease.acquire(path)
