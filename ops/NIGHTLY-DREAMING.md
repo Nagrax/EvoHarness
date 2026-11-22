@@ -1,4 +1,4 @@
-# Dreaming 夜间调度部署（EVO-05 / DE-17 剩余）
+# Dreaming 夜间调度部署
 
 Dreaming 单轮编排（`evoharness/knowledge/reconcile.py::run_dreaming_cycle`）的时间触发
 部署路径。**候选不自动采用**：夜间产物是报告 + 候选变更集，采用必须由责任人走
