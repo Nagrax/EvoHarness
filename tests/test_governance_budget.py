@@ -10,11 +10,13 @@ import subprocess
 import sys
 import threading
 import time
+import warnings
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SADeprecationWarning
 from sqlalchemy.orm import sessionmaker
 
 from evoharness.governance import budget
@@ -41,6 +43,13 @@ def test_unconfigured_space_never_auto_spends(session):
     budget.set_limit(session, scope_kind="space", scope_id="space-x", limit_tokens=100)
     ok = budget.reserve(session, org_id="org", space_id="space-x", category="chat", tokens=10)
     assert ok.status == "reserved"
+
+
+def test_unscoped_reservation_is_allowed_without_sqlalchemy_deprecation(session):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", SADeprecationWarning)
+        row = budget.reserve(session, category="dreaming", tokens=1)
+    assert row.status == "reserved"
 
 
 def test_limit_enforced_across_scopes(session):

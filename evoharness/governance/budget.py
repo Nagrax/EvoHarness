@@ -210,7 +210,8 @@ def reserve(session: Session, *, org_id: str = "", space_id: str = "",
             literal("").label("provider_request_id"),
             literal("").label("receipt_ref"),
             literal("").label("checkpoint_ref"),
-        ).where(and_(*_admission_conditions(reservation_t, limit_t, scopes, admission_tokens)))
+        ).where(and_(True, *_admission_conditions(
+            reservation_t, limit_t, scopes, admission_tokens)))
 
     envelope = (_open_envelope(session, str(run_id))
                 if kind == "call" and str(run_id or "") else None)
