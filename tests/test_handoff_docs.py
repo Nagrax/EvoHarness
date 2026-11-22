@@ -18,7 +18,6 @@ HANDOFF = ROOT / "docs" / "AGENT-HANDOFF.md"
 DIFF_DOC = ROOT / "docs" / "与原版的差异.md"
 TWIN_DOC = ROOT / "docs" / "数字分身-交接文档.md"
 MANUAL = ROOT / "docs" / "飞书机器人使用手册.md"
-HUMAN_GATES = ROOT / "docs" / "人工门操作手册.md"
 
 
 def _run_verifier() -> subprocess.CompletedProcess:
@@ -30,37 +29,16 @@ def _run_verifier() -> subprocess.CompletedProcess:
 
 
 def test_handoff_docs_exist():
-    for doc in (HANDOFF, DIFF_DOC, TWIN_DOC, MANUAL, HUMAN_GATES):
+    for doc in (HANDOFF, DIFF_DOC, TWIN_DOC, MANUAL):
         assert doc.is_file(), f"交接文档缺失: {doc.name}"
 
 
-def test_human_gates_playbook_is_actionable():
-    """人工门手册必须可照做：命令、词表、口径、产物位置都不能丢。
-
-    为什么守护：这四项（H1~H4）都靠人执行，文档一旦写成"理论上应该……"，
-    执行者就会停在半路；这里钉住可执行要素。
-    """
-    text = HUMAN_GATES.read_text(encoding="utf-8")
-    required = [
-        "eval/human_gate.py",      # 统一入口
-        "h1-check",                # 三个核验子命令
-        "h2-check",
-        "h3-check",
-        "SKILL_ISSUE",             # 固定五类词表（H2 判定口径）
-        "UNCERTAIN",
-        "net_seconds",             # H1 计时字段
-        "eval/runs/human-gates",   # 产物位置（且不入库）
-    ]
-    for item in required:
-        assert item in text, f"人工门手册缺少可执行要素：{item}"
-    # 必须写明"不伪造结论"，否则容易被当成已完成
-    assert "不伪造" in text or "不代劳" in text or "不得宣称" in text
-    # 产物目录必须在 .gitignore 覆盖范围内，避免运行数据入库
-    assert "eval/runs/" in text
-
-
 def test_human_gate_tool_module_is_importable():
-    """手册指向的工具必须真实存在且可导入，否则文档即谎言。"""
+    """人工门工具必须可导入。
+
+    该工具本身是代码（进仓库），它对应的操作手册是中间态产物（不进仓库），
+    故这里只断言工具可导入，不依赖任何文档文件是否存在。
+    """
     r = subprocess.run(
         [sys.executable, "-X", "utf8", "-c",
          "import sys; sys.path.insert(0,'.'); import eval.human_gate as m; "
